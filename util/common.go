@@ -1,0 +1,177 @@
+package util
+
+import (
+	"crypto/sha256"
+	"fmt"
+	"math"
+	"math/big"
+	"os"
+	"os/user"
+	"regexp"
+	"runtime"
+	"strings"
+
+	"github.com/ethereum/go-ethereum/common"
+	log "github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
+)
+
+var (
+	EthErrorRegexes      []*regexp.Regexp
+	FailOnNonEthError    bool
+	FailOnNonEthErrorSet bool
+	ZeroBigInt_DoNotSet  *big.Int
+)
+
+// Checks if error is nil or not. Kills process if not nil
+func ENOK(err error) {
+	ENOKS(2, err)
+}
+
+func ENOKS(skip int, err error) {
+	if err != nil {
+		_, file, no, ok := runtime.Caller(skip)
+		if ok {
+			fileSplit := strings.Split(file, "/")
+			log.WithFields(log.Fields{
+				"file": fileSplit[len(fileSplit)-1],
+				"line": no,
+			}).Fatalln(err)
+		}
+		log.Fatalln(err)
+	}
+}
+
+func ENOKF(err error, info interface{}) {
+	if err != nil {
+		ENOK(fmt.Errorf("%s: %v", err.Error(), info))
+	}
+}
+
+// Check if error (if any) is ethereum error
+// Also takes into account boolean flag `failOnNonEthError` in cfg
+// If false, silently fail and continue to next event
+func IsEthErr(err error) bool {
+	if !FailOnNonEthErrorSet {
+		FailOnNonEthError = viper.GetBool("general.failOnNonEthError")
+		FailOnNonEthErrorSet = true
+	}
+
+	if err != nil {
+
+		// Else, actually check if known Eth error.
+		e := err.Error()
+		for _, r := range EthErrorRegexes {
+			if r.MatchString(e) {
+				return true
+			}
+		}
+
+		// Everything is EthError if `failOnNonEthError` is false
+		if !FailOnNonEthError {
+			log.Warn("NoFail umatched: ", e)
+			return true
+		}
+	}
+	return false
+}
+
+func IsExecutionReverted(err error) bool {
+	return err != nil && EthErrorRegexes[0].MatchString(err.Error())
+}
+
+func GetUser() (*user.User, error) {
+	usr, err := user.Current()
+	if err != nil {
+		return nil, err
+	}
+
+	if os.Geteuid() == 0 {
+		// Root, try to retrieve SUDO_USER if exists
+		if u := os.Getenv("SUDO_USER"); u != "" {
+			usr, err = user.Lookup(u)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	return usr, nil
+}
+
+func GetUserHomedir() string {
+	home, err := GetUser()
+	ENOK(err)
+	return home.HomeDir
+}
+
+func VerifyFileExistence(file string) error {
+	_, err := os.Stat(file)
+	return err
+}
+
+func DivideBy10pow(num *big.Int, pow uint8) *big.Float {
+	pow10 := big.NewFloat(math.Pow10(int(pow)))
+	numfloat := new(big.Float).SetInt(num)
+	return new(big.Float).Quo(numfloat, pow10)
+}
+
+func ExtractAddressFromLogTopic(hash common.Hash) common.Address {
+	return common.BytesToAddress(hash[12:])
+}
+
+func ExtractIntFromBytes(_bytes []byte) *big.Int {
+	isNeg := (_bytes[0] >> 7) == 1
+
+	var magnitude []byte
+	if isNeg {
+		magnitude = GetMagnitudeForNeg(_bytes)
+	} else {
+		magnitude = _bytes
+	}
+
+	a := big.NewInt(0)
+	a = a.SetBytes(magnitude)
+	if isNeg {
+		a = a.Neg(a)
+	}
+	return a
+}
+
+func GetMagnitudeForNeg(_bytes []byte) []byte {
+	foundOne := false
+	for byteIdx := len(_bytes) - 1; byteIdx >= 0; byteIdx-- {
+		for bitIdx := 0; bitIdx < 8; bitIdx++ {
+			if foundOne {
+				// Flip
+				_bytes[byteIdx] ^= 1 << bitIdx
+			} else if ((_bytes[byteIdx] << (7 - bitIdx)) >> 7) == 1 {
+				// Spare this one
+				foundOne = true
+			}
+		}
+	}
+	return _bytes
+}
+
+func SHA256Hash(_bytes []byte) []byte {
+	hasher := sha256.New()
+	hasher.Write(_bytes)
+	return hasher.Sum(nil)
+}
+
+func init() {
+	EthErrors := []string{
+		"execution reverted", // Should always be kept at idx 0
+		"abi: cannot marshal",
+		"no contract code at given address",
+		"abi: attempting to unmarshall",
+		"missing trie node",
+		"no contract code at given address",
+	}
+	for _, e := range EthErrors {
+		EthErrorRegexes = append(EthErrorRegexes, regexp.MustCompile(e))
+	}
+
+	ZeroBigInt_DoNotSet = big.NewInt(0)
+}

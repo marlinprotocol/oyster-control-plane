@@ -1,7 +1,2 @@
-build/
-test/truecfg.yaml
-pgdata/
-_pgdata/
-abi/
-cache/
-vendor/
+.gitsigners
+/target

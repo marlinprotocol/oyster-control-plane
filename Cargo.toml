@@ -7,4 +7,6 @@ edition = "2021"
 
 [dependencies]
 tokio = { version = "1.21.1", features = ["full"] }
-ethers = { git = "https://github.com/gakonst/ethers-rs" }
+tokio-stream = "0.1"
+tokio-util = "0.7.4"
+ethers = { git = "https://github.com/gakonst/ethers-rs", features = ["ws", "rustls"] }

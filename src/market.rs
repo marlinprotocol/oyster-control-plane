@@ -100,7 +100,6 @@ impl JobsService {
             let res = Self::job_logs(&client, job).await;
             if let Err(err) = res {
                 println!("job {}: Subscribe error: {}", job, err);
-                // std::mem::drop(err);
                 sleep(Duration::from_secs(1)).await;
                 continue;
             }

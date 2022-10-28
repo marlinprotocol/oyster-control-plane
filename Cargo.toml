@@ -9,4 +9,8 @@ edition = "2021"
 tokio = { version = "1.21.1", features = ["full"] }
 tokio-stream = "0.1"
 tokio-util = "0.7.4"
+aws-config = "0.51.0"
+aws-types = "0.51.0"
+aws-sdk-ec2 = "0.21.0"
+ssh2 = "0.9.3"
 ethers = { git = "https://github.com/gakonst/ethers-rs", features = ["ws", "rustls"] }

@@ -164,7 +164,13 @@ impl JobsService {
                                 println!("job {}: OPENED: metadata: {}, rate: {}, balance: {}, timestamp: {}", job, metadata, rate, balance, last_settled.as_secs());
 
                                 // TODO: spin up instance
-                                instance_id = launcher::spin_up().await;
+                                let (exist, instance) = launcher::get_job_instance(job.to_string()).await;
+                                if exist {
+                                    instance_id = instance;
+                                } else {
+                                    instance_id = launcher::spin_up().await;
+                                }
+                                
                                 println!("job {}: OPENED: Spinning up instance", job);
                             } else {
                                 println!("job {}: OPENED: Decode failure: {}", job, log.data);

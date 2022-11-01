@@ -1,6 +1,7 @@
 
 use aws_sdk_ec2::Client;
 use aws_sdk_ec2::Error;
+use aws_sdk_ec2::types::SdkError;
 use aws_config::profile::ProfileFileCredentialsProvider;
 use ssh2::Session;
 use std::fs::File;
@@ -291,14 +292,65 @@ async fn terminate_instance(client: &Client, instance_id: String) -> Result<(), 
         Ok(_) => {
             println!("Instance terminated");
         },
+        Err(SdkError::ServiceError { err, .. }) => {
+            if err.code().unwrap() == "InvalidInstanceID.NotFound" {
+                println!("Instance not found")
+            }
+        }
         Err(e) => {
-            panic!("Error: {}", e.to_string());
+           panic!("Error: {}", e.to_string());
         }
     }
 
     Ok(())
 }
 
+pub async fn get_job_instance(job: String) -> (bool, String) {
+    let args: Vec<String> = env::args().collect();
+
+    let aws_profile = &args[1];
+    let key_pair_name = &args[2];
+    let key_location = &args[3];
+
+    let credentials_provider = ProfileFileCredentialsProvider::builder()
+        .profile_name(aws_profile)
+        .build();
+    
+    let config = aws_config::from_env()
+        .credentials_provider(credentials_provider)
+        .load()
+        .await;
+
+    let client = aws_sdk_ec2::Client::new(&config);
+
+    let resp = client
+        .describe_instances()
+        .send()
+        .await;
+
+    match resp {
+        Ok(res) => {
+            println!("Instances present :");
+            for reservation in res.reservations().unwrap_or_default() {
+                for instance in reservation.instances().unwrap_or_default() {
+                    let instance_id = instance.instance_id().unwrap();
+                    let tags = instance.tags().unwrap();
+
+                    for tag in tags {
+                        if tag.key().unwrap() == "jobId" && tag.value().unwrap().to_string() == job {
+                            return (true, instance_id.to_string());
+                        }
+                    }
+                }
+            }
+        
+        },
+        Err(e) => {
+            println!("Error: {}", e.to_string());
+        }
+    }
+    return (false, String::new())
+}
 
 pub async fn spin_up() -> String{
     let args: Vec<String> = env::args().collect();

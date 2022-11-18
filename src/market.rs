@@ -9,7 +9,7 @@ use std::str::FromStr;
 use std::time::SystemTime;
 use ethers::abi::AbiDecode;
 
-
+use crate::launcher;
 // Basic architecture:
 // One future listening to new jobs
 // Each job has its own future managing its lifetime
@@ -120,6 +120,7 @@ impl JobsService {
             let mut last_settled = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap();
             let mut rate = U256::one();
             let mut original_rate = U256::one();
+            let mut instance_id = String::new();
 
             let mut job_stream = res.unwrap();
             'event: loop {
@@ -138,6 +139,9 @@ impl JobsService {
                     // insolvency check
                     () = sleep(insolvency_duration) => {
                         // TODO: spin down instance
+                        if instance_id != String::new() {
+                            launcher::spin_down(instance_id).await;
+                        }
                         println!("job {}: INSOLVENCY: Spinning down instance", job);
 
                         // exit fully
@@ -159,6 +163,13 @@ impl JobsService {
                                 println!("job {}: OPENED: metadata: {}, rate: {}, balance: {}, timestamp: {}", job, metadata, rate, balance, last_settled.as_secs());
 
                                 // TODO: spin up instance
+                                let (exist, instance) = launcher::get_job_instance(job.to_string()).await;
+                                if exist {
+                                    instance_id = instance;
+                                } else {
+                                    instance_id = launcher::spin_up().await;
+                                }
+                                
                                 println!("job {}: OPENED: Spinning up instance", job);
                             } else {
                                 println!("job {}: OPENED: Decode failure: {}", job, log.data);
@@ -175,6 +186,7 @@ impl JobsService {
                             }
                         } else if log.topics[0] == JOB_CLOSED {
                             // TODO: spin down instance
+                            launcher::spin_down(instance_id).await;
                             println!("job {}: CLOSED: Spinning down instance", job);
 
                             // exit fully

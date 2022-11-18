@@ -1,13 +1,13 @@
-use std::error::Error;
+use ethers::abi::AbiDecode;
 use ethers::prelude::*;
 use ethers::utils::keccak256;
-use tokio::time::Duration;
-use tokio::time::sleep;
-use tokio_util::sync::CancellationToken;
-use tokio_stream::Stream;
+use std::error::Error;
 use std::str::FromStr;
 use std::time::SystemTime;
-use ethers::abi::AbiDecode;
+use tokio::time::sleep;
+use tokio::time::Duration;
+use tokio_stream::Stream;
+use tokio_util::sync::CancellationToken;
 
 use crate::launcher;
 // Basic architecture:
@@ -58,13 +58,16 @@ impl JobsService {
         }
     }
 
-    async fn new_jobs(client: &Provider<Ws>) -> Result<impl Stream<Item=(H256,bool)> + '_, Box<dyn Error>> {
+    async fn new_jobs(
+        client: &Provider<Ws>,
+    ) -> Result<impl Stream<Item = (H256, bool)> + '_, Box<dyn Error>> {
         // TODO: Filter by contract and provider address
-        let event_filter = Filter::new()
-            .from_block(0)
-            .topic0(ValueOrArray::Array(vec!(
-                H256::from(keccak256("JobOpened(bytes32,string,address,address,uint256,uint256,uint256)")),
-            )));
+        let event_filter =
+            Filter::new()
+                .from_block(0)
+                .topic0(ValueOrArray::Array(vec![H256::from(keccak256(
+                    "JobOpened(bytes32,string,address,address,uint256,uint256,uint256)",
+                ))]));
 
         // register subscription
         let stream = client.subscribe_logs(&event_filter).await?;
@@ -105,19 +108,24 @@ impl JobsService {
             }
 
             // events
-            let JOB_OPENED = H256::from(keccak256("JobOpened(bytes32,string,address,address,uint256,uint256,uint256)"));
+            let JOB_OPENED = H256::from(keccak256(
+                "JobOpened(bytes32,string,address,address,uint256,uint256,uint256)",
+            ));
             let JOB_SETTLED = H256::from(keccak256("JobSettled(bytes32,uint256,uint256)"));
             let JOB_CLOSED = H256::from(keccak256("JobClosed(bytes32)"));
             let JOB_DEPOSITED = H256::from(keccak256("JobDeposited(bytes32,address,uint256)"));
             let JOB_WITHDREW = H256::from(keccak256("JobWithdrew(bytes32,address,uint256)"));
             let JOB_REVISED_RATE = H256::from(keccak256("JobRevisedRate(bytes32,uint256)"));
-            let LOCK_CREATED = H256::from(keccak256("LockCreated(bytes32,bytes32,uint256,uint256)"));
+            let LOCK_CREATED =
+                H256::from(keccak256("LockCreated(bytes32,bytes32,uint256,uint256)"));
             let LOCK_DELETED = H256::from(keccak256("LockDeleted(bytes32,bytes32,uint256)"));
 
             // solvency metrics
             // default of 60s
             let mut balance = U256::from(60);
-            let mut last_settled = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap();
+            let mut last_settled = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap();
             let mut rate = U256::one();
             let mut original_rate = U256::one();
             let mut instance_id = String::new();
@@ -125,15 +133,30 @@ impl JobsService {
             let mut job_stream = res.unwrap();
             'event: loop {
                 // compute time to insolvency
-                let now_ts = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap();
+                let now_ts = SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap();
                 fn sat_convert(n: U256) -> u64 {
                     let lowu64 = n.low_u64();
-                    if n == lowu64.into() { lowu64 } else { u64::MAX }
+                    if n == lowu64.into() {
+                        lowu64
+                    } else {
+                        u64::MAX
+                    }
                 }
 
                 // NOTE: should add margin for node to spin down?
-                let insolvency_duration = if rate == U256::zero() { Duration::from_secs(0) } else { Duration::from_secs(sat_convert(balance / rate)).saturating_sub(now_ts.saturating_sub(last_settled)) };
-                println!("job {}: Insolvency after: {}", job, insolvency_duration.as_secs());
+                let insolvency_duration = if rate == U256::zero() {
+                    Duration::from_secs(0)
+                } else {
+                    Duration::from_secs(sat_convert(balance / rate))
+                        .saturating_sub(now_ts.saturating_sub(last_settled))
+                };
+                println!(
+                    "job {}: Insolvency after: {}",
+                    job,
+                    insolvency_duration.as_secs()
+                );
 
                 tokio::select! {
                     // insolvency check
@@ -169,7 +192,7 @@ impl JobsService {
                                 } else {
                                     instance_id = launcher::spin_up().await;
                                 }
-                                
+
                                 println!("job {}: OPENED: Spinning up instance", job);
                             } else {
                                 println!("job {}: OPENED: Decode failure: {}", job, log.data);
@@ -239,20 +262,23 @@ impl JobsService {
         }
     }
 
-    async fn job_logs(client: &Provider<Ws>, job: H256) -> Result<impl Stream<Item=Log> + '_, Box<dyn Error + Send + Sync>> {
+    async fn job_logs(
+        client: &Provider<Ws>,
+        job: H256,
+    ) -> Result<impl Stream<Item = Log> + '_, Box<dyn Error + Send + Sync>> {
         // TODO: Filter by contract and job
-        let event_filter = Filter::new()
-            .from_block(0)
-            .topic0(ValueOrArray::Array(vec!(
-                H256::from(keccak256("JobOpened(bytes32,string,address,address,uint256,uint256,uint256)")),
-                H256::from(keccak256("JobSettled(bytes32,uint256,uint256)")),
-                H256::from(keccak256("JobClosed(bytes32)")),
-                H256::from(keccak256("JobDeposited(bytes32,address,uint256)")),
-                H256::from(keccak256("JobWithdrew(bytes32,address,uint256)")),
-                H256::from(keccak256("JobRevisedRate(bytes32,uint256)")),
-                H256::from(keccak256("LockCreated(bytes32,bytes32,uint256,uint256)")),
-                H256::from(keccak256("LockDeleted(bytes32,bytes32,uint256)")),
-            )));
+        let event_filter = Filter::new().from_block(0).topic0(ValueOrArray::Array(vec![
+            H256::from(keccak256(
+                "JobOpened(bytes32,string,address,address,uint256,uint256,uint256)",
+            )),
+            H256::from(keccak256("JobSettled(bytes32,uint256,uint256)")),
+            H256::from(keccak256("JobClosed(bytes32)")),
+            H256::from(keccak256("JobDeposited(bytes32,address,uint256)")),
+            H256::from(keccak256("JobWithdrew(bytes32,address,uint256)")),
+            H256::from(keccak256("JobRevisedRate(bytes32,uint256)")),
+            H256::from(keccak256("LockCreated(bytes32,bytes32,uint256,uint256)")),
+            H256::from(keccak256("LockDeleted(bytes32,bytes32,uint256)")),
+        ]));
 
         // register subscription
         let stream = client.subscribe_logs(&event_filter).await?;
@@ -260,4 +286,3 @@ impl JobsService {
         Ok(stream)
     }
 }
-

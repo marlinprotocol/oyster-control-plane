@@ -192,8 +192,9 @@ impl JobsService {
                                 let (exist, instance) = launcher::get_job_instance(job.to_string()).await;
                                 if exist {
                                     instance_id = instance;
+                                    println!("Found, instance id: {}", instance_id);
                                 } else {
-                                    instance_id = launcher::spin_up(v["url"].as_str().unwrap()).await;
+                                    instance_id = launcher::spin_up(v["url"].as_str().unwrap(), job.to_string()).await;
                                 }
 
                                 println!("job {}: OPENED: Spun up instance", job);

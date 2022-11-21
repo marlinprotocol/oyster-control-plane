@@ -243,7 +243,7 @@ async fn get_instance_ip(client: &Client, instance_id: String) -> String {
     return "".to_string();
 }
 
-async fn launch_instance(client: &Client, key_pair_name: &str) -> String {
+async fn launch_instance(client: &Client, key_pair_name: &str, job: String) -> String {
     let instance_type = aws_sdk_ec2::model::InstanceType::C6aXlarge;
     let instance_ami = "ami-04ce962f738443165";
     let enclave_options = aws_sdk_ec2::model::EnclaveOptionsRequest::builder()
@@ -264,10 +264,15 @@ async fn launch_instance(client: &Client, key_pair_name: &str) -> String {
         .set_key(Some("managedBy".to_string()))
         .set_value(Some("marlin".to_string()))
         .build();
+    let job_tag = aws_sdk_ec2::model::Tag::builder()
+        .set_key(Some("jobId".to_string()))
+        .set_value(Some(job))
+        .build();
     let tags = aws_sdk_ec2::model::TagSpecification::builder()
         .set_resource_type(Some(aws_sdk_ec2::model::ResourceType::Instance))
         .tags(name_tag)
         .tags(managed_tag)
+        .tags(job_tag)
         .build();
 
     let resp = client
@@ -369,7 +374,7 @@ pub async fn get_job_instance(job: String) -> (bool, String) {
     return (false, String::new());
 }
 
-pub async fn spin_up(image_url: &str) -> String {
+pub async fn spin_up(image_url: &str, job: String) -> String {
     let args: Vec<String> = env::args().collect();
 
     let aws_profile = &args[1];
@@ -387,7 +392,7 @@ pub async fn spin_up(image_url: &str) -> String {
 
     let client = aws_sdk_ec2::Client::new(&config);
 
-    let instance = launch_instance(&client, key_pair_name).await;
+    let instance = launch_instance(&client, key_pair_name, job).await;
     sleep(Duration::from_secs(100)).await;
     let mut public_ip_address = get_instance_ip(&client, instance.to_string()).await;
     public_ip_address.push_str(":22");

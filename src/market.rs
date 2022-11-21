@@ -64,6 +64,7 @@ impl JobsService {
         // TODO: Filter by contract and provider address
         let event_filter =
             Filter::new()
+                .address(ValueOrArray::Value("0x3FA4718a2fd55297CD866E5a0dE6Bc75E2b777d1".parse::<Address>()?))
                 .from_block(0)
                 .topic0(ValueOrArray::Array(vec![H256::from(keccak256(
                     "JobOpened(bytes32,string,address,address,uint256,uint256,uint256)",
@@ -267,7 +268,7 @@ impl JobsService {
         job: H256,
     ) -> Result<impl Stream<Item = Log> + '_, Box<dyn Error + Send + Sync>> {
         // TODO: Filter by contract and job
-        let event_filter = Filter::new().from_block(0).topic0(ValueOrArray::Array(vec![
+        let event_filter = Filter::new().from_block(0).address(ValueOrArray::Value("0x3FA4718a2fd55297CD866E5a0dE6Bc75E2b777d1".parse::<Address>()?)).topic0(ValueOrArray::Array(vec![
             H256::from(keccak256(
                 "JobOpened(bytes32,string,address,address,uint256,uint256,uint256)",
             )),

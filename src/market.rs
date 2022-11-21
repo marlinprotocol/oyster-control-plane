@@ -1,6 +1,7 @@
 use ethers::abi::AbiDecode;
 use ethers::prelude::*;
 use ethers::utils::keccak256;
+use serde_json::Value;
 use std::error::Error;
 use std::str::FromStr;
 use std::time::SystemTime;
@@ -185,16 +186,17 @@ impl JobsService {
                                 original_rate = _rate;
                                 last_settled = Duration::from_secs(timestamp.low_u64());
                                 println!("job {}: OPENED: metadata: {}, rate: {}, balance: {}, timestamp: {}", job, metadata, rate, balance, last_settled.as_secs());
-
+                                let v: Value = serde_json::from_str(&metadata).expect("JSON was not well-formatted");
                                 // TODO: spin up instance
+                        
                                 let (exist, instance) = launcher::get_job_instance(job.to_string()).await;
                                 if exist {
                                     instance_id = instance;
                                 } else {
-                                    instance_id = launcher::spin_up().await;
+                                    instance_id = launcher::spin_up(v["url"].as_str().unwrap()).await;
                                 }
 
-                                println!("job {}: OPENED: Spinning up instance", job);
+                                println!("job {}: OPENED: Spun up instance", job);
                             } else {
                                 println!("job {}: OPENED: Decode failure: {}", job, log.data);
                             }

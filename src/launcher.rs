@@ -130,17 +130,29 @@ async fn ssh_connect(ip_address: String, key_location: String) -> Session {
     return sess;
 }
 
-async fn run_enclave(sess: &Session) {
+async fn run_enclave(sess: &Session, url: &str) {
     let mut channel = sess.channel_session().unwrap();
+    let mut s = String::new();
+    let mut split = url.split("/");
+    let image_name = split.last().unwrap();
     channel
         .exec(
-            "nitro-cli run-enclave --cpu-count 2 --memory 4500 --eif-path startup.eif --debug-mode",
+            &("curl -o /home/ubuntu/".to_owned() + image_name + " " + url),
         )
         .unwrap();
-    let mut s = String::new();
+    channel.read_to_string(&mut s).unwrap();
+    let _ = channel.wait_close();
+    println!("{}", s);
+    channel = sess.channel_session().unwrap();
+    channel
+        .exec(
+            &("nitro-cli run-enclave --cpu-count 2 --memory 4500 --eif-path ".to_owned() + image_name + " --debug-mode"),
+        )
+        .unwrap();
+    
     channel.read_to_string(&mut s).unwrap();
     println!("{}", s);
-    let _close = channel.wait_close();
+    let _ = channel.wait_close();
     println!("Enclave running");
 }
 
@@ -246,7 +258,7 @@ async fn launch_instance(client: &Client, key_pair_name: &str) -> String {
         .build();
     let name_tag = aws_sdk_ec2::model::Tag::builder()
         .set_key(Some("Name".to_string()))
-        .set_value(Some("tester".to_string()))
+        .set_value(Some("JobRunner".to_string()))
         .build();
     let managed_tag = aws_sdk_ec2::model::Tag::builder()
         .set_key(Some("managedBy".to_string()))
@@ -335,7 +347,7 @@ pub async fn get_job_instance(job: String) -> (bool, String) {
 
     match resp {
         Ok(res) => {
-            println!("Instances present :");
+            println!("Checking existing instance...");
             for reservation in res.reservations().unwrap_or_default() {
                 for instance in reservation.instances().unwrap_or_default() {
                     let instance_id = instance.instance_id().unwrap();
@@ -357,7 +369,7 @@ pub async fn get_job_instance(job: String) -> (bool, String) {
     return (false, String::new());
 }
 
-pub async fn spin_up() -> String {
+pub async fn spin_up(image_url: &str) -> String {
     let args: Vec<String> = env::args().collect();
 
     let aws_profile = &args[1];
@@ -380,7 +392,7 @@ pub async fn spin_up() -> String {
     let mut public_ip_address = get_instance_ip(&client, instance.to_string()).await;
     public_ip_address.push_str(":22");
     let sess = ssh_connect(public_ip_address, key_location.to_string()).await;
-    run_enclave(&sess).await;
+    run_enclave(&sess, image_url).await;
     return instance;
 }
 

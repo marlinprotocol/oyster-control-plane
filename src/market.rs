@@ -66,7 +66,7 @@ impl JobsService {
         let event_filter =
             Filter::new()
                 .address(ValueOrArray::Value("0x3FA4718a2fd55297CD866E5a0dE6Bc75E2b777d1".parse::<Address>()?))
-                .from_block(0)
+                .select(0..)
                 .topic0(ValueOrArray::Array(vec![H256::from(keccak256(
                     "JobOpened(bytes32,string,address,address,uint256,uint256,uint256)",
                 ))]));
@@ -188,7 +188,7 @@ impl JobsService {
                                 println!("job {}: OPENED: metadata: {}, rate: {}, balance: {}, timestamp: {}", job, metadata, rate, balance, last_settled.as_secs());
                                 let v: Value = serde_json::from_str(&metadata).expect("JSON was not well-formatted");
                                 // TODO: spin up instance
-                        
+
                                 let (exist, instance) = launcher::get_job_instance(job.to_string()).await;
                                 if exist {
                                     instance_id = instance;
@@ -271,7 +271,9 @@ impl JobsService {
         job: H256,
     ) -> Result<impl Stream<Item = Log> + '_, Box<dyn Error + Send + Sync>> {
         // TODO: Filter by contract and job
-        let event_filter = Filter::new().from_block(0).address(ValueOrArray::Value("0x3FA4718a2fd55297CD866E5a0dE6Bc75E2b777d1".parse::<Address>()?)).topic0(ValueOrArray::Array(vec![
+        let event_filter = Filter::new().select(0..)
+            .address(ValueOrArray::Value("0x3FA4718a2fd55297CD866E5a0dE6Bc75E2b777d1".parse::<Address>()?))
+            .topic0(ValueOrArray::Array(vec![
             H256::from(keccak256(
                 "JobOpened(bytes32,string,address,address,uint256,uint256,uint256)",
             )),
@@ -282,7 +284,7 @@ impl JobsService {
             H256::from(keccak256("JobRevisedRate(bytes32,uint256)")),
             H256::from(keccak256("LockCreated(bytes32,bytes32,uint256,uint256)")),
             H256::from(keccak256("LockDeleted(bytes32,bytes32,uint256)")),
-        ]));
+        ])).topic1(ValueOrArray::Value(job));
 
         // register subscription
         let stream = client.subscribe_logs(&event_filter).await?;

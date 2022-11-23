@@ -253,7 +253,24 @@ async fn show_state(client: &Client) -> Result<(), Error> {
     Ok(())
 }
 
-async fn get_instance_ip(client: &Client, instance_id: String) -> String {
+pub async fn get_instance_ip(instance_id: String) -> String {
+    let args: Vec<String> = env::args().collect();
+
+    let aws_profile = &args[1];
+    let key_pair_name = &args[2];
+    let key_location = &args[3];
+
+    let credentials_provider = ProfileFileCredentialsProvider::builder()
+        .profile_name(aws_profile)
+        .build();
+
+    let config = aws_config::from_env()
+        .credentials_provider(credentials_provider)
+        .load()
+        .await;
+
+    let client = aws_sdk_ec2::Client::new(&config);
+
     let resp = client
         .describe_instances()
         .instance_ids(instance_id.to_string())
@@ -427,7 +444,7 @@ pub async fn spin_up(image_url: &str, job: String) -> String {
 
     let instance = launch_instance(&client, key_pair_name, job).await;
     sleep(Duration::from_secs(100)).await;
-    let mut public_ip_address = get_instance_ip(&client, instance.to_string()).await;
+    let mut public_ip_address = get_instance_ip(instance.to_string()).await;
     public_ip_address.push_str(":22");
     let sess = ssh_connect(public_ip_address, key_location.to_string()).await;
     run_enclave(&sess, image_url).await;

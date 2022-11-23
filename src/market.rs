@@ -61,7 +61,7 @@ impl JobsService {
 
     async fn new_jobs(
         client: &Provider<Ws>,
-    ) -> Result<impl Stream<Item = (H256, bool)> + '_, Box<dyn Error>> {
+    ) -> Result<impl Stream<Item = (H256, bool)> + '_, Box<dyn Error + Send + Sync>> {
         // TODO: Filter by contract and provider address
         let event_filter =
             Filter::new()

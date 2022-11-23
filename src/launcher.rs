@@ -133,26 +133,59 @@ async fn ssh_connect(ip_address: String, key_location: String) -> Session {
 async fn run_enclave(sess: &Session, url: &str) {
     let mut channel = sess.channel_session().unwrap();
     let mut s = String::new();
-    let mut split = url.split("/");
-    let image_name = split.last().unwrap();
     channel
         .exec(
-            &("curl -o /home/ubuntu/".to_owned() + image_name + " " + url),
+            &("wget -O enclave.eif ".to_owned() + url),
         )
         .unwrap();
     channel.read_to_string(&mut s).unwrap();
     let _ = channel.wait_close();
     println!("{}", s);
+
     channel = sess.channel_session().unwrap();
     channel
         .exec(
-            &("nitro-cli run-enclave --cpu-count 2 --memory 4500 --eif-path ".to_owned() + image_name + " --debug-mode"),
+            &("sudo iptables -A PREROUTING -t nat -p tcp --dport 80 -i ens5 -j REDIRECT --to-port 1200"),
         )
         .unwrap();
-    
+
     channel.read_to_string(&mut s).unwrap();
     println!("{}", s);
     let _ = channel.wait_close();
+
+    channel = sess.channel_session().unwrap();
+    channel
+        .exec(
+            &("sudo iptables -A PREROUTING -t nat -p tcp --dport 443 -i ens5 -j REDIRECT --to-port 1200"),
+        )
+        .unwrap();
+
+    channel.read_to_string(&mut s).unwrap();
+    println!("{}", s);
+    let _ = channel.wait_close();
+
+    channel = sess.channel_session().unwrap();
+    channel
+        .exec(
+            &("sudo iptables -A PREROUTING -t nat -p tcp --dport 1025:65535 -i ens5 -j REDIRECT --to-port 1200"),
+        )
+        .unwrap();
+
+    channel.read_to_string(&mut s).unwrap();
+    println!("{}", s);
+    let _ = channel.wait_close();
+
+    channel = sess.channel_session().unwrap();
+    channel
+        .exec(
+            &("nitro-cli run-enclave --cpu-count 2 --memory 3000 --eif-path enclave.eif --enclave-cid 88".to_owned()),
+        )
+        .unwrap();
+
+    channel.read_to_string(&mut s).unwrap();
+    println!("{}", s);
+    let _ = channel.wait_close();
+
     println!("Enclave running");
 }
 
@@ -245,7 +278,7 @@ async fn get_instance_ip(client: &Client, instance_id: String) -> String {
 
 async fn launch_instance(client: &Client, key_pair_name: &str, job: String) -> String {
     let instance_type = aws_sdk_ec2::model::InstanceType::C6aXlarge;
-    let instance_ami = "ami-04ce962f738443165";
+    let instance_ami = "ami-0faec914e4fad35ae";
     let enclave_options = aws_sdk_ec2::model::EnclaveOptionsRequest::builder()
         .set_enabled(Some(true))
         .build();

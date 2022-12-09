@@ -466,6 +466,5 @@ pub async fn spin_down(instance_id: String) {
         .await;
 
     let client = aws_sdk_ec2::Client::new(&config);
-    let instance_id = String::new();
     let _done = terminate_instance(&client, instance_id).await;
 }

@@ -14,18 +14,15 @@ use std::path::Path;
 use std::process;
 use std::process::Command;
 use tokio::time::{sleep, Duration};
-
+use std::str::FromStr;
 /* AWS KEY PAIR UTILITY */
 
 pub async fn key_setup() {
-    let args: Vec<String> = env::args().collect();
 
-    let aws_profile = &args[1];
-    let key_pair_name = &args[2];
-    let key_location = &args[3];
+    let (aws_profile, key_pair_name, key_location) = get_envs();
 
     let credentials_provider = ProfileFileCredentialsProvider::builder()
-        .profile_name(aws_profile)
+        .profile_name(aws_profile.as_str())
         .build();
 
     let config = aws_config::from_env()
@@ -35,23 +32,23 @@ pub async fn key_setup() {
 
     let client = aws_sdk_ec2::Client::new(&config);
 
-    let key_check = check_key_pair(&client, key_pair_name).await;
-    let file_check = Path::new(key_location).exists();
+    let key_check = check_key_pair(&client, &key_pair_name).await;
+    let file_check = Path::new(key_location.as_str()).exists();
     if !file_check {
         println!("key file not found");
     }
 
     if !(key_check || file_check) {
-        let _key = create_key_pair(&client, key_pair_name, key_location).await;
+        let _key = create_key_pair(&client, &key_pair_name, key_location.as_str()).await;
     } else if !(key_check && file_check) {
         process::exit(1);
     }
 }
 
-async fn create_key_pair(client: &Client, name: &str, location: &str) -> String {
+async fn create_key_pair(client: &Client, name: &String, location: &str) -> String {
     let resp = client
         .create_key_pair()
-        .key_name(name.to_string())
+        .key_name(name)
         .set_key_type(Some(aws_sdk_ec2::model::KeyType::Ed25519))
         .send()
         .await;
@@ -92,10 +89,10 @@ async fn create_key_pair(client: &Client, name: &str, location: &str) -> String 
     return "".to_string();
 }
 
-async fn check_key_pair(client: &Client, name: &str) -> bool {
+async fn check_key_pair(client: &Client, name: &String) -> bool {
     let resp = client
         .describe_key_pairs()
-        .key_names(name.to_string())
+        .key_names(name)
         .send()
         .await;
 
@@ -130,9 +127,43 @@ async fn ssh_connect(ip_address: String, key_location: String) -> Session {
     return sess;
 }
 
-async fn run_enclave(sess: &Session, url: &str) {
+async fn run_enclave(sess: &Session, url: &str, v_cpus: i32, mem: i64) {
     let mut channel = sess.channel_session().unwrap();
     let mut s = String::new();
+    channel
+        .exec(
+            &("echo -e '---\\nmemory_mib: ".to_owned() + &((mem-2048).to_string()) + "\\ncpu_count: " + &((v_cpus-2).to_string()) + "' >> /home/ubuntu/allocator_new.yaml"),
+        )
+        .unwrap();
+    channel.read_to_string(&mut s).unwrap();
+    let _ = channel.wait_close();
+    println!("{}", s);
+
+    channel = sess.channel_session().unwrap();
+    channel
+        .exec(
+            &("sudo cp /home/ubuntu/allocator_new.yaml /etc/nitro_enclaves/allocator.yaml"),
+        )
+        .unwrap();
+
+    channel.read_to_string(&mut s).unwrap();
+    println!("{}", s);
+    let _ = channel.wait_close();
+
+    channel = sess.channel_session().unwrap();
+    channel
+        .exec(
+            &("sudo systemctl restart nitro-enclaves-allocator.service"),
+        )
+        .unwrap();
+
+    channel.read_to_string(&mut s).unwrap();
+    println!("{}", s);
+    let _ = channel.wait_close();
+    
+    println!("Nitro Enclave Service set up with cpus: {} and memory: {}", v_cpus-2, mem-2048);
+
+    channel = sess.channel_session().unwrap();
     channel
         .exec(
             &("wget -O enclave.eif ".to_owned() + url),
@@ -178,7 +209,7 @@ async fn run_enclave(sess: &Session, url: &str) {
     channel = sess.channel_session().unwrap();
     channel
         .exec(
-            &("nitro-cli run-enclave --cpu-count 2 --memory 3000 --eif-path enclave.eif --enclave-cid 88".to_owned()),
+            &("nitro-cli run-enclave --cpu-count ".to_owned() + &((v_cpus-2).to_string()) + " --memory " + &((mem-2200).to_string()) +" --eif-path enclave.eif --enclave-cid 88"),
         )
         .unwrap();
 
@@ -254,14 +285,10 @@ async fn show_state(client: &Client) -> Result<(), Error> {
 }
 
 pub async fn get_instance_ip(instance_id: String) -> String {
-    let args: Vec<String> = env::args().collect();
-
-    let aws_profile = &args[1];
-    let key_pair_name = &args[2];
-    let key_location = &args[3];
+    let (aws_profile, _, _) = get_envs();
 
     let credentials_provider = ProfileFileCredentialsProvider::builder()
-        .profile_name(aws_profile)
+        .profile_name(aws_profile.as_str())
         .build();
 
     let config = aws_config::from_env()
@@ -293,14 +320,39 @@ pub async fn get_instance_ip(instance_id: String) -> String {
     return "".to_string();
 }
 
-async fn launch_instance(client: &Client, key_pair_name: &str, job: String) -> String {
-    let instance_type = aws_sdk_ec2::model::InstanceType::C6aXlarge;
-    let instance_ami = "ami-0faec914e4fad35ae";
+pub async fn launch_instance(client: &Client, key_pair_name: String, job: String, instance_type: &str, image_url: &str, architecture: String) -> String {
+    
+    let req_client = reqwest::Client::builder()
+            .no_gzip()
+            .build()
+            .unwrap();
+    let res = req_client.head(image_url).send().await;
+    let res = res.unwrap();
+    let size = res.headers()["content-length"].to_str().unwrap();
+    
+
+    let size = size.parse::<i64>().unwrap() / 1000000;
+    println!("eif size: {} MB", size);
+    let size = size / 1000;
+    let mut sdd = 25;
+    if size > sdd {
+        sdd = size + 5;
+    }
+    
+    let instance_type = aws_sdk_ec2::model::InstanceType::from_str(instance_type).unwrap();
+    let (x86_ami, arm_ami) = get_amis(&client).await; 
+    if x86_ami == String::new() || arm_ami == String::new() {
+        panic!("AMI's not found");
+    }
+    let mut instance_ami = x86_ami;
+    if architecture == "arm64".to_string() {
+        instance_ami = arm_ami;
+    }
     let enclave_options = aws_sdk_ec2::model::EnclaveOptionsRequest::builder()
         .set_enabled(Some(true))
         .build();
     let ebs = aws_sdk_ec2::model::EbsBlockDevice::builder()
-        .volume_size(25)
+        .volume_size(sdd as i32)
         .build();
     let block_device_mapping = aws_sdk_ec2::model::BlockDeviceMapping::builder()
         .set_device_name(Some("/dev/sda1".to_string()))
@@ -327,9 +379,9 @@ async fn launch_instance(client: &Client, key_pair_name: &str, job: String) -> S
 
     let resp = client
         .run_instances()
-        .set_image_id(Some(instance_ami.to_string()))
+        .set_image_id(Some(instance_ami))
         .set_instance_type(Some(instance_type))
-        .set_key_name(Some(key_pair_name.to_string()))
+        .set_key_name(Some(key_pair_name))
         .set_min_count(Some(1))
         .set_max_count(Some(1))
         .set_enclave_options(Some(enclave_options))
@@ -380,15 +432,46 @@ async fn terminate_instance(client: &Client, instance_id: String) -> Result<(), 
     Ok(())
 }
 
-pub async fn get_job_instance(job: String) -> (bool, String) {
-    let args: Vec<String> = env::args().collect();
+async fn get_amis(client: &Client) -> (String, String) {
+    let mut arm_ami = String::new();
+    let mut x86_ami = String::new();
 
-    let aws_profile = &args[1];
-    let key_pair_name = &args[2];
-    let key_location = &args[3];
+    let filter = aws_sdk_ec2::model::Filter::builder()
+        .name("tag:managedBy")
+        .values("marlin")
+        .build();
+
+    let resp = client
+            .describe_images()
+            .owners("self")
+            .filters(filter)
+            .send()
+            .await;
+
+    match resp {
+        Ok(res) => {
+            for image in res.images().unwrap_or_default() {
+                if "MarlinLauncherx86_64" == image.name().unwrap() {
+                    println!("x86_64 ami: {}", image.image_id().unwrap());
+                    x86_ami = image.image_id().unwrap().to_string();
+                } else if "MarlinLauncherARM64" == image.name().unwrap() {
+                    println!("arm64 ami: {}", image.image_id().unwrap());
+                    arm_ami = image.image_id().unwrap().to_string();
+                }
+            }
+        }
+        Err(e) => {
+            panic!("Error: {}", e.to_string());
+        }
+    }
+    return (x86_ami, arm_ami);
+}
+
+pub async fn get_job_instance(job: String) -> (bool, String) {
+    let (aws_profile, _, _) = get_envs();
 
     let credentials_provider = ProfileFileCredentialsProvider::builder()
-        .profile_name(aws_profile)
+        .profile_name(aws_profile.as_str())
         .build();
 
     let config = aws_config::from_env()
@@ -424,15 +507,48 @@ pub async fn get_job_instance(job: String) -> (bool, String) {
     return (false, String::new());
 }
 
-pub async fn spin_up(image_url: &str, job: String) -> String {
-    let args: Vec<String> = env::args().collect();
+fn get_envs() -> (String, String, String) {
+    let aws_profile: String;
+    let key_pair_name: String;
+    let key_location: String;
+    
+    match env::var("AWS_PROFILE") {
+        Ok(val) => {
+            aws_profile = val.to_string();
+            
+        },
+        Err(_e) => {
+            panic!("AWS_PROFILE not set");
+        },
+    };
+    match env::var("KEY_NAME") {
+        Ok(val) => {
+            key_pair_name = val.to_string();
+            
+        },
+        Err(_e) => {
+            panic!("KEY_NAME not set");
+        },
+    };
+    match env::var("KEY_LOCATION") {
+        Ok(val) => {
+            key_location = val.to_string();
+            
+        },
+        Err(_e) => {
+            panic!("KEY_LOCATION not set");
+        },
+    };
 
-    let aws_profile = &args[1];
-    let key_pair_name = &args[2];
-    let key_location = &args[3];
+    return (aws_profile, key_pair_name, key_location);
+}
+
+pub async fn spin_up(image_url: &str, job: String, instance_type: &str) -> String {
+    let (aws_profile, key_pair_name, key_location) = get_envs();
+    
 
     let credentials_provider = ProfileFileCredentialsProvider::builder()
-        .profile_name(aws_profile)
+        .profile_name(aws_profile.as_str())
         .build();
 
     let config = aws_config::from_env()
@@ -441,23 +557,49 @@ pub async fn spin_up(image_url: &str, job: String) -> String {
         .await;
 
     let client = aws_sdk_ec2::Client::new(&config);
+    let resp = client
+            .describe_instance_types()
+            .instance_types(aws_sdk_ec2::model::InstanceType::from_str(instance_type).unwrap())
+            .send()
+            .await;
+    let mut architecture = "x86_64".to_string();
+    let mut v_cpus: i32 = 4;
+    let mut mem: i64 = 8192;
+    match resp {
+        Ok(resp) => {
+            for instance in resp.instance_types().unwrap() {
+                for arch in instance.processor_info().unwrap().supported_architectures().unwrap() {
+                    architecture = arch.as_str().to_string();
+                    println!("architecture: {}", arch.as_str());
+                    break;
+                }
+                v_cpus = instance.v_cpu_info().unwrap().default_v_cpus().unwrap();
+                println!("v_cpus: {}", instance.v_cpu_info().unwrap().default_v_cpus().unwrap());
+                mem = instance.memory_info().unwrap().size_in_mi_b().unwrap();
+                println!("memory: {}", instance.memory_info().unwrap().size_in_mi_b().unwrap());
+            }  
+            
+        }   
+        Err(e) => {
+            println!("Error: {}", e.to_string());
+        }
+    }
 
-    let instance = launch_instance(&client, key_pair_name, job).await;
+    let instance = launch_instance(&client, key_pair_name, job, instance_type, image_url, architecture).await;
     sleep(Duration::from_secs(100)).await;
+    
     let mut public_ip_address = get_instance_ip(instance.to_string()).await;
     public_ip_address.push_str(":22");
-    let sess = ssh_connect(public_ip_address, key_location.to_string()).await;
-    run_enclave(&sess, image_url).await;
+    let sess = ssh_connect(public_ip_address, key_location).await;
+    run_enclave(&sess, image_url, v_cpus, mem).await;
     return instance;
 }
 
 pub async fn spin_down(instance_id: String) {
-    let args: Vec<String> = env::args().collect();
-
-    let aws_profile = &args[1];
+    let (aws_profile, _, _) = get_envs();
 
     let credentials_provider = ProfileFileCredentialsProvider::builder()
-        .profile_name(aws_profile)
+        .profile_name(aws_profile.as_str())
         .build();
 
     let config = aws_config::from_env()

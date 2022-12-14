@@ -3,12 +3,10 @@ use ethers::prelude::*;
 use ethers::utils::keccak256;
 use serde_json::Value;
 use std::error::Error;
-use std::str::FromStr;
 use std::time::SystemTime;
 use tokio::time::sleep;
 use tokio::time::Duration;
 use tokio_stream::Stream;
-use tokio_util::sync::CancellationToken;
 
 use crate::launcher;
 // Basic architecture:
@@ -188,13 +186,13 @@ impl JobsService {
                                 println!("job {}: OPENED: metadata: {}, rate: {}, balance: {}, timestamp: {}", job, metadata, rate, balance, last_settled.as_secs());
                                 let v: Value = serde_json::from_str(&metadata).expect("JSON was not well-formatted");
                                 // TODO: spin up instance
-
+                                let instance_type = "c6a.xlarge";
                                 let (exist, instance) = launcher::get_job_instance(job.to_string()).await;
                                 if exist {
                                     instance_id = instance;
                                     println!("Found, instance id: {}", instance_id);
                                 } else {
-                                    instance_id = launcher::spin_up(v["url"].as_str().unwrap(), job.to_string()).await;
+                                    instance_id = launcher::spin_up(v["url"].as_str().unwrap(), job.to_string(), instance_type).await;
                                 }
 
                                 println!("job {}: OPENED: Spun up instance", job);

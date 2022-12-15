@@ -334,9 +334,9 @@ pub async fn launch_instance(client: &Client, key_pair_name: String, job: String
     let size = size.parse::<i64>().unwrap() / 1000000;
     println!("eif size: {} MB", size);
     let size = size / 1000;
-    let mut sdd = 25;
+    let mut sdd = 15;
     if size > sdd {
-        sdd = size + 5;
+        sdd = size + 10;
     }
     
     let instance_type = aws_sdk_ec2::model::InstanceType::from_str(instance_type).unwrap();

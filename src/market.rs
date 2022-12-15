@@ -186,7 +186,17 @@ impl JobsService {
                                 println!("job {}: OPENED: metadata: {}, rate: {}, balance: {}, timestamp: {}", job, metadata, rate, balance, last_settled.as_secs());
                                 let v: Value = serde_json::from_str(&metadata).expect("JSON was not well-formatted");
                                 // TODO: spin up instance
-                                let instance_type = "c6a.xlarge";
+                                let mut instance_type = "c6a.xlarge";
+                                let r = v["instance"].as_str();
+                                match r {
+                                    Some(t) => {
+                                        instance_type = t;
+                                        println!("Instance type set: {}", instance_type);
+                                    }
+                                    None => {
+                                        println!("Instance type not set, using default");
+                                    }
+                                }
                                 let (exist, instance) = launcher::get_job_instance(job.to_string()).await;
                                 if exist {
                                     instance_id = instance;

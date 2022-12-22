@@ -3,7 +3,6 @@ use aws_sdk_ec2::types::SdkError;
 use aws_sdk_ec2::Client;
 use aws_sdk_ec2::Error;
 use ssh2::Session;
-use std::env;
 use std::fs;
 use std::fs::File;
 use std::io;
@@ -15,6 +14,8 @@ use std::process;
 use std::process::Command;
 use tokio::time::{sleep, Duration};
 use std::str::FromStr;
+use clap::Parser;
+
 /* AWS KEY PAIR UTILITY */
 
 pub async fn key_setup() {
@@ -508,39 +509,25 @@ pub async fn get_job_instance(job: String) -> (bool, String) {
 }
 
 fn get_envs() -> (String, String, String) {
-    let aws_profile: String;
-    let key_pair_name: String;
-    let key_location: String;
-    
-    match env::var("AWS_PROFILE") {
-        Ok(val) => {
-            aws_profile = val.to_string();
-            
-        },
-        Err(_e) => {
-            panic!("AWS_PROFILE not set");
-        },
-    };
-    match env::var("KEY_NAME") {
-        Ok(val) => {
-            key_pair_name = val.to_string();
-            
-        },
-        Err(_e) => {
-            panic!("KEY_NAME not set");
-        },
-    };
-    match env::var("KEY_LOCATION") {
-        Ok(val) => {
-            key_location = val.to_string();
-            
-        },
-        Err(_e) => {
-            panic!("KEY_LOCATION not set");
-        },
-    };
+    #[derive(Parser)]
+    #[clap(about)]
+    /// Control plane for enclaves support with the oyster update
+    struct Cli {
+        /// AWS profile 
+        #[clap(short, long, value_parser)]
+        profile: String,
+        
+        /// AWS keypair name 
+        #[clap(short, long, value_parser)]
+        key_name: String,
 
-    return (aws_profile, key_pair_name, key_location);
+        /// Keypair private key file location
+        #[clap(short, long, value_parser)]
+        loc: String,
+    }
+    let cli = Cli::parse();
+
+    return (cli.profile, cli.key_name, cli.loc);
 }
 
 pub async fn spin_up(image_url: &str, job: String, instance_type: &str) -> String {

@@ -409,7 +409,7 @@ pub async fn launch_instance(client: &Client, key_pair_name: String, job: String
     return "".to_string();
 }
 
-async fn terminate_instance(client: &Client, instance_id: String) -> Result<(), Error> {
+async fn terminate_instance(client: &Client, instance_id: &String) -> Result<(), Error> {
     let resp = client
         .terminate_instances()
         .instance_ids(instance_id)
@@ -582,7 +582,7 @@ pub async fn spin_up(image_url: &str, job: String, instance_type: &str) -> Strin
     return instance;
 }
 
-pub async fn spin_down(instance_id: String) {
+pub async fn spin_down(instance_id: &String) {
     let (aws_profile, _, _) = get_envs();
 
     let credentials_provider = ProfileFileCredentialsProvider::builder()
@@ -595,5 +595,5 @@ pub async fn spin_down(instance_id: String) {
         .await;
 
     let client = aws_sdk_ec2::Client::new(&config);
-    let _done = terminate_instance(&client, instance_id).await;
+    let _done = terminate_instance(&client, &instance_id).await;
 }

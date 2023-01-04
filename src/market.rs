@@ -7,6 +7,9 @@ use std::time::SystemTime;
 use tokio::time::sleep;
 use tokio::time::Duration;
 use tokio_stream::Stream;
+use std::fs;
+use whoami;
+use std::str::FromStr;
 
 use crate::launcher;
 // Basic architecture:
@@ -129,8 +132,8 @@ impl JobsService {
             let mut rate = U256::one();
             let mut original_rate = U256::one();
             let mut instance_id = String::new();
-
             let mut job_stream = res.unwrap();
+            let mut min_rate = U256::one();
             'event: loop {
                 // compute time to insolvency
                 let now_ts = SystemTime::now()
@@ -163,7 +166,7 @@ impl JobsService {
                     () = sleep(insolvency_duration) => {
                         // TODO: spin down instance
                         if instance_id != String::new() {
-                            launcher::spin_down(instance_id).await;
+                            launcher::spin_down(&instance_id).await;
                         }
                         println!("job {}: INSOLVENCY: Spinning down instance", job);
 
@@ -197,12 +200,33 @@ impl JobsService {
                                         println!("Instance type not set, using default");
                                     }
                                 }
+                                let file_path = "/home/".to_owned() + &whoami::username() +"/.marlin/rates.txt";
+                                let contents = fs::read_to_string(file_path)
+                                .expect("Cannot read in rates file").to_string();
+
+                                let lines = contents.lines();
+                                for line in lines {
+                                    if line.contains(instance_type) {
+                                        let rate_card: Vec<String> = line.split(":").map(String::from).collect();
+                                        min_rate = U256::from_str(rate_card[1].as_str()).unwrap();
+                                    }
+                                }
+                                println!("MIN RATE for {} instance is {}", instance_type, min_rate);
                                 let (exist, instance) = launcher::get_job_instance(job.to_string()).await;
                                 if exist {
                                     instance_id = instance;
                                     println!("Found, instance id: {}", instance_id);
+                                    if rate < min_rate {
+                                        println!("Rate below minimum, shutting down instance");
+                                        launcher::spin_down(&instance_id).await;
+                                    }
                                 } else {
-                                    instance_id = launcher::spin_up(v["url"].as_str().unwrap(), job.to_string(), instance_type).await;
+                                    if rate >= min_rate {
+                                        instance_id = launcher::spin_up(v["url"].as_str().unwrap(), job.to_string(), instance_type).await;
+                                    } else {
+                                        println!("Rate below minimum, aborting launch.");
+                                    }
+                                    
                                 }
 
                                 println!("job {}: OPENED: Spun up instance", job);
@@ -221,7 +245,7 @@ impl JobsService {
                             }
                         } else if log.topics[0] == JOB_CLOSED {
                             // TODO: spin down instance
-                            launcher::spin_down(instance_id).await;
+                            launcher::spin_down(&instance_id).await;
                             println!("job {}: CLOSED: Spinning down instance", job);
 
                             // exit fully
@@ -255,6 +279,10 @@ impl JobsService {
                                 // update solvency metrics
                                 original_rate = rate;
                                 rate = new_rate;
+                                if rate < min_rate {
+                                    launcher::spin_down(&instance_id).await;
+                                    println!("Revised job rate below min rate, shutting down");
+                                }
                                 println!("job {}: LOCK_CREATED: original_rate: {}, rate: {}, balance: {}, timestamp: {}", job, original_rate, rate, balance, last_settled.as_secs());
                             } else {
                                 println!("job {}: LOCK_CREATED: Decode failure: {}", job, log.data);

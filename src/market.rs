@@ -134,6 +134,8 @@ impl JobsService {
             let mut instance_id = String::new();
             let mut job_stream = res.unwrap();
             let mut min_rate = U256::one();
+            let mut eif_url = String::new();
+            let mut instance_type = "c6a.xlarge".to_string();
             'event: loop {
                 // compute time to insolvency
                 let now_ts = SystemTime::now()
@@ -189,11 +191,12 @@ impl JobsService {
                                 println!("job {}: OPENED: metadata: {}, rate: {}, balance: {}, timestamp: {}", job, metadata, rate, balance, last_settled.as_secs());
                                 let v: Value = serde_json::from_str(&metadata).expect("JSON was not well-formatted");
                                 // TODO: spin up instance
-                                let mut instance_type = "c6a.xlarge";
+                                
                                 let r = v["instance"].as_str();
+                                eif_url = v["url"].as_str().unwrap().to_string();
                                 match r {
                                     Some(t) => {
-                                        instance_type = t;
+                                        instance_type = t.to_string();
                                         println!("Instance type set: {}", instance_type);
                                     }
                                     None => {
@@ -206,7 +209,7 @@ impl JobsService {
 
                                 let lines = contents.lines();
                                 for line in lines {
-                                    if line.contains(instance_type) {
+                                    if line.contains(&instance_type) {
                                         let rate_card: Vec<String> = line.split(":").map(String::from).collect();
                                         min_rate = U256::from_str(rate_card[1].as_str()).unwrap();
                                     }
@@ -222,7 +225,7 @@ impl JobsService {
                                     }
                                 } else {
                                     if rate >= min_rate {
-                                        instance_id = launcher::spin_up(v["url"].as_str().unwrap(), job.to_string(), instance_type).await;
+                                        instance_id = launcher::spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str()).await;
                                     } else {
                                         println!("Rate below minimum, aborting launch.");
                                     }
@@ -271,7 +274,17 @@ impl JobsService {
                             }
                         } else if log.topics[0] == JOB_REVISED_RATE {
                             // update solvency metrics
+                            
                             original_rate = rate;
+                            if rate >= min_rate {
+                                let (exist, instance) = launcher::get_job_instance(job.to_string()).await;
+                                if exist {
+                                    instance_id = instance;
+                                    println!("Found, instance id: {}", instance_id);
+                                } else {
+                                    instance_id = launcher::spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str()).await;
+                                }
+                            }
                             println!("job {}: REVISED_RATE: rate: {}, balance: {}, timestamp: {}", job, rate, balance, last_settled.as_secs());
                         } else if log.topics[0] == LOCK_CREATED {
                             // decode

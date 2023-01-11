@@ -10,6 +10,7 @@ use tokio_stream::Stream;
 use std::fs;
 use whoami;
 use std::str::FromStr;
+use async_trait::async_trait;
 
 use crate::launcher;
 // Basic architecture:
@@ -18,8 +19,56 @@ use crate::launcher;
 
 pub struct JobsService {}
 
+#[async_trait]
+pub trait AwsManager {
+    async fn spin_up(
+        &self,
+        eif_url: &str,
+        job: String,
+        instance_type: &str) -> Result<String, Box<dyn Error + Send + Sync>>;
+    
+    async fn spin_down(
+        &self,
+        instance_id: &String
+    ) -> Result<bool, Box<dyn Error + Send + Sync>>;
+
+    async fn get_job_instance(
+        &self,
+        job: String
+    ) -> Result<(bool, String), Box<dyn Error + Send + Sync>>;
+}
+
+pub struct RealAws {}
+
+#[async_trait]
+impl AwsManager for RealAws {
+    async fn spin_up(
+        &self,
+        eif_url: &str,
+        job: String,
+        instance_type: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
+            let instance = launcher::spin_up(eif_url, job, instance_type).await;
+            Ok(instance)
+    }
+
+    async fn spin_down(
+        &self,
+        instance_id: &String
+    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        launcher::spin_down(instance_id).await;
+        Ok(true)
+    }
+
+    async fn get_job_instance(
+        &self,
+        job: String) -> Result<(bool, String), Box<dyn Error + Send + Sync>> {
+        let (exist, instance) = launcher::get_job_instance(job).await;
+        Ok((exist, instance))
+    }
+}
+
 impl JobsService {
-    pub async fn run(&self, url: String) {
+    pub async fn run(&self, aws_manager_impl: impl AwsManager + Send + Sync, url: String) {
         let mut backoff = 1;
 
         // connection level loop
@@ -53,7 +102,7 @@ impl JobsService {
             let mut job_stream = res.unwrap();
             while let Some((job, removed)) = job_stream.next().await {
                 println!("main: New job: {}, {}", job, removed);
-                tokio::spawn(Self::job_manager(url.clone(), job));
+                tokio::spawn(Self::job_manager(aws_manager_impl, url.clone(), job));
             }
 
             println!("main: Job stream ended");
@@ -78,8 +127,10 @@ impl JobsService {
         Ok(stream.map(|item| (item.topics[1], item.removed.unwrap_or(false))))
     }
 
+    
+
     // manage the complete lifecycle of a job
-    async fn job_manager(url: String, job: H256) {
+    async fn job_manager(aws_manager_impl: impl AwsManager + Send + Sync, url: String, job: H256) {
         let mut backoff = 1;
 
         // connection level loop
@@ -168,7 +219,7 @@ impl JobsService {
                     () = sleep(insolvency_duration) => {
                         // TODO: spin down instance
                         if instance_id != String::new() {
-                            launcher::spin_down(&instance_id).await;
+                            aws_manager_impl.spin_down(&instance_id).await;
                         }
                         println!("job {}: INSOLVENCY: Spinning down instance", job);
 
@@ -215,17 +266,17 @@ impl JobsService {
                                     }
                                 }
                                 println!("MIN RATE for {} instance is {}", instance_type, min_rate);
-                                let (exist, instance) = launcher::get_job_instance(job.to_string()).await;
+                                let Ok((exist, instance)) = aws_manager_impl.get_job_instance(job.to_string()).await;
                                 if exist {
                                     instance_id = instance;
                                     println!("Found, instance id: {}", instance_id);
                                     if rate < min_rate {
                                         println!("Rate below minimum, shutting down instance");
-                                        launcher::spin_down(&instance_id).await;
+                                        aws_manager_impl.spin_down(&instance_id).await;
                                     }
                                 } else {
                                     if rate >= min_rate {
-                                        instance_id = launcher::spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str()).await;
+                                        Ok(instance_id) = aws_manager_impl.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str()).await;
                                     } else {
                                         println!("Rate below minimum, aborting launch.");
                                     }
@@ -248,7 +299,7 @@ impl JobsService {
                             }
                         } else if log.topics[0] == JOB_CLOSED {
                             // TODO: spin down instance
-                            launcher::spin_down(&instance_id).await;
+                            aws_manager_impl.spin_down(&instance_id).await;
                             println!("job {}: CLOSED: Spinning down instance", job);
 
                             // exit fully
@@ -277,12 +328,12 @@ impl JobsService {
                             
                             original_rate = rate;
                             if rate >= min_rate {
-                                let (exist, instance) = launcher::get_job_instance(job.to_string()).await;
+                                let Ok((exist, instance)) = aws_manager_impl.get_job_instance(job.to_string()).await;
                                 if exist {
                                     instance_id = instance;
                                     println!("Found, instance id: {}", instance_id);
                                 } else {
-                                    instance_id = launcher::spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str()).await;
+                                    Ok(instance_id) = aws_manager_impl.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str()).await;
                                 }
                             }
                             println!("job {}: REVISED_RATE: rate: {}, balance: {}, timestamp: {}", job, rate, balance, last_settled.as_secs());
@@ -293,7 +344,7 @@ impl JobsService {
                                 original_rate = rate;
                                 rate = new_rate;
                                 if rate < min_rate {
-                                    launcher::spin_down(&instance_id).await;
+                                    aws_manager_impl.spin_down(&instance_id).await;
                                     println!("Revised job rate below min rate, shutting down");
                                 }
                                 println!("job {}: LOCK_CREATED: original_rate: {}, rate: {}, balance: {}, timestamp: {}", job, original_rate, rate, balance, last_settled.as_secs());

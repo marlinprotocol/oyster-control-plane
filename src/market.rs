@@ -38,6 +38,7 @@ pub trait AwsManager {
     ) -> Result<(bool, String), Box<dyn Error + Send + Sync>>;
 }
 
+#[derive(Clone)]
 pub struct RealAws {}
 
 #[async_trait]
@@ -68,7 +69,7 @@ impl AwsManager for RealAws {
 }
 
 impl JobsService {
-    pub async fn run(&self, aws_manager_impl: impl AwsManager + Send + Sync, url: String) {
+    pub async fn run(&self, aws_manager_impl: impl AwsManager + Send + Sync + Clone +'static, url: String) {
         let mut backoff = 1;
 
         // connection level loop
@@ -102,7 +103,7 @@ impl JobsService {
             let mut job_stream = res.unwrap();
             while let Some((job, removed)) = job_stream.next().await {
                 println!("main: New job: {}, {}", job, removed);
-                tokio::spawn(Self::job_manager(aws_manager_impl, url.clone(), job));
+                tokio::spawn(Self::job_manager(aws_manager_impl.clone(), url.clone(), job));
             }
 
             println!("main: Job stream ended");
@@ -266,7 +267,7 @@ impl JobsService {
                                     }
                                 }
                                 println!("MIN RATE for {} instance is {}", instance_type, min_rate);
-                                let Ok((exist, instance)) = aws_manager_impl.get_job_instance(job.to_string()).await;
+                                let (exist, instance) = aws_manager_impl.get_job_instance(job.to_string()).await.unwrap();
                                 if exist {
                                     instance_id = instance;
                                     println!("Found, instance id: {}", instance_id);
@@ -276,7 +277,7 @@ impl JobsService {
                                     }
                                 } else {
                                     if rate >= min_rate {
-                                        Ok(instance_id) = aws_manager_impl.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str()).await;
+                                        instance_id = aws_manager_impl.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str()).await.unwrap();
                                     } else {
                                         println!("Rate below minimum, aborting launch.");
                                     }
@@ -328,12 +329,12 @@ impl JobsService {
                             
                             original_rate = rate;
                             if rate >= min_rate {
-                                let Ok((exist, instance)) = aws_manager_impl.get_job_instance(job.to_string()).await;
+                                let (exist, instance) = aws_manager_impl.get_job_instance(job.to_string()).await.unwrap();
                                 if exist {
                                     instance_id = instance;
                                     println!("Found, instance id: {}", instance_id);
                                 } else {
-                                    Ok(instance_id) = aws_manager_impl.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str()).await;
+                                    instance_id = aws_manager_impl.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str()).await.unwrap();
                                 }
                             }
                             println!("job {}: REVISED_RATE: rate: {}, balance: {}, timestamp: {}", job, rate, balance, last_settled.as_secs());

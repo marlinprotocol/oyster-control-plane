@@ -10,8 +10,8 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
 
     let _ = tokio::spawn(server::serve());
 
-    let js = market::JobsService {};
-    js.run(market::RealAws {}, "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string())
+    // let js = market::JobsService {};
+    market::JobsService::run(market::RealAws {}, market::RealLogger {}, "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string())
         .await;
 
     Ok(())

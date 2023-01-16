@@ -38,6 +38,69 @@ pub trait AwsManager {
     ) -> Result<(bool, String), Box<dyn Error + Send + Sync>>;
 }
 
+// pub struct JobItem {}
+
+// impl Stream for JobItem{
+//     type Item = (H256, bool);
+
+//     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>)
+//         -> Poll<Option<(H256, bool)>>
+//     {
+//         return Poll::Ready(None);
+//     }
+// }
+
+// pub struct LogItem {}
+
+// impl Stream for LogItem {
+//     type Item = Log;
+
+//     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>)
+//         -> Poll<Option<Log>>
+//     {
+        
+//         return Poll::Ready(None);        
+//     }
+// }
+#[async_trait]
+pub trait Logger<'a> {
+    async fn new_jobs(
+        &self,
+        client: & Provider<Ws>
+    ) -> Result<Box<dyn Stream<Item = (H256, bool)>>, Box<dyn Error + Send + Sync>>;
+
+    async fn job_logs(
+        &self,
+        client: &Provider<Ws>,
+        job: H256
+    ) -> Result<Box<dyn Stream<Item = Log> + Send>, Box<dyn Error + Send + Sync>>;
+}
+
+#[derive(Clone)]
+pub struct RealLogger {}
+
+#[async_trait]
+impl<'a> Logger<'a> for RealLogger {
+    async fn new_jobs(
+        &self,
+        client: & Provider<Ws>
+    ) -> Result<Box<dyn Stream<Item = (H256, bool)>>, Box<dyn Error + Send + Sync>> {
+        // let js = JobsService{};
+        let res = JobsService::new_jobs(client).await;
+        res
+    }
+
+    async fn job_logs(
+        &self,
+        client: &Provider<Ws>,
+        job: H256
+    ) -> Result<Box<dyn Stream<Item = Log> + Send>, Box<dyn Error + Send + Sync>> {
+        // let js = JobsService{};
+        let res = JobsService::job_logs(client, job).await;
+        res
+    }
+}
+
 #[derive(Clone)]
 pub struct RealAws {}
 
@@ -69,7 +132,10 @@ impl AwsManager for RealAws {
 }
 
 impl JobsService {
-    pub async fn run(&self, aws_manager_impl: impl AwsManager + Send + Sync + Clone +'static, url: String) {
+    pub async fn run(
+        aws_manager_impl: impl AwsManager + Send + Sync + Clone + 'static,
+        logger_impl: impl Logger<'_> + Send + Sync + Clone + 'static,
+        url: String) {
         let mut backoff = 1;
 
         // connection level loop
@@ -93,17 +159,18 @@ impl JobsService {
             println!("main: Connected to RPC endpoint");
 
             let client = res.unwrap();
-            let res = Self::new_jobs(&client).await;
+            // let res = Self::new_jobs(&client).await;
+            let res = logger_impl.new_jobs(&client).await;
             if let Err(err) = res {
                 println!("main: Subscribe error: {}", err);
                 sleep(Duration::from_secs(1)).await;
                 continue;
             }
 
-            let mut job_stream = res.unwrap();
+            let mut job_stream = Box::into_pin(res.unwrap());
             while let Some((job, removed)) = job_stream.next().await {
                 println!("main: New job: {}, {}", job, removed);
-                tokio::spawn(Self::job_manager(aws_manager_impl.clone(), url.clone(), job));
+                tokio::spawn(Self::job_manager(aws_manager_impl.clone(), logger_impl.clone(), url.clone(), job));
             }
 
             println!("main: Job stream ended");
@@ -112,7 +179,7 @@ impl JobsService {
 
     async fn new_jobs(
         client: &Provider<Ws>,
-    ) -> Result<impl Stream<Item = (H256, bool)> + '_, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Box<dyn Stream<Item = (H256, bool)> + '_>, Box<dyn Error + Send + Sync + '_>> {
         // TODO: Filter by contract and provider address
         let event_filter =
             Filter::new()
@@ -125,13 +192,13 @@ impl JobsService {
         // register subscription
         let stream = client.subscribe_logs(&event_filter).await?;
 
-        Ok(stream.map(|item| (item.topics[1], item.removed.unwrap_or(false))))
+        Ok(Box::new(stream.map(|item| (item.topics[1], item.removed.unwrap_or(false)))))
     }
 
     
 
     // manage the complete lifecycle of a job
-    async fn job_manager(aws_manager_impl: impl AwsManager + Send + Sync, url: String, job: H256) {
+    async fn job_manager(aws_manager_impl: impl AwsManager + Send + Sync + Clone, logger_impl: impl Logger<'_> + Send + Sync + Send, url: String, job: H256) {
         let mut backoff = 1;
 
         // connection level loop
@@ -155,7 +222,8 @@ impl JobsService {
             println!("job {}: Connected to RPC endpoint", job);
 
             let client = res.unwrap();
-            let res = Self::job_logs(&client, job).await;
+            // let res = Self::job_logs(&client, job).await;
+            let res = logger_impl.job_logs(&client, job).await;
             if let Err(err) = res {
                 println!("job {}: Subscribe error: {}", job, err);
                 sleep(Duration::from_secs(1)).await;
@@ -184,7 +252,7 @@ impl JobsService {
             let mut rate = U256::one();
             let mut original_rate = U256::one();
             let mut instance_id = String::new();
-            let mut job_stream = res.unwrap();
+            let mut job_stream = Box::into_pin(res.unwrap());
             let mut min_rate = U256::one();
             let mut eif_url = String::new();
             let mut instance_type = "c6a.xlarge".to_string();
@@ -370,7 +438,7 @@ impl JobsService {
     async fn job_logs(
         client: &Provider<Ws>,
         job: H256,
-    ) -> Result<impl Stream<Item = Log> + '_, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Box<dyn Stream<Item = Log> + Send + '_>, Box<dyn Error + Send + Sync + '_>> {
         // TODO: Filter by contract and job
         let event_filter = Filter::new().select(0..)
             .address(ValueOrArray::Value("0x3FA4718a2fd55297CD866E5a0dE6Bc75E2b777d1".parse::<Address>()?))
@@ -390,6 +458,6 @@ impl JobsService {
         // register subscription
         let stream = client.subscribe_logs(&event_filter).await?;
 
-        Ok(stream)
+        Ok(Box::new(stream))
     }
 }

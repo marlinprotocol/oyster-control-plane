@@ -63,44 +63,43 @@ pub trait AwsManager {
 //     }
 // }
 #[async_trait]
-pub trait Logger<'a> {
-    async fn new_jobs(
-        &self,
-        client: & Provider<Ws>
-    ) -> Result<Box<dyn Stream<Item = (H256, bool)>>, Box<dyn Error + Send + Sync>>;
+pub trait Logger {
+    async fn new_jobs<'a>(
+        &'a self,
+        client: &'a Provider<Ws>
+    ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>, Box<dyn Error + Send + Sync + 'a>>;
 
-    async fn job_logs(
-        &self,
-        client: &Provider<Ws>,
+    async fn job_logs<'a>(
+        &'a self,
+        client: &'a Provider<Ws>,
         job: H256
-    ) -> Result<Box<dyn Stream<Item = Log> + Send>, Box<dyn Error + Send + Sync>>;
+    ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>, Box<dyn Error + Send + Sync + 'a>>;
 }
 
 #[derive(Clone)]
 pub struct RealLogger {}
 
 #[async_trait]
-impl<'a> Logger<'a> for RealLogger {
-    async fn new_jobs(
-        &self,
-        client: & Provider<Ws>
-    ) -> Result<Box<dyn Stream<Item = (H256, bool)>>, Box<dyn Error + Send + Sync>> {
+impl Logger for RealLogger {
+    async fn new_jobs<'a>(
+        &'a self,
+        client: &'a Provider<Ws>
+    ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>, Box<dyn Error + Send + Sync + 'a>> {
         // let js = JobsService{};
         let res = JobsService::new_jobs(client).await;
         res
     }
 
-    async fn job_logs(
-        &self,
-        client: &Provider<Ws>,
+    async fn job_logs<'a>(
+        &'a self,
+        client: &'a Provider<Ws>,
         job: H256
-    ) -> Result<Box<dyn Stream<Item = Log> + Send>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>, Box<dyn Error + Send + Sync + 'a>> {
         // let js = JobsService{};
         let res = JobsService::job_logs(client, job).await;
         res
     }
 }
-
 #[derive(Clone)]
 pub struct RealAws {}
 
@@ -134,7 +133,7 @@ impl AwsManager for RealAws {
 impl JobsService {
     pub async fn run(
         aws_manager_impl: impl AwsManager + Send + Sync + Clone + 'static,
-        logger_impl: impl Logger<'_> + Send + Sync + Clone + 'static,
+        logger_impl: impl Logger + Send + Sync + Clone + 'static,
         url: String) {
         let mut backoff = 1;
 
@@ -198,7 +197,7 @@ impl JobsService {
     
 
     // manage the complete lifecycle of a job
-    async fn job_manager(aws_manager_impl: impl AwsManager + Send + Sync + Clone, logger_impl: impl Logger<'_> + Send + Sync + Send, url: String, job: H256) {
+    async fn job_manager(aws_manager_impl: impl AwsManager + Send + Sync + Clone, logger_impl: impl Logger + Send + Sync + Send, url: String, job: H256) {
         let mut backoff = 1;
 
         // connection level loop

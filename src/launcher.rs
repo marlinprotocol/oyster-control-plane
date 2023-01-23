@@ -367,6 +367,10 @@ pub async fn launch_instance(client: &Client, key_pair_name: String, job: String
         .set_key(Some("managedBy".to_string()))
         .set_value(Some("marlin".to_string()))
         .build();
+    let project_tag = aws_sdk_ec2::model::Tag::builder()
+        .set_key(Some("project".to_string()))
+        .set_value(Some("oyster".to_string()))
+        .build();
     let job_tag = aws_sdk_ec2::model::Tag::builder()
         .set_key(Some("jobId".to_string()))
         .set_value(Some(job))
@@ -376,7 +380,11 @@ pub async fn launch_instance(client: &Client, key_pair_name: String, job: String
         .tags(name_tag)
         .tags(managed_tag)
         .tags(job_tag)
+        .tags(project_tag)
         .build();
+    let subnet = get_subnet().await;
+    let sec_group = get_security_group().await;
+
 
     let resp = client
         .run_instances()
@@ -388,6 +396,8 @@ pub async fn launch_instance(client: &Client, key_pair_name: String, job: String
         .set_enclave_options(Some(enclave_options))
         .block_device_mappings(block_device_mapping)
         .tag_specifications(tags)
+        .security_group_ids(sec_group)
+        .subnet_id(subnet)
         .send()
         .await;
 
@@ -438,8 +448,8 @@ async fn get_amis(client: &Client) -> (String, String) {
     let mut x86_ami = String::new();
 
     let filter = aws_sdk_ec2::model::Filter::builder()
-        .name("tag:managedBy")
-        .values("marlin")
+        .name("tag:project")
+        .values("oyster")
         .build();
 
     let resp = client
@@ -467,6 +477,94 @@ async fn get_amis(client: &Client) -> (String, String) {
     }
     return (x86_ami, arm_ami);
 }
+
+pub async fn get_security_group() -> (String) {
+    let mut sec_group = String::new();
+    let (aws_profile, _, _) = get_envs();
+
+    let credentials_provider = ProfileFileCredentialsProvider::builder()
+        .profile_name(aws_profile.as_str())
+        .build();
+
+    let config = aws_config::from_env()
+        .credentials_provider(credentials_provider)
+        .load()
+        .await;
+
+    let client = aws_sdk_ec2::Client::new(&config);
+
+    let filter = aws_sdk_ec2::model::Filter::builder()
+        .name("tag:project")
+        .values("oyster")
+        .build();
+
+    let resp = client
+    .describe_security_groups()
+    .filters(filter)
+    .send()
+    .await;
+
+    match resp {
+        Ok(res) => {
+            for group in res.security_groups().unwrap_or_default() {
+                for tagpair in  group.tags().unwrap_or_default() {
+                    if "project" == tagpair.key().unwrap() && "oyster" == tagpair.value().unwrap() {
+                        
+                        return group.group_id().unwrap().to_string()
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            panic!("Error: {}", e.to_string());
+        }
+    }
+    sec_group
+} 
+
+pub async fn get_subnet() -> (String) {
+    let mut subnet = String::new();
+    let (aws_profile, _, _) = get_envs();
+
+    let credentials_provider = ProfileFileCredentialsProvider::builder()
+        .profile_name(aws_profile.as_str())
+        .build();
+
+    let config = aws_config::from_env()
+        .credentials_provider(credentials_provider)
+        .load()
+        .await;
+
+    let client = aws_sdk_ec2::Client::new(&config);
+
+    let filter = aws_sdk_ec2::model::Filter::builder()
+        .name("tag:project")
+        .values("oyster")
+        .build();
+
+    let resp = client
+    .describe_subnets()
+    .filters(filter)
+    .send()
+    .await;
+
+    match resp {
+        Ok(res) => {
+            for subnet in res.subnets().unwrap_or_default() {
+                for tagpair in  subnet.tags().unwrap_or_default() {
+                    if "project" == tagpair.key().unwrap() && "oyster" == tagpair.value().unwrap() {
+                        println!("{}", subnet.subnet_id().unwrap());
+                        return  subnet.subnet_id().unwrap().to_string();
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            panic!("Error: {}", e.to_string());
+        }
+    }
+    subnet
+} 
 
 pub async fn get_job_instance(job: String) -> (bool, String) {
     let (aws_profile, _, _) = get_envs();
@@ -573,12 +671,12 @@ pub async fn spin_up(image_url: &str, job: String, instance_type: &str) -> Strin
     }
 
     let instance = launch_instance(&client, key_pair_name, job, instance_type, image_url, architecture).await;
-    sleep(Duration::from_secs(100)).await;
+    // sleep(Duration::from_secs(100)).await;
     
-    let mut public_ip_address = get_instance_ip(instance.to_string()).await;
-    public_ip_address.push_str(":22");
-    let sess = ssh_connect(public_ip_address, key_location).await;
-    run_enclave(&sess, image_url, v_cpus, mem).await;
+    // let mut public_ip_address = get_instance_ip(instance.to_string()).await;
+    // public_ip_address.push_str(":22");
+    // let sess = ssh_connect(public_ip_address, key_location).await;
+    // run_enclave(&sess, image_url, v_cpus, mem).await;
     return instance;
 }
 

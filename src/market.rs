@@ -12,6 +12,12 @@ use whoami;
 use std::str::FromStr;
 use async_trait::async_trait;
 
+use async_stream::stream;
+use hex;
+use tokio_stream::StreamExt;
+use ethers::types::Log;
+use ethers::types::Bytes;
+
 use crate::launcher;
 // Basic architecture:
 // One future listening to new jobs
@@ -38,30 +44,6 @@ pub trait AwsManager {
     ) -> Result<(bool, String), Box<dyn Error + Send + Sync>>;
 }
 
-// pub struct JobItem {}
-
-// impl Stream for JobItem{
-//     type Item = (H256, bool);
-
-//     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>)
-//         -> Poll<Option<(H256, bool)>>
-//     {
-//         return Poll::Ready(None);
-//     }
-// }
-
-// pub struct LogItem {}
-
-// impl Stream for LogItem {
-//     type Item = Log;
-
-//     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>)
-//         -> Poll<Option<Log>>
-//     {
-        
-//         return Poll::Ready(None);        
-//     }
-// }
 #[async_trait]
 pub trait Logger {
     async fn new_jobs<'a>(
@@ -85,7 +67,6 @@ impl Logger for RealLogger {
         &'a self,
         client: &'a Provider<Ws>
     ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>, Box<dyn Error + Send + Sync + 'a>> {
-        // let js = JobsService{};
         let res = JobsService::new_jobs(client).await;
         res
     }
@@ -95,7 +76,6 @@ impl Logger for RealLogger {
         client: &'a Provider<Ws>,
         job: H256
     ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>, Box<dyn Error + Send + Sync + 'a>> {
-        // let js = JobsService{};
         let res = JobsService::job_logs(client, job).await;
         res
     }
@@ -158,7 +138,6 @@ impl JobsService {
             println!("main: Connected to RPC endpoint");
 
             let client = res.unwrap();
-            // let res = Self::new_jobs(&client).await;
             let res = logger_impl.new_jobs(&client).await;
             if let Err(err) = res {
                 println!("main: Subscribe error: {}", err);
@@ -221,7 +200,6 @@ impl JobsService {
             println!("job {}: Connected to RPC endpoint", job);
 
             let client = res.unwrap();
-            // let res = Self::job_logs(&client, job).await;
             let res = logger_impl.job_logs(&client, job).await;
             if let Err(err) = res {
                 println!("job {}: Subscribe error: {}", job, err);
@@ -458,5 +436,81 @@ impl JobsService {
         let stream = client.subscribe_logs(&event_filter).await?;
 
         Ok(Box::new(stream))
+    }
+}
+
+
+
+#[derive(Clone)]
+pub struct TestLogger {}
+
+#[async_trait]
+impl Logger for TestLogger {
+    async fn new_jobs<'a>(
+        &'a self,
+        client: &'a Provider<Ws>
+    ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>, Box<dyn Error + Send + Sync + 'a>> {
+        Ok(Box::new(tokio_stream::iter([(H256::default(), false)])))
+    }
+
+    async fn job_logs<'a>(
+        &'a self,
+        client: &'a Provider<Ws>,
+        job: H256
+    ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>, Box<dyn Error + Send + Sync + 'a>> {
+        let mut log_a = Log::default();
+        log_a.address = H160::from_str("0x3FA4718a2fd55297CD866E5a0dE6Bc75E2b777d1").unwrap();
+        log_a.topics = vec![H256::from(keccak256(
+            "JobOpened(bytes32,string,address,address,uint256,uint256,uint256)",
+        )), H256::default()];
+        log_a.removed = Some(false);
+        log_a.data = Bytes::from_str("0x000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000038d7ea4c6800000000000000000000000000000000000000000000000000d8d726b7177a8000000000000000000000000000000000000000000000000000000000000638af1b5000000000000000000000000000000000000000000000000000000000000007d7b22726567696f6e223a2261702d736f7574682d31222c2275726c223a2268747470733a2f2f7733732e6c696e6b2f697066732f626166796265696737736f756232666834676d696a6b62666b6335766b686666717433716a706d7766716f75746d6f6c6c707975367770366468712f656e636c6176652e656966227d000000").unwrap();
+            
+        Ok(Box::new(tokio_stream::iter([log_a])))
+    }
+}
+
+#[derive(Clone)]
+pub struct TestAws {}
+
+#[async_trait]
+impl AwsManager for TestAws {
+    async fn spin_up(
+        &self,
+        eif_url: &str,
+        job: String,
+        instance_type: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
+            Ok("12345".to_string())
+    }
+
+    async fn spin_down(
+        &self,
+        instance_id: &String
+    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        Ok(true)
+    }
+
+    async fn get_job_instance(
+        &self,
+        job: String) -> Result<(bool, String), Box<dyn Error + Send + Sync>> {
+        Ok((false, "".to_string()))
+    }
+}
+
+
+
+#[cfg(test)]
+mod tests {
+    use crate::market;
+
+    #[test]
+    fn test_test() {
+        assert_eq!(2,2);
+    }
+
+    #[tokio::test]
+    async fn test_run() {
+        market::JobsService::run(market::TestAws {}, market::TestLogger {}, "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string()).await;
+        assert_eq!(2,2);
     }
 }

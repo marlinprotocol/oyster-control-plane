@@ -12,8 +12,6 @@ use whoami;
 use std::str::FromStr;
 use async_trait::async_trait;
 
-use async_stream::stream;
-use hex;
 use tokio_stream::StreamExt;
 use ethers::types::Log;
 use ethers::types::Bytes;
@@ -32,7 +30,7 @@ pub trait AwsManager {
         eif_url: &str,
         job: String,
         instance_type: &str) -> Result<String, Box<dyn Error + Send + Sync>>;
-    
+
     async fn spin_down(
         &self,
         instance_id: &String
@@ -173,7 +171,7 @@ impl JobsService {
         Ok(Box::new(stream.map(|item| (item.topics[1], item.removed.unwrap_or(false)))))
     }
 
-    
+
 
     // manage the complete lifecycle of a job
     async fn job_manager(aws_manager_impl: impl AwsManager + Send + Sync + Clone, logger_impl: impl Logger + Send + Sync + Send, url: String, job: H256) {
@@ -208,16 +206,24 @@ impl JobsService {
             }
 
             // events
+            #[allow(non_snake_case)]
             let JOB_OPENED = H256::from(keccak256(
                 "JobOpened(bytes32,string,address,address,uint256,uint256,uint256)",
             ));
+            #[allow(non_snake_case)]
             let JOB_SETTLED = H256::from(keccak256("JobSettled(bytes32,uint256,uint256)"));
+            #[allow(non_snake_case)]
             let JOB_CLOSED = H256::from(keccak256("JobClosed(bytes32)"));
+            #[allow(non_snake_case)]
             let JOB_DEPOSITED = H256::from(keccak256("JobDeposited(bytes32,address,uint256)"));
+            #[allow(non_snake_case)]
             let JOB_WITHDREW = H256::from(keccak256("JobWithdrew(bytes32,address,uint256)"));
+            #[allow(non_snake_case)]
             let JOB_REVISED_RATE = H256::from(keccak256("JobRevisedRate(bytes32,uint256)"));
+            #[allow(non_snake_case)]
             let LOCK_CREATED =
                 H256::from(keccak256("LockCreated(bytes32,bytes32,uint256,uint256)"));
+            #[allow(non_snake_case)]
             let LOCK_DELETED = H256::from(keccak256("LockDeleted(bytes32,bytes32,uint256)"));
 
             // solvency metrics
@@ -263,7 +269,7 @@ impl JobsService {
                 tokio::select! {
                     // insolvency check
                     () = sleep(insolvency_duration) => {
-                        // TODO: spin down instance
+                        // spin down instance
                         if instance_id != String::new() {
                             aws_manager_impl.spin_down(&instance_id).await;
                         }
@@ -288,7 +294,7 @@ impl JobsService {
                                 println!("job {}: OPENED: metadata: {}, rate: {}, balance: {}, timestamp: {}", job, metadata, rate, balance, last_settled.as_secs());
                                 let v: Value = serde_json::from_str(&metadata).expect("JSON was not well-formatted");
                                 // TODO: spin up instance
-                                
+
                                 let r = v["instance"].as_str();
                                 eif_url = v["url"].as_str().unwrap().to_string();
                                 match r {
@@ -326,7 +332,7 @@ impl JobsService {
                                     } else {
                                         println!("Rate below minimum, aborting launch.");
                                     }
-                                    
+
                                 }
 
                                 println!("job {}: OPENED: Spun up instance", job);
@@ -371,7 +377,7 @@ impl JobsService {
                             }
                         } else if log.topics[0] == JOB_REVISED_RATE {
                             // update solvency metrics
-                            
+
                             original_rate = rate;
                             if rate >= min_rate {
                                 let (exist, instance) = aws_manager_impl.get_job_instance(job.to_string()).await.unwrap();
@@ -399,7 +405,7 @@ impl JobsService {
                             }
                         } else if log.topics[0] == LOCK_DELETED {
                             // update solvency metrics
-                            original_rate = rate;
+                            rate = original_rate;
                             println!("job {}: LOCK_CREATED: original_rate: {}, rate: {}, balance: {}, timestamp: {}", job, original_rate, rate, balance, last_settled.as_secs());
                         } else {
                             println!("job {}: Unknown event: {}", job, log.topics[0]);
@@ -448,15 +454,15 @@ pub struct TestLogger {}
 impl Logger for TestLogger {
     async fn new_jobs<'a>(
         &'a self,
-        client: &'a Provider<Ws>
+        _client: &'a Provider<Ws>
     ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>, Box<dyn Error + Send + Sync + 'a>> {
         Ok(Box::new(tokio_stream::iter([(H256::default(), false)])))
     }
 
     async fn job_logs<'a>(
         &'a self,
-        client: &'a Provider<Ws>,
-        job: H256
+        _client: &'a Provider<Ws>,
+        _job: H256
     ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>, Box<dyn Error + Send + Sync + 'a>> {
         let mut log_a = Log::default();
         log_a.address = H160::from_str("0x3FA4718a2fd55297CD866E5a0dE6Bc75E2b777d1").unwrap();
@@ -465,7 +471,7 @@ impl Logger for TestLogger {
         )), H256::default()];
         log_a.removed = Some(false);
         log_a.data = Bytes::from_str("0x000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000038d7ea4c6800000000000000000000000000000000000000000000000000d8d726b7177a8000000000000000000000000000000000000000000000000000000000000638af1b5000000000000000000000000000000000000000000000000000000000000007d7b22726567696f6e223a2261702d736f7574682d31222c2275726c223a2268747470733a2f2f7733732e6c696e6b2f697066732f626166796265696737736f756232666834676d696a6b62666b6335766b686666717433716a706d7766716f75746d6f6c6c707975367770366468712f656e636c6176652e656966227d000000").unwrap();
-            
+
         Ok(Box::new(tokio_stream::iter([log_a])))
     }
 }
@@ -477,22 +483,22 @@ pub struct TestAws {}
 impl AwsManager for TestAws {
     async fn spin_up(
         &self,
-        eif_url: &str,
-        job: String,
-        instance_type: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
+        _eif_url: &str,
+        _job: String,
+        _instance_type: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
             Ok("12345".to_string())
     }
 
     async fn spin_down(
         &self,
-        instance_id: &String
+        _instance_id: &String
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
         Ok(true)
     }
 
     async fn get_job_instance(
         &self,
-        job: String) -> Result<(bool, String), Box<dyn Error + Send + Sync>> {
+        _job: String) -> Result<(bool, String), Box<dyn Error + Send + Sync>> {
         Ok((false, "".to_string()))
     }
 }

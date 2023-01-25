@@ -161,7 +161,7 @@ async fn run_enclave(sess: &Session, url: &str, v_cpus: i32, mem: i64) {
     channel.read_to_string(&mut s).unwrap();
     println!("{}", s);
     let _ = channel.wait_close();
-    
+
     println!("Nitro Enclave Service set up with cpus: {} and memory: {}", v_cpus-2, mem-2048);
 
     channel = sess.channel_session().unwrap();
@@ -322,7 +322,7 @@ pub async fn get_instance_ip(instance_id: String) -> String {
 }
 
 pub async fn launch_instance(client: &Client, key_pair_name: String, job: String, instance_type: &str, image_url: &str, architecture: String) -> String {
-    
+
     let req_client = reqwest::Client::builder()
             .no_gzip()
             .build()
@@ -330,7 +330,7 @@ pub async fn launch_instance(client: &Client, key_pair_name: String, job: String
     let res = req_client.head(image_url).send().await;
     let res = res.unwrap();
     let size = res.headers()["content-length"].to_str().unwrap();
-    
+
 
     let size = size.parse::<i64>().unwrap() / 1000000;
     println!("eif size: {} MB", size);
@@ -339,9 +339,9 @@ pub async fn launch_instance(client: &Client, key_pair_name: String, job: String
     if size > sdd {
         sdd = size + 10;
     }
-    
+
     let instance_type = aws_sdk_ec2::model::InstanceType::from_str(instance_type).unwrap();
-    let (x86_ami, arm_ami) = get_amis(&client).await; 
+    let (x86_ami, arm_ami) = get_amis(&client).await;
     if x86_ami == String::new() || arm_ami == String::new() {
         panic!("AMI's not found");
     }
@@ -478,8 +478,8 @@ async fn get_amis(client: &Client) -> (String, String) {
     return (x86_ami, arm_ami);
 }
 
-pub async fn get_security_group() -> (String) {
-    let mut sec_group = String::new();
+pub async fn get_security_group() -> String {
+    let sec_group = String::new();
     let (aws_profile, _, _) = get_envs();
 
     let credentials_provider = ProfileFileCredentialsProvider::builder()
@@ -509,7 +509,7 @@ pub async fn get_security_group() -> (String) {
             for group in res.security_groups().unwrap_or_default() {
                 for tagpair in  group.tags().unwrap_or_default() {
                     if "project" == tagpair.key().unwrap() && "oyster" == tagpair.value().unwrap() {
-                        
+
                         return group.group_id().unwrap().to_string()
                     }
                 }
@@ -520,10 +520,10 @@ pub async fn get_security_group() -> (String) {
         }
     }
     sec_group
-} 
+}
 
-pub async fn get_subnet() -> (String) {
-    let mut subnet = String::new();
+pub async fn get_subnet() -> String {
+    let subnet = String::new();
     let (aws_profile, _, _) = get_envs();
 
     let credentials_provider = ProfileFileCredentialsProvider::builder()
@@ -564,7 +564,7 @@ pub async fn get_subnet() -> (String) {
         }
     }
     subnet
-} 
+}
 
 pub async fn get_job_instance(job: String) -> (bool, String) {
     let (aws_profile, _, _) = get_envs();
@@ -611,11 +611,11 @@ fn get_envs() -> (String, String, String) {
     #[clap(about)]
     /// Control plane for enclaves support with the oyster update
     struct Cli {
-        /// AWS profile 
+        /// AWS profile
         #[clap(short, long, value_parser)]
         profile: String,
-        
-        /// AWS keypair name 
+
+        /// AWS keypair name
         #[clap(short, long, value_parser)]
         key_name: String,
 
@@ -630,7 +630,7 @@ fn get_envs() -> (String, String, String) {
 
 pub async fn spin_up(image_url: &str, job: String, instance_type: &str) -> String {
     let (aws_profile, key_pair_name, key_location) = get_envs();
-    
+
 
     let credentials_provider = ProfileFileCredentialsProvider::builder()
         .profile_name(aws_profile.as_str())
@@ -662,21 +662,21 @@ pub async fn spin_up(image_url: &str, job: String, instance_type: &str) -> Strin
                 println!("v_cpus: {}", instance.v_cpu_info().unwrap().default_v_cpus().unwrap());
                 mem = instance.memory_info().unwrap().size_in_mi_b().unwrap();
                 println!("memory: {}", instance.memory_info().unwrap().size_in_mi_b().unwrap());
-            }  
-            
-        }   
+            }
+
+        }
         Err(e) => {
             println!("Error: {}", e.to_string());
         }
     }
 
     let instance = launch_instance(&client, key_pair_name, job, instance_type, image_url, architecture).await;
-    // sleep(Duration::from_secs(100)).await;
-    
-    // let mut public_ip_address = get_instance_ip(instance.to_string()).await;
-    // public_ip_address.push_str(":22");
-    // let sess = ssh_connect(public_ip_address, key_location).await;
-    // run_enclave(&sess, image_url, v_cpus, mem).await;
+    sleep(Duration::from_secs(100)).await;
+
+    let mut public_ip_address = get_instance_ip(instance.to_string()).await;
+    public_ip_address.push_str(":22");
+    let sess = ssh_connect(public_ip_address, key_location).await;
+    run_enclave(&sess, image_url, v_cpus, mem).await;
     return instance;
 }
 

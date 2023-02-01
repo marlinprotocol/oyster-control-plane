@@ -1,7 +1,7 @@
 use aws_config::profile::ProfileFileCredentialsProvider;
 // use aws_sdk_ec2::types::SdkError;
 use aws_sdk_ec2::Client;
-use aws_sdk_ec2::Error;
+// use aws_sdk_ec2::Error;
 use ssh2::Session;
 use std::fs;
 use std::fs::File;
@@ -14,11 +14,11 @@ use std::process::Command;
 use tokio::time::{sleep, Duration};
 use std::str::FromStr;
 use clap::Parser;
-use std::error;
+use std::error::Error;
 
 /* AWS KEY PAIR UTILITY */
 
-pub async fn key_setup() -> Result<(), Box<dyn error::Error>> {
+pub async fn key_setup() -> Result<(), Box<dyn Error>> {
 
     let (aws_profile, key_pair_name, key_location) = get_envs();
 
@@ -52,7 +52,7 @@ pub async fn key_setup() -> Result<(), Box<dyn error::Error>> {
     return Ok(());
 }
 
-async fn create_key_pair(client: &Client, name: &String, location: &str) -> Result<(), Box<dyn error::Error>> {
+async fn create_key_pair(client: &Client, name: &String, location: &str) -> Result<(), Box<dyn Error>> {
     let resp = client
         .create_key_pair()
         .key_name(name)
@@ -118,7 +118,7 @@ async fn check_key_pair(client: &Client, name: &String) -> bool {
 
 /* SSH UTILITY */
 
-async fn ssh_connect(ip_address: String, key_location: String) -> Result<Session, Box<dyn error::Error + Send + Sync>> {
+async fn ssh_connect(ip_address: String, key_location: String) -> Result<Session, Box<dyn Error + Send + Sync>> {
     let tcp = TcpStream::connect(&ip_address)?;
 
     let mut sess = Session::new()?;
@@ -130,7 +130,7 @@ async fn ssh_connect(ip_address: String, key_location: String) -> Result<Session
     return Ok(sess);
 }
 
-async fn run_enclave(sess: &Session, url: &str, v_cpus: i32, mem: i64) -> Result<(), Box<dyn error::Error + Send + Sync>>{
+async fn run_enclave(sess: &Session, url: &str, v_cpus: i32, mem: i64) -> Result<(), Box<dyn Error + Send + Sync>>{
     let mut channel = sess.channel_session()?;
     let mut s = String::new();
     channel
@@ -256,7 +256,7 @@ fn get_file_as_byte_vec(filename: &String) -> Vec<u8> {
 /* AWS EC2 UTILITY */
 
 #[allow(dead_code)]
-async fn show_state(client: &Client) -> Result<(), Error> {
+async fn show_state(client: &Client) -> Result<(), Box<dyn Error>> {
     let resp = client.describe_instances().send().await;
 
     match resp {
@@ -328,7 +328,7 @@ pub async fn get_instance_ip(instance_id: String) -> String {
     return String::new();
 }
 
-pub async fn launch_instance(client: &Client, key_pair_name: String, job: String, instance_type: aws_sdk_ec2::model::InstanceType, image_url: &str, architecture: String) -> Result<String, Box<dyn error::Error + Send + Sync>> {
+pub async fn launch_instance(client: &Client, key_pair_name: String, job: String, instance_type: aws_sdk_ec2::model::InstanceType, image_url: &str, architecture: String) -> Result<String, Box<dyn Error + Send + Sync>> {
 
     let mut size: i64 = 0;
     let req_client = reqwest::Client::builder()
@@ -459,7 +459,7 @@ pub async fn launch_instance(client: &Client, key_pair_name: String, job: String
     return Err("Instance launch fail".into());
 }
 
-async fn terminate_instance(client: &Client, instance_id: &String) -> Result<(), Error> {
+async fn terminate_instance(client: &Client, instance_id: &String) -> Result<(), Box<dyn Error + Send + Sync>> {
     let _resp = client
         .terminate_instances()
         .instance_ids(instance_id)
@@ -708,7 +708,7 @@ fn get_envs() -> (String, String, String) {
     return (cli.profile, cli.key_name, cli.loc);
 }
 
-pub async fn spin_up(image_url: &str, job: String, instance_type: &str) -> Result<String, Box<dyn error::Error + Send + Sync>> {
+pub async fn spin_up(image_url: &str, job: String, instance_type: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
     let (aws_profile, key_pair_name, key_location) = get_envs();
 
 
@@ -808,7 +808,7 @@ pub async fn spin_up(image_url: &str, job: String, instance_type: &str) -> Resul
 
 }
 
-pub async fn spin_down(instance_id: &String) -> Result<(), Box<dyn error::Error + Send + Sync>>{
+pub async fn spin_down(instance_id: &String) -> Result<(), Box<dyn Error + Send + Sync>>{
     let (aws_profile, _, _) = get_envs();
 
     let credentials_provider = ProfileFileCredentialsProvider::builder()

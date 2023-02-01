@@ -1,14 +1,9 @@
 use aws_config::profile::ProfileFileCredentialsProvider;
-// use aws_sdk_ec2::types::SdkError;
 use aws_sdk_ec2::Client;
-// use aws_sdk_ec2::Error;
 use ssh2::Session;
-use std::fs;
 use std::fs::File;
-use std::io;
-use std::io::prelude::*;
+use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::os::linux::fs::MetadataExt;
 use std::path::Path;
 use std::process::Command;
 use tokio::time::{sleep, Duration};
@@ -217,69 +212,7 @@ async fn run_enclave(sess: &Session, url: &str, v_cpus: i32, mem: i64) -> Result
     Ok(())
 }
 
-#[allow(dead_code)]
-async fn terminate_enclave(sess: &Session) {
-    let mut channel = sess.channel_session().unwrap();
-    channel.exec("nitro-cli terminate-enclave --all").unwrap();
-    let mut s = String::new();
-    channel.read_to_string(&mut s).unwrap();
-    println!("{}", s);
-    let _close = channel.wait_close();
-}
-
-#[allow(dead_code)]
-async fn copy_eif(sess: &Session, eif_path: String) -> io::Result<()> {
-    let meta = fs::metadata(eif_path.as_str())?;
-    let sz = meta.st_size();
-    let mut remote_file = sess.scp_send(&Path::new("/home/ubuntu/gg.txt"), 0o777, sz, None)?;
-    let data = get_file_as_byte_vec(&eif_path);
-    let _written = remote_file.write_all(&data);
-
-    remote_file.send_eof().unwrap();
-    remote_file.wait_eof().unwrap();
-    remote_file.close().unwrap();
-    remote_file.wait_close().unwrap();
-    println!("eif file copied");
-    Ok(())
-}
-
-#[allow(dead_code)]
-fn get_file_as_byte_vec(filename: &String) -> Vec<u8> {
-    let mut f = File::open(&filename).expect("no file found");
-    let metadata = fs::metadata(&filename).expect("unable to read metadata");
-    let mut buffer = vec![0; metadata.len() as usize];
-    f.read(&mut buffer).expect("buffer overflow");
-
-    buffer
-}
-
 /* AWS EC2 UTILITY */
-
-#[allow(dead_code)]
-async fn show_state(client: &Client) -> Result<(), Box<dyn Error>> {
-    let resp = client.describe_instances().send().await;
-
-    match resp {
-        Ok(res) => {
-            println!("Instances present :");
-            for reservation in res.reservations().unwrap_or_default() {
-                for instance in reservation.instances().unwrap_or_default() {
-                    println!("Instance ID: {}", instance.instance_id().unwrap());
-                    println!(
-                        "State:       {:?}",
-                        instance.state().unwrap().name().unwrap()
-                    );
-                    println!();
-                }
-            }
-        }
-        Err(e) => {
-            println!("ERROR: {}", e.to_string());
-        }
-    }
-
-    Ok(())
-}
 
 pub async fn get_instance_ip(instance_id: String) -> String {
     let (aws_profile, _, _) = get_envs();

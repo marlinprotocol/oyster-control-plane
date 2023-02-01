@@ -46,7 +46,7 @@ pub async fn key_setup() -> Result<(), Box<dyn error::Error>> {
         println!("Found existing keypair and pem file");
     } else {
         println!("ERROR: either key or file exists but not both");
-        return Err(Box::<dyn error::Error>::from("Key setup failed"));
+        return Err("Key setup failed".into());
     }
 
     return Ok(());
@@ -72,7 +72,7 @@ async fn create_key_pair(client: &Client, name: &String, location: &str) -> Resu
         }
         Err(e) => {
             println!("ERROR: {}", e.to_string());
-            return Err(Box::<dyn error::Error>::from("Keypair creation failed"));
+            return Err("Keypair creation failed".into());
         }
     }
 
@@ -81,7 +81,7 @@ async fn create_key_pair(client: &Client, name: &String, location: &str) -> Resu
     let display = path.display();
 
     let mut file = File::create(&path)?;
-    file.write_all(fingerprint.as_bytes())?; 
+    file.write_all(fingerprint.as_bytes())?;
     let mut cmd = Command::new("chmod");
     cmd.arg("400");
     cmd.arg("/home/nisarg/one.pem");
@@ -120,7 +120,7 @@ async fn check_key_pair(client: &Client, name: &String) -> bool {
 
 async fn ssh_connect(ip_address: String, key_location: String) -> Result<Session, Box<dyn error::Error + Send + Sync>> {
     let tcp = TcpStream::connect(&ip_address)?;
-    
+
     let mut sess = Session::new()?;
 
     sess.set_tcp_stream(tcp);
@@ -137,7 +137,7 @@ async fn run_enclave(sess: &Session, url: &str, v_cpus: i32, mem: i64) -> Result
         .exec(
             &("echo -e '---\\nmemory_mib: ".to_owned() + &((mem-2048).to_string()) + "\\ncpu_count: " + &((v_cpus-2).to_string()) + "' >> /home/ubuntu/allocator_new.yaml"),
         )?;
-    
+
     let _ = channel.read_to_string(&mut s);
     let _ = channel.wait_close();
     println!("{}", s);
@@ -358,7 +358,7 @@ pub async fn launch_instance(client: &Client, key_pair_name: String, job: String
             println!("ERROR: failed to fetch eif file header, setting default 15 GBs, {}", e);
         }
     }
-    
+
 
     println!("eif size: {} MB", size);
     let size = size / 1000;
@@ -367,11 +367,11 @@ pub async fn launch_instance(client: &Client, key_pair_name: String, job: String
         sdd = size + 10;
     }
 
-    
+
     let (x86_ami, arm_ami) = get_amis(&client).await;
     if x86_ami == String::new() || arm_ami == String::new() {
         println!("ERROR: AMI's not found");
-        return Err(Box::<dyn error::Error + Send + Sync>::from("AMI's not found"));
+        return Err("AMI's not found".into());
     }
     let mut instance_ami = x86_ami;
     if architecture == "arm64".to_string() {
@@ -435,28 +435,28 @@ pub async fn launch_instance(client: &Client, key_pair_name: String, job: String
             let instances = res.instances();
             if instances.is_none() {
                 println!("ERROR: instance launch failed");
-                return Err(Box::<dyn error::Error + Send + Sync>::from("Instance launch fail"));
+                return Err("Instance launch fail".into());
             }
             for instance in instances.unwrap() {
                 let id = instance.instance_id();
                 if id.is_none() {
                     println!("ERROR: error fetching instance id");
-                    return Err(Box::<dyn error::Error + Send + Sync>::from("Instance launch fail"));
+                    return Err("Instance launch fail".into());
                 }
                 println!(
                     "Instance launched - ID: {}",
                     id.unwrap()
                 );
                 return Ok(id.unwrap().to_string());
-            }    
+            }
         }
         Err(e) => {
             println!("ERROR: {}", e.to_string());
-            return Err(Box::<dyn error::Error + Send + Sync>::from("Instance launch fail"));
+            return Err("Instance launch fail".into());
         }
     }
 
-    return Err(Box::<dyn error::Error + Send + Sync>::from("Instance launch fail"));
+    return Err("Instance launch fail".into());
 }
 
 async fn terminate_instance(client: &Client, instance_id: &String) -> Result<(), Error> {
@@ -736,7 +736,7 @@ pub async fn spin_up(image_url: &str, job: String, instance_type: &str) -> Resul
     let mut mem: i64 = 8192;
     match resp {
         Ok(resp) => {
-            let instance_types = resp.instance_types(); 
+            let instance_types = resp.instance_types();
             if instance_types.is_none() {
                 println!("ERROR: fetching instance info setting default");
             } else {
@@ -750,7 +750,7 @@ pub async fn spin_up(image_url: &str, job: String, instance_type: &str) -> Resul
                                 println!("architecture: {}", arch.as_str());
                                 break;
                             }
-                        }    
+                        }
                     }
                     let v_cpu_info = instance.v_cpu_info();
                     if v_cpu_info.is_some() {
@@ -782,30 +782,30 @@ pub async fn spin_up(image_url: &str, job: String, instance_type: &str) -> Resul
     let instance = launch_instance(&client, key_pair_name, job, instance_type, image_url, architecture).await;
     if let Err(err) = instance {
         println!("ERROR: error launching instance, {}", err);
-        return Err(Box::<dyn error::Error + Send + Sync>::from("error launching instance"));
+        return Err("error launching instance".into());
     }
     let instance = instance.unwrap();
     sleep(Duration::from_secs(100)).await;
 
     let mut public_ip_address = get_instance_ip(instance.to_string()).await;
     if public_ip_address.len() == 0 {
-        return Err(Box::<dyn error::Error + Send + Sync>::from("error fetching instance ip address"));
+        return Err("error fetching instance ip address".into());
     }
     public_ip_address.push_str(":22");
-    let sess: Result<Session, Box<dyn error::Error + Send + Sync>> = ssh_connect(public_ip_address, key_location).await;
+    let sess = ssh_connect(public_ip_address, key_location).await;
     match sess {
         Ok(r) => {
             let res = run_enclave(&r, image_url, v_cpus, mem).await;
             match res {
                 Ok(_) => return Ok(instance),
-                Err(_) => Err(Box::<dyn error::Error + Send + Sync>::from("error running enclave")),
+                Err(_) => Err("error running enclave".into()),
             }
         },
         Err(_) => {
-            return Err(Box::<dyn error::Error + Send + Sync>::from("error establishing ssh connection"));
+            return Err("error establishing ssh connection".into());
         }
     }
-    
+
 }
 
 pub async fn spin_down(instance_id: &String) -> Result<(), Box<dyn error::Error + Send + Sync>>{

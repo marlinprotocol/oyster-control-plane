@@ -1,5 +1,5 @@
 use aws_config::profile::ProfileFileCredentialsProvider;
-use aws_sdk_ec2::types::SdkError;
+// use aws_sdk_ec2::types::SdkError;
 use aws_sdk_ec2::Client;
 use aws_sdk_ec2::Error;
 use ssh2::Session;
@@ -10,11 +10,11 @@ use std::io::prelude::*;
 use std::net::TcpStream;
 use std::os::linux::fs::MetadataExt;
 use std::path::Path;
-use std::process;
 use std::process::Command;
 use tokio::time::{sleep, Duration};
 use std::str::FromStr;
 use clap::Parser;
+use std::error;
 
 /* AWS KEY PAIR UTILITY */
 
@@ -34,6 +34,7 @@ pub async fn key_setup() {
     let client = aws_sdk_ec2::Client::new(&config);
 
     let key_check = check_key_pair(&client, &key_pair_name).await;
+
     let file_check = Path::new(key_location.as_str()).exists();
     if !file_check {
         println!("key file not found");
@@ -41,8 +42,11 @@ pub async fn key_setup() {
 
     if !(key_check || file_check) {
         let _key = create_key_pair(&client, &key_pair_name, key_location.as_str()).await;
-    } else if !(key_check && file_check) {
-        process::exit(1);
+    } else if key_check && file_check {
+        println!("Found existing keypair and pem file");
+        return;
+    } else {
+        panic!("ERROR: either key or file exists but not both");
     }
 }
 
@@ -58,20 +62,24 @@ async fn create_key_pair(client: &Client, name: &String, location: &str) -> Stri
 
     match resp {
         Ok(res) => {
-            fingerprint.push_str(res.key_material().unwrap_or_default());
+            let key_material = res.key_material();
+            if key_material.is_none() {
+                panic!("ERROR: extracting private key");
+            }
+            fingerprint.push_str(key_material.unwrap());
         }
         Err(e) => {
-            panic!("Error: {}", e.to_string());
+            panic!("ERROR: {}", e.to_string());
         }
     }
 
-    println!("{}", fingerprint);
+    // println!("{}", fingerprint);
     let path = Path::new(location);
     let display = path.display();
 
     let mut file = match File::create(&path) {
         Err(why) => {
-            panic!("couldn't create {}: {}", display, why)
+            panic!("ERROR: couldn't create pem file {}: {}", display, why)
         }
         Ok(file) => file,
     };
@@ -116,109 +124,103 @@ async fn check_key_pair(client: &Client, name: &String) -> bool {
 
 /* SSH UTILITY */
 
-async fn ssh_connect(ip_address: String, key_location: String) -> Session {
-    let tcp = TcpStream::connect(&ip_address).unwrap();
-    let mut sess = Session::new().unwrap();
+async fn ssh_connect(ip_address: String, key_location: String) -> Result<Session, Box<dyn error::Error + Send + Sync>> {
+    let tcp = TcpStream::connect(&ip_address)?;
+    
+    let mut sess = Session::new()?;
+
     sess.set_tcp_stream(tcp);
-    sess.handshake().unwrap();
-    sess.userauth_pubkey_file("ubuntu", None, Path::new(&key_location), None)
-        .unwrap();
-    assert!(sess.authenticated());
+    sess.handshake()?;
+    sess.userauth_pubkey_file("ubuntu", None, Path::new(&key_location), None)?;
     println!("SSH connection established");
-    return sess;
+    return Ok(sess);
 }
 
-async fn run_enclave(sess: &Session, url: &str, v_cpus: i32, mem: i64) {
-    let mut channel = sess.channel_session().unwrap();
+async fn run_enclave(sess: &Session, url: &str, v_cpus: i32, mem: i64) -> Result<(), Box<dyn error::Error + Send + Sync>>{
+    let mut channel = sess.channel_session()?;
     let mut s = String::new();
     channel
         .exec(
             &("echo -e '---\\nmemory_mib: ".to_owned() + &((mem-2048).to_string()) + "\\ncpu_count: " + &((v_cpus-2).to_string()) + "' >> /home/ubuntu/allocator_new.yaml"),
-        )
-        .unwrap();
-    channel.read_to_string(&mut s).unwrap();
+        )?;
+    
+    let _ = channel.read_to_string(&mut s);
     let _ = channel.wait_close();
     println!("{}", s);
 
-    channel = sess.channel_session().unwrap();
+    channel = sess.channel_session()?;
     channel
         .exec(
             &("sudo cp /home/ubuntu/allocator_new.yaml /etc/nitro_enclaves/allocator.yaml"),
-        )
-        .unwrap();
+        )?;
 
-    channel.read_to_string(&mut s).unwrap();
+    let _ = channel.read_to_string(&mut s);
     println!("{}", s);
     let _ = channel.wait_close();
 
-    channel = sess.channel_session().unwrap();
+    channel = sess.channel_session()?;
     channel
         .exec(
             &("sudo systemctl restart nitro-enclaves-allocator.service"),
-        )
-        .unwrap();
+        )?;
 
-    channel.read_to_string(&mut s).unwrap();
+    let _ = channel.read_to_string(&mut s);
     println!("{}", s);
     let _ = channel.wait_close();
 
     println!("Nitro Enclave Service set up with cpus: {} and memory: {}", v_cpus-2, mem-2048);
 
-    channel = sess.channel_session().unwrap();
+    channel = sess.channel_session()?;
     channel
         .exec(
             &("wget -O enclave.eif ".to_owned() + url),
-        )
-        .unwrap();
-    channel.read_to_string(&mut s).unwrap();
+        )?;
+    let _ = channel.read_to_string(&mut s);
     let _ = channel.wait_close();
     println!("{}", s);
 
-    channel = sess.channel_session().unwrap();
+    channel = sess.channel_session()?;
     channel
         .exec(
             &("sudo iptables -A PREROUTING -t nat -p tcp --dport 80 -i ens5 -j REDIRECT --to-port 1200"),
-        )
-        .unwrap();
+        )?;
 
-    channel.read_to_string(&mut s).unwrap();
+    let _ = channel.read_to_string(&mut s);
     println!("{}", s);
     let _ = channel.wait_close();
 
-    channel = sess.channel_session().unwrap();
+    channel = sess.channel_session()?;
     channel
         .exec(
             &("sudo iptables -A PREROUTING -t nat -p tcp --dport 443 -i ens5 -j REDIRECT --to-port 1200"),
-        )
-        .unwrap();
+        )?;
 
-    channel.read_to_string(&mut s).unwrap();
+    let _ = channel.read_to_string(&mut s);
     println!("{}", s);
     let _ = channel.wait_close();
 
-    channel = sess.channel_session().unwrap();
+    channel = sess.channel_session()?;
     channel
         .exec(
             &("sudo iptables -A PREROUTING -t nat -p tcp --dport 1025:65535 -i ens5 -j REDIRECT --to-port 1200"),
-        )
-        .unwrap();
+        )?;
 
-    channel.read_to_string(&mut s).unwrap();
+    let _ = channel.read_to_string(&mut s);
     println!("{}", s);
     let _ = channel.wait_close();
 
-    channel = sess.channel_session().unwrap();
+    channel = sess.channel_session()?;
     channel
         .exec(
             &("nitro-cli run-enclave --cpu-count ".to_owned() + &((v_cpus-2).to_string()) + " --memory " + &((mem-2200).to_string()) +" --eif-path enclave.eif --enclave-cid 88"),
-        )
-        .unwrap();
+        )?;
 
-    channel.read_to_string(&mut s).unwrap();
+    let _ = channel.read_to_string(&mut s);
     println!("{}", s);
     let _ = channel.wait_close();
 
     println!("Enclave running");
+    Ok(())
 }
 
 #[allow(dead_code)]
@@ -278,7 +280,7 @@ async fn show_state(client: &Client) -> Result<(), Error> {
             }
         }
         Err(e) => {
-            println!("Error: {}", e.to_string());
+            println!("ERROR: {}", e.to_string());
         }
     }
 
@@ -307,32 +309,63 @@ pub async fn get_instance_ip(instance_id: String) -> String {
 
     match resp {
         Ok(res) => {
-            for reservation in res.reservations().unwrap_or_default() {
-                for instance in reservation.instances().unwrap_or_default() {
-                    return instance.public_ip_address().unwrap().to_string();
+            let reservations = res.reservations();
+            if reservations.is_none() {
+                return String::new();
+            }
+            for reservation in reservations.unwrap() {
+                let instances = reservation.instances();
+                if instances.is_none() {
+                    continue;
+                }
+                for instance in instances.unwrap() {
+                    let ip = instance.public_ip_address();
+                    if ip.is_some() {
+                        return ip.unwrap().to_string();
+                    }
                 }
             }
         }
         Err(e) => {
-            panic!("Error: {}", e.to_string());
+            println!("ERROR: {}", e.to_string());
         }
     }
 
-    return "".to_string();
+    return String::new();
 }
 
-pub async fn launch_instance(client: &Client, key_pair_name: String, job: String, instance_type: &str, image_url: &str, architecture: String) -> String {
+pub async fn launch_instance(client: &Client, key_pair_name: String, job: String, instance_type: aws_sdk_ec2::model::InstanceType, image_url: &str, architecture: String) -> Result<String, Box<dyn error::Error + Send + Sync>> {
 
+    let mut size: i64 = 0;
     let req_client = reqwest::Client::builder()
             .no_gzip()
-            .build()
-            .unwrap();
-    let res = req_client.head(image_url).send().await;
-    let res = res.unwrap();
-    let size = res.headers()["content-length"].to_str().unwrap();
+            .build();
+    match req_client {
+        Ok(req_client) => {
+            let res = req_client.head(image_url).send().await;
+            match res {
+                Ok(res) => {
+                    let content_len = res.headers()["content-length"].to_str().unwrap_or_else(|e| {
+                        println!("ERROR: failed to fetch eif file header, setting default 15 GBs, {}", e);
+                        "0"
+                    });
+                    size = content_len.parse::<i64>().unwrap_or_else(|e| {
+                        println!("ERROR: failed to fetch eif file header, setting default 15 GBs, {}", e);
+                        0
+                    }) / 1000000;
+                },
+                Err(e) => {
+                    println!("ERROR: failed to fetch eif file header, setting default 15 GBs, {}", e);
+                }
+            }
 
+        },
+        Err(e) => {
+            println!("ERROR: failed to fetch eif file header, setting default 15 GBs, {}", e);
+        }
+    }
+    
 
-    let size = size.parse::<i64>().unwrap() / 1000000;
     println!("eif size: {} MB", size);
     let size = size / 1000;
     let mut sdd = 15;
@@ -340,15 +373,17 @@ pub async fn launch_instance(client: &Client, key_pair_name: String, job: String
         sdd = size + 10;
     }
 
-    let instance_type = aws_sdk_ec2::model::InstanceType::from_str(instance_type).unwrap();
+    
     let (x86_ami, arm_ami) = get_amis(&client).await;
     if x86_ami == String::new() || arm_ami == String::new() {
-        panic!("AMI's not found");
+        println!("ERROR: AMI's not found");
+        return Err(Box::<dyn error::Error + Send + Sync>::from("AMI's not found"));
     }
     let mut instance_ami = x86_ami;
     if architecture == "arm64".to_string() {
         instance_ami = arm_ami;
     }
+
     let enclave_options = aws_sdk_ec2::model::EnclaveOptionsRequest::builder()
         .set_enabled(Some(true))
         .build();
@@ -403,42 +438,53 @@ pub async fn launch_instance(client: &Client, key_pair_name: String, job: String
 
     match resp {
         Ok(res) => {
-            for instance in res.instances().unwrap_or_default() {
+            let instances = res.instances();
+            if instances.is_none() {
+                println!("ERROR: instance launch failed");
+                return Err(Box::<dyn error::Error + Send + Sync>::from("Instance launch fail"));
+            }
+            for instance in instances.unwrap() {
+                let id = instance.instance_id();
+                if id.is_none() {
+                    println!("ERROR: error fetching instance id");
+                    return Err(Box::<dyn error::Error + Send + Sync>::from("Instance launch fail"));
+                }
                 println!(
                     "Instance launched - ID: {}",
-                    instance.instance_id().unwrap()
+                    id.unwrap()
                 );
-                return instance.instance_id().unwrap().to_string();
-            }
+                return Ok(id.unwrap().to_string());
+            }    
         }
         Err(e) => {
-            panic!("Error: {}", e.to_string());
+            println!("ERROR: {}", e.to_string());
+            return Err(Box::<dyn error::Error + Send + Sync>::from("Instance launch fail"));
         }
     }
 
-    return "".to_string();
+    return Err(Box::<dyn error::Error + Send + Sync>::from("Instance launch fail"));
 }
 
 async fn terminate_instance(client: &Client, instance_id: &String) -> Result<(), Error> {
-    let resp = client
+    let _resp = client
         .terminate_instances()
         .instance_ids(instance_id)
         .send()
-        .await;
+        .await?;
 
-    match resp {
-        Ok(_) => {
-            println!("Instance terminated");
-        }
-        Err(SdkError::ServiceError { err, .. }) => {
-            if err.code().unwrap() == "InvalidInstanceID.NotFound" {
-                println!("Instance not found")
-            }
-        }
-        Err(e) => {
-            panic!("Error: {}", e.to_string());
-        }
-    }
+    // match resp {
+    //     Ok(_) => {
+    //         println!("Instance terminated");
+    //     }
+    //     Err(SdkError::ServiceError { err, .. }) => {
+    //         if err.code().unwrap() == "InvalidInstanceID.NotFound" {
+    //             println!("Instance not found")
+    //         }
+    //     }
+    //     Err(e) => {
+    //         panic!("ERROR: {}", e.to_string());
+    //     }
+    // }
 
     Ok(())
 }
@@ -461,18 +507,28 @@ async fn get_amis(client: &Client) -> (String, String) {
 
     match resp {
         Ok(res) => {
-            for image in res.images().unwrap_or_default() {
-                if "MarlinLauncherx86_64" == image.name().unwrap() {
-                    println!("x86_64 ami: {}", image.image_id().unwrap());
-                    x86_ami = image.image_id().unwrap().to_string();
-                } else if "MarlinLauncherARM64" == image.name().unwrap() {
-                    println!("arm64 ami: {}", image.image_id().unwrap());
-                    arm_ami = image.image_id().unwrap().to_string();
+            let images = res.images();
+            if images.is_none() {
+
+                return (x86_ami, arm_ami);
+            }
+            for image in images.unwrap() {
+                let image_name = image.name();
+                let image_id = image.image_id();
+                if image_name.is_none() || image_id.is_none(){
+                    continue;
+                }
+                if "MarlinLauncherx86_64" == image_name.unwrap() {
+                    println!("x86_64 ami: {}", image_id.unwrap());
+                    x86_ami = image_id.unwrap().to_string();
+                } else if "MarlinLauncherARM64" == image_name.unwrap() {
+                    println!("arm64 ami: {}", image_id.unwrap());
+                    arm_ami = image_id.unwrap().to_string();
                 }
             }
         }
         Err(e) => {
-            panic!("Error: {}", e.to_string());
+            println!("ERROR: {}", e.to_string());
         }
     }
     return (x86_ami, arm_ami);
@@ -506,17 +562,26 @@ pub async fn get_security_group() -> String {
 
     match resp {
         Ok(res) => {
-            for group in res.security_groups().unwrap_or_default() {
-                for tagpair in  group.tags().unwrap_or_default() {
-                    if "project" == tagpair.key().unwrap() && "oyster" == tagpair.value().unwrap() {
+            let groups = res.security_groups();
+            if groups.is_none() {
+                println!("WARNING: oyster security groups not found");
+                return sec_group;
+            }
+            for group in groups.unwrap() {
+                let tags = group.tags();
+                if tags.is_none() {
+                    continue;
+                }
+                for tagpair in  tags.unwrap() {
+                    if "project" == tagpair.key().unwrap_or("") && "oyster" == tagpair.value().unwrap_or("") {
 
-                        return group.group_id().unwrap().to_string()
+                        return group.group_id().unwrap_or("").to_string()
                     }
                 }
             }
         }
         Err(e) => {
-            panic!("Error: {}", e.to_string());
+            println!("ERROR: {}", e.to_string());
         }
     }
     sec_group
@@ -550,17 +615,26 @@ pub async fn get_subnet() -> String {
 
     match resp {
         Ok(res) => {
-            for subnet in res.subnets().unwrap_or_default() {
-                for tagpair in  subnet.tags().unwrap_or_default() {
-                    if "project" == tagpair.key().unwrap() && "oyster" == tagpair.value().unwrap() {
-                        println!("{}", subnet.subnet_id().unwrap());
-                        return  subnet.subnet_id().unwrap().to_string();
+            let subnets = res.subnets();
+            if subnets.is_none() {
+                println!("WARNING: Oyster Subnet not found");
+                return subnet;
+            }
+            for subnet in subnets.unwrap() {
+                let tags = subnet.tags();
+                if tags.is_none() {
+                    continue;
+                }
+                for tagpair in  tags.unwrap() {
+                    if "project" == tagpair.key().unwrap_or("") && "oyster" == tagpair.value().unwrap_or("") {
+                        println!("{}", subnet.subnet_id().unwrap_or(""));
+                        return  subnet.subnet_id().unwrap_or("").to_string();
                     }
                 }
             }
         }
         Err(e) => {
-            panic!("Error: {}", e.to_string());
+            println!("ERROR: {}", e.to_string());
         }
     }
     subnet
@@ -585,22 +659,34 @@ pub async fn get_job_instance(job: String) -> (bool, String) {
     match resp {
         Ok(res) => {
             println!("Checking existing instance...");
-            for reservation in res.reservations().unwrap_or_default() {
-                for instance in reservation.instances().unwrap_or_default() {
-                    let instance_id = instance.instance_id().unwrap();
-                    let tags = instance.tags().unwrap();
+            let reservations = res.reservations();
+            if reservations.is_none() {
+                return (false, String::new());
+            }
+            for reservation in reservations.unwrap() {
+                let instances = reservation.instances();
+                if instances.is_none() {
+                    continue;
+                }
+                for instance in instances.unwrap() {
+                    let instance_id = instance.instance_id();
+                    let tags = instance.tags();
 
-                    for tag in tags {
-                        if tag.key().unwrap() == "jobId" && tag.value().unwrap().to_string() == job
+                    if instance_id.is_none() || tags.is_none() {
+                        continue;
+                    }
+
+                    for tag in tags.unwrap() {
+                        if tag.key().unwrap_or("") == "jobId" && tag.value().unwrap_or("").to_string() == job
                         {
-                            return (true, instance_id.to_string());
+                            return (true, instance_id.unwrap().to_string());
                         }
                     }
                 }
             }
         }
         Err(e) => {
-            println!("Error: {}", e.to_string());
+            println!("ERROR: {}", e.to_string());
         }
     }
     return (false, String::new());
@@ -628,7 +714,7 @@ fn get_envs() -> (String, String, String) {
     return (cli.profile, cli.key_name, cli.loc);
 }
 
-pub async fn spin_up(image_url: &str, job: String, instance_type: &str) -> String {
+pub async fn spin_up(image_url: &str, job: String, instance_type: &str) -> Result<String, Box<dyn error::Error + Send + Sync>> {
     let (aws_profile, key_pair_name, key_location) = get_envs();
 
 
@@ -642,9 +728,13 @@ pub async fn spin_up(image_url: &str, job: String, instance_type: &str) -> Strin
         .await;
 
     let client = aws_sdk_ec2::Client::new(&config);
+    let ec2_type = aws_sdk_ec2::model::InstanceType::from_str(instance_type).unwrap_or_else(|e| {
+        println!("ERROR: parsing instance_type, setting default, {}", e);
+        return aws_sdk_ec2::model::InstanceType::C6aXlarge;
+    });
     let resp = client
             .describe_instance_types()
-            .instance_types(aws_sdk_ec2::model::InstanceType::from_str(instance_type).unwrap())
+            .instance_types(ec2_type)
             .send()
             .await;
     let mut architecture = "x86_64".to_string();
@@ -652,35 +742,79 @@ pub async fn spin_up(image_url: &str, job: String, instance_type: &str) -> Strin
     let mut mem: i64 = 8192;
     match resp {
         Ok(resp) => {
-            for instance in resp.instance_types().unwrap() {
-                for arch in instance.processor_info().unwrap().supported_architectures().unwrap() {
-                    architecture = arch.as_str().to_string();
-                    println!("architecture: {}", arch.as_str());
-                    break;
+            let instance_types = resp.instance_types(); 
+            if instance_types.is_none() {
+                println!("ERROR: fetching instance info setting default");
+            } else {
+                for instance in instance_types.unwrap() {
+                    let processor_info = instance.processor_info();
+                    if processor_info.is_some() {
+                        let supported_architectures = processor_info.unwrap().supported_architectures();
+                        if supported_architectures.is_some() {
+                            for arch in supported_architectures.unwrap() {
+                                architecture = arch.as_str().to_string();
+                                println!("architecture: {}", arch.as_str());
+                                break;
+                            }
+                        }    
+                    }
+                    let v_cpu_info = instance.v_cpu_info();
+                    if v_cpu_info.is_some() {
+                        let default_v_cpus = v_cpu_info.unwrap().default_v_cpus();
+                        if default_v_cpus.is_some() {
+                            v_cpus = default_v_cpus.unwrap();
+                        }
+                    }
+                    println!("v_cpus: {}", v_cpus);
+                    let mem_info = instance.memory_info();
+                    if mem_info.is_some() {
+                        let in_mib = mem_info.unwrap().size_in_mi_b();
+                        if in_mib.is_some() {
+                            mem = in_mib.unwrap();
+                        }
+                    }
+                    println!("memory: {}", mem);
                 }
-                v_cpus = instance.v_cpu_info().unwrap().default_v_cpus().unwrap();
-                println!("v_cpus: {}", instance.v_cpu_info().unwrap().default_v_cpus().unwrap());
-                mem = instance.memory_info().unwrap().size_in_mi_b().unwrap();
-                println!("memory: {}", instance.memory_info().unwrap().size_in_mi_b().unwrap());
             }
-
         }
         Err(e) => {
-            println!("Error: {}", e.to_string());
+            println!("ERROR: {}", e.to_string());
         }
     }
-
+    let instance_type = aws_sdk_ec2::model::InstanceType::from_str(instance_type).unwrap_or_else(|e| {
+        println!("ERROR: parsing instance_type, setting default, {}", e);
+        return aws_sdk_ec2::model::InstanceType::C6aXlarge;
+    });
     let instance = launch_instance(&client, key_pair_name, job, instance_type, image_url, architecture).await;
+    if let Err(err) = instance {
+        println!("ERROR: error launching instance, {}", err);
+        return Err(Box::<dyn error::Error + Send + Sync>::from("error launching instance"));
+    }
+    let instance = instance.unwrap();
     sleep(Duration::from_secs(100)).await;
 
     let mut public_ip_address = get_instance_ip(instance.to_string()).await;
+    if public_ip_address.len() == 0 {
+        return Err(Box::<dyn error::Error + Send + Sync>::from("error fetching instance ip address"));
+    }
     public_ip_address.push_str(":22");
-    let sess = ssh_connect(public_ip_address, key_location).await;
-    run_enclave(&sess, image_url, v_cpus, mem).await;
-    return instance;
+    let sess: Result<Session, Box<dyn error::Error + Send + Sync>> = ssh_connect(public_ip_address, key_location).await;
+    match sess {
+        Ok(r) => {
+            let res = run_enclave(&r, image_url, v_cpus, mem).await;
+            match res {
+                Ok(_) => return Ok(instance),
+                Err(_) => Err(Box::<dyn error::Error + Send + Sync>::from("error running enclave")),
+            }
+        },
+        Err(_) => {
+            return Err(Box::<dyn error::Error + Send + Sync>::from("error establishing ssh connection"));
+        }
+    }
+    
 }
 
-pub async fn spin_down(instance_id: &String) {
+pub async fn spin_down(instance_id: &String) -> Result<(), Box<dyn error::Error + Send + Sync>>{
     let (aws_profile, _, _) = get_envs();
 
     let credentials_provider = ProfileFileCredentialsProvider::builder()
@@ -693,5 +827,6 @@ pub async fn spin_down(instance_id: &String) {
         .await;
 
     let client = aws_sdk_ec2::Client::new(&config);
-    let _done = terminate_instance(&client, &instance_id).await;
+    let _ = terminate_instance(&client, &instance_id).await?;
+    Ok(())
 }

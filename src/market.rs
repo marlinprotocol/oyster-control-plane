@@ -88,15 +88,15 @@ impl AwsManager for RealAws {
         eif_url: &str,
         job: String,
         instance_type: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
-            let instance = launcher::spin_up(eif_url, job, instance_type).await;
-            Ok(instance)
+        let instance = launcher::spin_up(eif_url, job, instance_type).await?;
+        Ok(instance)
     }
 
     async fn spin_down(
         &self,
         instance_id: &String
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
-        launcher::spin_down(instance_id).await;
+        let _ = launcher::spin_down(instance_id).await?;
         Ok(true)
     }
 
@@ -271,7 +271,11 @@ impl JobsService {
                     () = sleep(insolvency_duration) => {
                         // spin down instance
                         if instance_id != String::new() {
-                            aws_manager_impl.spin_down(&instance_id).await;
+                            let res = aws_manager_impl.spin_down(&instance_id).await;
+                            if let Err(err) = res {
+                                println!("job {}: ERROR failed to terminate instance, {}", job, err);
+                                break 'event;
+                            }
                         }
                         println!("job {}: INSOLVENCY: Spinning down instance", job);
 
@@ -292,45 +296,71 @@ impl JobsService {
                                 original_rate = _rate;
                                 last_settled = Duration::from_secs(timestamp.low_u64());
                                 println!("job {}: OPENED: metadata: {}, rate: {}, balance: {}, timestamp: {}", job, metadata, rate, balance, last_settled.as_secs());
-                                let v: Value = serde_json::from_str(&metadata).expect("JSON was not well-formatted");
-                                // TODO: spin up instance
+                                let v = serde_json::from_str(&metadata);
+                                if let Err(err) = v {
+                                    println!("job {}: Error reading metadata: {}", job, err);
+                                    break 'main;
+                                }
+                    
+                                let v: Value = v.unwrap();
 
                                 let r = v["instance"].as_str();
-                                eif_url = v["url"].as_str().unwrap().to_string();
                                 match r {
                                     Some(t) => {
                                         instance_type = t.to_string();
-                                        println!("Instance type set: {}", instance_type);
+                                        println!("job {}: Instance type set: {}", job, instance_type);
                                     }
                                     None => {
-                                        println!("Instance type not set, using default");
+                                        println!("job {}: Instance type not set, using default", job);
                                     }
                                 }
-                                let file_path = "/home/".to_owned() + &whoami::username() +"/.marlin/rates.txt";
-                                let contents = fs::read_to_string(file_path)
-                                .expect("Cannot read in rates file").to_string();
 
-                                let lines = contents.lines();
-                                for line in lines {
-                                    if line.contains(&instance_type) {
-                                        let rate_card: Vec<String> = line.split(":").map(String::from).collect();
-                                        min_rate = U256::from_str(rate_card[1].as_str()).unwrap();
+                                let url = v["url"].as_str();
+                                if url.is_none() {
+                                    println!("job {}: eif url not found! Exiting job", job);
+                                    break 'main;
+                                }
+                                eif_url = url.unwrap().to_string();
+
+                                let file_path = "/home/".to_owned() + &whoami::username() +"/.marlin/rates.txt";
+                                let contents = fs::read_to_string(file_path);
+
+                                if let Err(err) = contents {
+                                    println!("job {}: Error reading rates file : {}", job, err);
+                                } else {
+                                    let contents = contents.unwrap().to_string();
+
+                                    let lines = contents.lines();
+                                    for line in lines {
+                                        if line.contains(&instance_type) {
+                                            let rate_card: Vec<String> = line.split(":").map(String::from).collect();
+                                            min_rate = U256::from_str(rate_card[1].as_str()).unwrap_or(min_rate);
+                                        }
                                     }
                                 }
-                                println!("MIN RATE for {} instance is {}", instance_type, min_rate);
-                                let (exist, instance) = aws_manager_impl.get_job_instance(job.to_string()).await.unwrap();
+                                println!("job {}: MIN RATE for {} instance is {}", job, instance_type, min_rate);
+                                let (exist, instance) = aws_manager_impl.get_job_instance(job.to_string()).await.unwrap_or((false, "".to_string()));
                                 if exist {
                                     instance_id = instance;
-                                    println!("Found, instance id: {}", instance_id);
+                                    println!("job {}: Found, instance id: {}", job, instance_id);
                                     if rate < min_rate {
-                                        println!("Rate below minimum, shutting down instance");
-                                        aws_manager_impl.spin_down(&instance_id).await;
+                                        println!("job {}: Rate below minimum, shutting down instance", job);
+                                        let res = aws_manager_impl.spin_down(&instance_id).await;
+                                        if let Err(err) = res {
+                                            println!("job {}: ERROR failed to terminate instance, {}", job, err);
+                                            break 'event;
+                                        }
                                     }
                                 } else {
                                     if rate >= min_rate {
-                                        instance_id = aws_manager_impl.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str()).await.unwrap();
+                                        let res = aws_manager_impl.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str()).await;
+                                        if let Err(err) = res {
+                                            println!("job {}: Instance launch failed, {}", job, err);
+                                            break 'event;
+                                        }
+                                        instance_id = res.unwrap();
                                     } else {
-                                        println!("Rate below minimum, aborting launch.");
+                                        println!("job {}: Rate below minimum, aborting launch.", job);
                                     }
 
                                 }
@@ -350,8 +380,11 @@ impl JobsService {
                                 println!("job {}: SETTLED: Decode failure: {}", job, log.data);
                             }
                         } else if log.topics[0] == JOB_CLOSED {
-                            // TODO: spin down instance
-                            aws_manager_impl.spin_down(&instance_id).await;
+                            let res = aws_manager_impl.spin_down(&instance_id).await;
+                            if let Err(err) = res {
+                                println!("job {}: ERROR failed to terminate instance, {}", job, err);
+                                break 'event;
+                            }
                             println!("job {}: CLOSED: Spinning down instance", job);
 
                             // exit fully
@@ -380,12 +413,17 @@ impl JobsService {
 
                             original_rate = rate;
                             if rate >= min_rate {
-                                let (exist, instance) = aws_manager_impl.get_job_instance(job.to_string()).await.unwrap();
+                                let (exist, instance) = aws_manager_impl.get_job_instance(job.to_string()).await.unwrap_or((false, "".to_string()));
                                 if exist {
                                     instance_id = instance;
-                                    println!("Found, instance id: {}", instance_id);
+                                    println!("job {}: Found, instance id: {}", job, instance_id);
                                 } else {
-                                    instance_id = aws_manager_impl.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str()).await.unwrap();
+                                    let res = aws_manager_impl.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str()).await;
+                                    if let Err(err) = res {
+                                        println!("job {}: Instance launch failed, {}", job, err);
+                                        break 'event;
+                                    }
+                                    instance_id = res.unwrap();
                                 }
                             }
                             println!("job {}: REVISED_RATE: rate: {}, balance: {}, timestamp: {}", job, rate, balance, last_settled.as_secs());
@@ -396,8 +434,12 @@ impl JobsService {
                                 original_rate = rate;
                                 rate = new_rate;
                                 if rate < min_rate {
-                                    aws_manager_impl.spin_down(&instance_id).await;
-                                    println!("Revised job rate below min rate, shutting down");
+                                    let res = aws_manager_impl.spin_down(&instance_id).await;
+                                    if let Err(err) = res {
+                                        println!("job {}: ERROR failed to terminate instance, {}", job, err);
+                                        break 'event;
+                                    }
+                                    println!("job {}: Revised job rate below min rate, shutting down", job);
                                 }
                                 println!("job {}: LOCK_CREATED: original_rate: {}, rate: {}, balance: {}, timestamp: {}", job, original_rate, rate, balance, last_settled.as_secs());
                             } else {
@@ -406,7 +448,7 @@ impl JobsService {
                         } else if log.topics[0] == LOCK_DELETED {
                             // update solvency metrics
                             rate = original_rate;
-                            println!("job {}: LOCK_CREATED: original_rate: {}, rate: {}, balance: {}, timestamp: {}", job, original_rate, rate, balance, last_settled.as_secs());
+                            println!("job {}: LOCK_DELETED: original_rate: {}, rate: {}, balance: {}, timestamp: {}", job, original_rate, rate, balance, last_settled.as_secs());
                         } else {
                             println!("job {}: Unknown event: {}", job, log.topics[0]);
                         }

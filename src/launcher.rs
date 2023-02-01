@@ -66,7 +66,8 @@ async fn create_key_pair(client: &Client, name: &String, location: &str) -> Resu
         Ok(res) => {
             let key_material = res.key_material();
             if key_material.is_none() {
-                panic!("ERROR: extracting private key");
+                println!("ERROR: extracting private key");
+                return Err(Box::<dyn error::Error>::from("Failed to create private key"));
             }
             fingerprint.push_str(key_material.unwrap());
         }

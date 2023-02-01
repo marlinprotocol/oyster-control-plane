@@ -18,7 +18,7 @@ use std::error;
 
 /* AWS KEY PAIR UTILITY */
 
-pub async fn key_setup() {
+pub async fn key_setup() -> Result<(), Box<dyn error::Error>> {
 
     let (aws_profile, key_pair_name, key_location) = get_envs();
 
@@ -41,16 +41,18 @@ pub async fn key_setup() {
     }
 
     if !(key_check || file_check) {
-        let _key = create_key_pair(&client, &key_pair_name, key_location.as_str()).await;
+        create_key_pair(&client, &key_pair_name, key_location.as_str()).await?;
     } else if key_check && file_check {
         println!("Found existing keypair and pem file");
-        return;
     } else {
-        panic!("ERROR: either key or file exists but not both");
+        println!("ERROR: either key or file exists but not both");
+        return Err(Box::<dyn error::Error>::from("Key setup failed"));
     }
+
+    return Ok(());
 }
 
-async fn create_key_pair(client: &Client, name: &String, location: &str) -> String {
+async fn create_key_pair(client: &Client, name: &String, location: &str) -> Result<(), Box<dyn error::Error>> {
     let resp = client
         .create_key_pair()
         .key_name(name)
@@ -69,7 +71,8 @@ async fn create_key_pair(client: &Client, name: &String, location: &str) -> Stri
             fingerprint.push_str(key_material.unwrap());
         }
         Err(e) => {
-            panic!("ERROR: {}", e.to_string());
+            println!("ERROR: {}", e.to_string());
+            return Err(Box::<dyn error::Error>::from("Keypair creation failed"));
         }
     }
 
@@ -77,25 +80,16 @@ async fn create_key_pair(client: &Client, name: &String, location: &str) -> Stri
     let path = Path::new(location);
     let display = path.display();
 
-    let mut file = match File::create(&path) {
-        Err(why) => {
-            panic!("ERROR: couldn't create pem file {}: {}", display, why)
-        }
-        Ok(file) => file,
-    };
+    let mut file = File::create(&path)?;
+    file.write_all(fingerprint.as_bytes())?; 
+    let mut cmd = Command::new("chmod");
+    cmd.arg("400");
+    cmd.arg("/home/nisarg/one.pem");
+    let _output = cmd.output();
 
-    match file.write_all(fingerprint.as_bytes()) {
-        Err(why) => panic!("couldn't write to {}: {}", display, why),
-        Ok(_) => {
-            let mut cmd = Command::new("chmod");
-            cmd.arg("400");
-            cmd.arg("/home/nisarg/one.pem");
-            let _output = cmd.output();
+    println!("Key-pair created, private key written to {}", display);
 
-            println!("Key-pair created, private key written to {}", display);
-        }
-    }
-    return "".to_string();
+    Ok(())
 }
 
 async fn check_key_pair(client: &Client, name: &String) -> bool {

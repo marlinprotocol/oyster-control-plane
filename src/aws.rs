@@ -8,6 +8,7 @@ use tokio::time::{sleep, Duration};
 use std::str::FromStr;
 use std::error::Error;
 use async_trait::async_trait;
+use whoami::username;
 
 use crate::market::AwsManager;
 
@@ -30,7 +31,7 @@ impl Aws {
             .load()
             .await;
         let client = aws_sdk_ec2::Client::new(&config);
-        let key_location = "~/.ssh/".to_owned() + &key_name + ".pem";
+        let key_location = "/home/".to_owned() + &username() + "/.ssh/" + &key_name + ".pem";
 
         return Aws {
             client: client,
@@ -46,6 +47,7 @@ impl Aws {
 
         let file_check = Path::new(&self.key_location).exists();
         if !file_check {
+            println!("{}", &self.key_location);
             println!("key file not found");
         }
 

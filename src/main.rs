@@ -24,7 +24,7 @@ struct Cli {
 
     /// RPC url
     #[clap(short, long, value_parser)]
-    rpc: String,
+    url_rpc: String,
 }
 
 #[tokio::main]
@@ -39,7 +39,7 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
 
     let _ = tokio::spawn(server::serve(aws.clone()));
 
-    market::JobsService::run(aws, market::RealLogger {}, cli.rpc).await;
+    market::JobsService::run(aws, market::RealLogger {}, cli.url_rpc).await;
 
     Ok(())
 }

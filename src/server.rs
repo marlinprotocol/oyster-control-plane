@@ -1,9 +1,9 @@
 use std::net::{TcpStream, TcpListener};
 use std::io::{Read, Write};
-use aws_sdk_ec2::Client;
-use crate::launcher;
+use crate::aws::Aws;
 
-async fn handle_read(client: &Client, mut stream: &TcpStream) -> String {
+
+async fn handle_read(client: &Aws, mut stream: &TcpStream) -> String {
     let mut buf = [0u8 ;4096];
     match stream.read(&mut buf) {
         Ok(_) => {
@@ -45,10 +45,10 @@ async fn handle_write(mut stream: TcpStream, response: String) {
     }
 }
 
-async fn get_ip(client: &Client, id: String) -> (bool, String) {
-    let (exists, instance) = launcher::get_job_instance(client, id).await;
+async fn get_ip(client: &Aws, id: String) -> (bool, String) {
+    let (exists, instance) = client.get_job_instance(id).await;
     if exists {
-        let ip = launcher::get_instance_ip(client, instance).await;
+        let ip = client.get_instance_ip(instance).await;
         return (true, ip);
     } else {
         return (false, String::new());
@@ -56,13 +56,13 @@ async fn get_ip(client: &Client, id: String) -> (bool, String) {
 
 }
 
-async fn handle_client(client: &Client, stream: TcpStream) {
+async fn handle_client(client: &Aws, stream: TcpStream) {
     let response = handle_read(client, &stream).await;
 
     handle_write(stream, response).await;
 }
 
-pub async fn serve(client: Client) {
+pub async fn serve(client: Aws) {
     let listener = TcpListener::bind("127.0.0.1:8080").unwrap();
     println!("Listening for connections on port {}", 8080);
 

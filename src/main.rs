@@ -1,4 +1,4 @@
-mod launcher;
+mod aws;
 mod market;
 mod server;
 
@@ -33,23 +33,13 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
 
     println!("{:?}", cli.region);
 
-    let credentials_provider = aws_config::profile::ProfileFileCredentialsProvider::builder()
-        .profile_name(&cli.profile)
-        .build();
-    let config = aws_config::from_env()
-        .credentials_provider(credentials_provider)
-        .load()
-        .await;
-    let client = aws_sdk_ec2::Client::new(&config);
+    let aws = aws::Aws::new(&cli.profile, cli.key_name).await;
 
-    launcher::key_setup(&client, cli.key_name.clone()).await?;
+    aws.key_setup().await?;
 
-    let _ = tokio::spawn(server::serve(client.clone()));
+    let _ = tokio::spawn(server::serve(aws.clone()));
 
-    market::JobsService::run(market::RealAws {
-        client: client,
-        key_name: cli.key_name,
-    }, market::RealLogger {}, cli.rpc).await;
+    market::JobsService::run(aws, market::RealLogger {}, cli.rpc).await;
 
     Ok(())
 }

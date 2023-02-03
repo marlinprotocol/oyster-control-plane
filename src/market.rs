@@ -11,13 +11,11 @@ use std::fs;
 use whoami;
 use std::str::FromStr;
 use async_trait::async_trait;
-use aws_sdk_ec2::Client;
 
 use tokio_stream::StreamExt;
 use ethers::types::Log;
 use ethers::types::Bytes;
 
-use crate::launcher;
 // Basic architecture:
 // One future listening to new jobs
 // Each job has its own future managing its lifetime
@@ -77,38 +75,6 @@ impl Logger for RealLogger {
     ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>, Box<dyn Error + Send + Sync + 'a>> {
         let res = JobsService::job_logs(client, job).await;
         res
-    }
-}
-#[derive(Clone)]
-pub struct RealAws {
-    pub client: Client,
-    pub key_name: String,
-}
-
-#[async_trait]
-impl AwsManager for RealAws {
-    async fn spin_up(
-        &self,
-        eif_url: &str,
-        job: String,
-        instance_type: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
-        let instance = launcher::spin_up(&self.client, self.key_name.clone(), eif_url, job, instance_type).await?;
-        Ok(instance)
-    }
-
-    async fn spin_down(
-        &self,
-        instance_id: &String
-    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
-        let _ = launcher::spin_down(&self.client, instance_id).await?;
-        Ok(true)
-    }
-
-    async fn get_job_instance(
-        &self,
-        job: String) -> Result<(bool, String), Box<dyn Error + Send + Sync>> {
-        let (exist, instance) = launcher::get_job_instance(&self.client, job).await;
-        Ok((exist, instance))
     }
 }
 

@@ -9,6 +9,8 @@ use std::str::FromStr;
 use std::error::Error;
 use async_trait::async_trait;
 use aws_types::region::Region;
+use whoami::username;
+
 use crate::market::AwsManager;
 
 
@@ -22,7 +24,7 @@ pub struct Aws {
 
 impl Aws {
     pub async fn new(aws_profile: String, key_name: String) -> Aws {
-        let key_location = "~/.ssh/".to_owned() + &key_name + ".pem";
+        let key_location = "/home/".to_owned() + &username() + "/.ssh/" + &key_name + ".pem";
 
         return Aws {
             aws_profile: aws_profile,
@@ -47,6 +49,7 @@ impl Aws {
 
         let file_check = Path::new(&self.key_location).exists();
         if !file_check {
+            println!("{}", &self.key_location);
             println!("key file not found");
         }
 
@@ -76,7 +79,8 @@ impl Aws {
             Ok(res) => {
                 let key_material = res.key_material();
                 if key_material.is_none() {
-                    panic!("ERROR: extracting private key");
+                    println!("ERROR: extracting private key");
+                    return Err("Failed to create private key".into());
                 }
                 fingerprint.push_str(key_material.unwrap());
             }
@@ -578,6 +582,134 @@ impl Aws {
         return (false, String::new());
     }
 
+    async fn allocate_ip_addr(&self, job: String) -> Result<(String, String), Box<dyn Error + Send + Sync>> {
+        let (exist, alloc_id, public_ip) = self.get_job_elastic_ip(job.clone()).await;
+
+        if exist {
+            println!("Elastic Ip already exists");
+            return Ok((alloc_id, public_ip));
+        }
+
+        let managed_tag = aws_sdk_ec2::model::Tag::builder()
+            .set_key(Some("managedBy".to_string()))
+            .set_value(Some("marlin".to_string()))
+            .build();
+        let project_tag = aws_sdk_ec2::model::Tag::builder()
+            .set_key(Some("project".to_string()))
+            .set_value(Some("oyster".to_string()))
+            .build();
+        let job_tag = aws_sdk_ec2::model::Tag::builder()
+            .set_key(Some("jobId".to_string()))
+            .set_value(Some(job))
+            .build();
+        let tags = aws_sdk_ec2::model::TagSpecification::builder()
+            .set_resource_type(Some(aws_sdk_ec2::model::ResourceType::ElasticIp))
+            .tags(managed_tag)
+            .tags(job_tag)
+            .tags(project_tag)
+            .build();
+
+        let resp = self.client("us-east-1".to_owned()).await
+                .allocate_address()
+                .domain(aws_sdk_ec2::model::DomainType::Vpc)
+                .tag_specifications(tags)
+                .send()
+                .await;
+
+        match resp {
+            Ok(resp) => {
+                let public_ip = resp.public_ip();
+                let alloc_id = resp.allocation_id();
+                if public_ip.is_none() || alloc_id.is_none() {
+                    println!("ERROR: elastic ip address allocation failed");
+                    return Err("error allocating ip address".into());
+                }
+                println!("New elastic ip, Alloc ID: {}, IP Allocated : {}", alloc_id.unwrap(), public_ip.unwrap());
+                return Ok((alloc_id.unwrap().into(), public_ip.unwrap().into()));
+            },
+            Err(e) => {
+                println!("ERROR: elastic ip address allocation failed, {}", e);
+                return Err("error allocating ip address".into());
+            }
+        }
+    }
+
+    async fn get_job_elastic_ip(&self, job: String) -> (bool, String, String) {
+        let filter_a = aws_sdk_ec2::model::Filter::builder()
+                .name("tag:project")
+                .values("oyster")
+                .build();
+
+        let filter_b = aws_sdk_ec2::model::Filter::builder()
+                .name("tag:jobId")
+                .values(job.clone())
+                .build();
+
+        let resp = self.client("us-east-1".to_owned()).await
+                .describe_addresses()
+                .filters(filter_a)
+                .filters(filter_b)
+                .send()
+                .await;
+
+        match resp {
+            Ok(resp) => {
+                let addrs = resp.addresses();
+                if addrs.is_none() {
+                    return (false, String::new(), String::new());
+                }
+                for addr in addrs.unwrap() {
+                    let ip = addr.public_ip();
+                    let alloc_id = addr.allocation_id();
+                    let tags = addr.tags();
+                    if ip.is_none() || alloc_id.is_none() || tags.is_none() {
+                        continue;
+                    }
+                    for tag in tags.unwrap() {
+                        if tag.key().unwrap_or("") == "jobId" && tag.value().unwrap_or("").to_string() == job
+                        {
+                            println!("Alloc: {}, IP: {}", alloc_id.unwrap(), ip.unwrap());
+                            return (true, alloc_id.unwrap().into(), ip.unwrap().into());
+                        }
+                    }
+                }
+            },
+            Err(e) => {
+                println!("ERROR: failed to fetch address, {}", e);
+                return (false, String::new(), String::new());
+            }
+        }
+        return (false, String::new(), String::new());
+    }
+
+    async fn associate_address(&self, instance_id: String, alloc_id: String) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let resp = self.client("us-east-1".to_owned()).await
+                .associate_address()
+                .allocation_id(alloc_id)
+                .instance_id(instance_id)
+                .send()
+                .await;
+
+        match resp {
+            Ok(resp) => {
+                let association_id = resp.association_id();
+
+                if association_id.is_none() {
+                    println!("elastic ip association failed");
+                    return Err("error associating elastic ip to instance".into());
+                }
+                println!("Association successful, Id for elastic ip association: {}", association_id.unwrap());
+            },
+            Err(e) => {
+                println!("elastic ip association failed: {}", e);
+                return Err("error associating elastic ip to instance".into());
+            }
+        }
+        Ok(())
+
+    }
+
+
     pub async fn spin_up(&self, image_url: &str, job: String, instance_type: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
         let ec2_type = aws_sdk_ec2::model::InstanceType::from_str(instance_type).unwrap_or_else(|e| {
             println!("ERROR: parsing instance_type, setting default, {}", e);
@@ -636,14 +768,17 @@ impl Aws {
             println!("ERROR: parsing instance_type, setting default, {}", e);
             return aws_sdk_ec2::model::InstanceType::C6aXlarge;
         });
-        let instance = self.launch_instance(job, instance_type, image_url, architecture).await;
+        let instance = self.launch_instance(job.clone(), instance_type, image_url, architecture).await;
         if let Err(err) = instance {
             println!("ERROR: error launching instance, {}", err);
             return Err("error launching instance".into());
         }
         let instance = instance.unwrap();
         sleep(Duration::from_secs(100)).await;
+        let (alloc_id, ip) = self.allocate_ip_addr(job).await?;
+        println!("Elastic Ip allocated: {}", ip);
 
+        self.associate_address(instance.clone(), alloc_id).await?;
         let mut public_ip_address = self.get_instance_ip(instance.to_string()).await;
         if public_ip_address.len() == 0 {
             return Err("error fetching instance ip address".into());

@@ -19,11 +19,11 @@ struct Cli {
     key_name: String,
 
     /// AWS regions
-    #[clap(short, long, value_parser)]
+    #[clap(long, value_parser)]
     region: Vec<String>,
 
     /// RPC url
-    #[clap(short, long, value_parser)]
+    #[clap(long, value_parser)]
     rpc: String,
 }
 

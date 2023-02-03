@@ -394,25 +394,11 @@ impl Aws {
     }
 
     async fn terminate_instance(&self, instance_id: &String) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let _resp = self.client("us-east-1".to_owned()).await
+        let _ = self.client("us-east-1".to_owned()).await
             .terminate_instances()
             .instance_ids(instance_id)
             .send()
             .await?;
-
-        // match resp {
-        //     Ok(_) => {
-        //         println!("Instance terminated");
-        //     }
-        //     Err(SdkError::ServiceError { err, .. }) => {
-        //         if err.code().unwrap() == "InvalidInstanceID.NotFound" {
-        //             println!("Instance not found")
-        //         }
-        //     }
-        //     Err(e) => {
-        //         panic!("ERROR: {}", e.to_string());
-        //     }
-        // }
 
         Ok(())
     }

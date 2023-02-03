@@ -568,21 +568,21 @@ impl Aws {
                 .values(job.clone())
                 .build();
 
-        let addr = self.client("us-east-1".to_owned()).await
+        let addrs = self.client("us-east-1".to_owned()).await
                 .describe_addresses()
                 .filters(filter_a)
                 .filters(filter_b)
                 .send()
-                .await?
-                // response parsing from here
-                .addresses()
-                .ok_or("could not parse addresses")?[0].clone();
+                .await?;
 
-        Ok((
-            true,
-            addr.allocation_id().ok_or("could not parse allocation id")?.to_string(),
-            addr.public_ip().ok_or("could not parse public ip")?.to_string(),
-        ))
+        Ok(match addrs.addresses() {
+            None => (false, String::new(), String::new()),
+            Some(addrs) => (
+                true,
+                addrs[0].allocation_id().ok_or("could not parse allocation id")?.to_string(),
+                addrs[0].public_ip().ok_or("could not parse public ip")?.to_string(),
+            )
+        })
     }
 
     async fn associate_address(&self, instance_id: String, alloc_id: String) -> Result<(), Box<dyn Error + Send + Sync>> {

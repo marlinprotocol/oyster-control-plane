@@ -11,6 +11,7 @@ use std::fs;
 use whoami;
 use std::str::FromStr;
 use async_trait::async_trait;
+use aws_sdk_ec2::Client;
 
 use tokio_stream::StreamExt;
 use ethers::types::Log;
@@ -80,7 +81,7 @@ impl Logger for RealLogger {
 }
 #[derive(Clone)]
 pub struct RealAws {
-    pub aws_profile: String,
+    pub client: Client,
     pub key_name: String,
 }
 
@@ -91,7 +92,7 @@ impl AwsManager for RealAws {
         eif_url: &str,
         job: String,
         instance_type: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
-        let instance = launcher::spin_up(self.aws_profile.clone(), self.key_name.clone(), eif_url, job, instance_type).await?;
+        let instance = launcher::spin_up(&self.client, self.key_name.clone(), eif_url, job, instance_type).await?;
         Ok(instance)
     }
 
@@ -99,14 +100,14 @@ impl AwsManager for RealAws {
         &self,
         instance_id: &String
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
-        let _ = launcher::spin_down(self.aws_profile.clone(), instance_id).await?;
+        let _ = launcher::spin_down(&self.client, instance_id).await?;
         Ok(true)
     }
 
     async fn get_job_instance(
         &self,
         job: String) -> Result<(bool, String), Box<dyn Error + Send + Sync>> {
-        let (exist, instance) = launcher::get_job_instance(self.aws_profile.clone(), job).await;
+        let (exist, instance) = launcher::get_job_instance(&self.client, job).await;
         Ok((exist, instance))
     }
 }

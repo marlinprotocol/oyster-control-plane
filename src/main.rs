@@ -33,12 +33,21 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
 
     println!("{:?}", cli.region);
 
-    launcher::key_setup(cli.profile.clone(), cli.key_name.clone()).await?;
+    let credentials_provider = aws_config::profile::ProfileFileCredentialsProvider::builder()
+        .profile_name(&cli.profile)
+        .build();
+    let config = aws_config::from_env()
+        .credentials_provider(credentials_provider)
+        .load()
+        .await;
+    let client = aws_sdk_ec2::Client::new(&config);
 
-    let _ = tokio::spawn(server::serve(cli.profile.clone()));
+    launcher::key_setup(&client, cli.key_name.clone()).await?;
+
+    let _ = tokio::spawn(server::serve(client.clone()));
 
     market::JobsService::run(market::RealAws {
-        aws_profile: cli.profile,
+        client: client,
         key_name: cli.key_name,
     }, market::RealLogger {}, cli.rpc).await;
 

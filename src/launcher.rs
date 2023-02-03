@@ -1,4 +1,3 @@
-use aws_config::profile::ProfileFileCredentialsProvider;
 use aws_sdk_ec2::Client;
 use ssh2::Session;
 use std::fs::File;
@@ -12,18 +11,7 @@ use std::error::Error;
 
 /* AWS KEY PAIR UTILITY */
 
-pub async fn key_setup(aws_profile: String, key_name: String) -> Result<(), Box<dyn Error>> {
-    let credentials_provider = ProfileFileCredentialsProvider::builder()
-        .profile_name(&aws_profile)
-        .build();
-
-    let config = aws_config::from_env()
-        .credentials_provider(credentials_provider)
-        .load()
-        .await;
-
-    let client = aws_sdk_ec2::Client::new(&config);
-
+pub async fn key_setup(client: &Client, key_name: String) -> Result<(), Box<dyn Error>> {
     let key_check = check_key_pair(&client, &key_name).await;
     let key_location = "~/.ssh/".to_owned() + &key_name + ".pem";
 
@@ -211,18 +199,7 @@ async fn run_enclave(sess: &Session, url: &str, v_cpus: i32, mem: i64) -> Result
 
 /* AWS EC2 UTILITY */
 
-pub async fn get_instance_ip(aws_profile: String, instance_id: String) -> String {
-    let credentials_provider = ProfileFileCredentialsProvider::builder()
-        .profile_name(aws_profile.as_str())
-        .build();
-
-    let config = aws_config::from_env()
-        .credentials_provider(credentials_provider)
-        .load()
-        .await;
-
-    let client = aws_sdk_ec2::Client::new(&config);
-
+pub async fn get_instance_ip(client: &Client, instance_id: String) -> String {
     let resp = client
         .describe_instances()
         .instance_ids(instance_id.to_string())
@@ -256,8 +233,7 @@ pub async fn get_instance_ip(aws_profile: String, instance_id: String) -> String
     return String::new();
 }
 
-pub async fn launch_instance(aws_profile: String, client: &Client, key_name: String, job: String, instance_type: aws_sdk_ec2::model::InstanceType, image_url: &str, architecture: String) -> Result<String, Box<dyn Error + Send + Sync>> {
-
+pub async fn launch_instance(client: &Client, key_name: String, job: String, instance_type: aws_sdk_ec2::model::InstanceType, image_url: &str, architecture: String) -> Result<String, Box<dyn Error + Send + Sync>> {
     let mut size: i64 = 0;
     let req_client = reqwest::Client::builder()
             .no_gzip()
@@ -339,8 +315,8 @@ pub async fn launch_instance(aws_profile: String, client: &Client, key_name: Str
         .tags(job_tag)
         .tags(project_tag)
         .build();
-    let subnet = get_subnet(aws_profile.clone()).await;
-    let sec_group = get_security_group(aws_profile).await;
+    let subnet = get_subnet(client).await;
+    let sec_group = get_security_group(client).await;
 
 
     let resp = client
@@ -456,30 +432,18 @@ async fn get_amis(client: &Client) -> (String, String) {
     return (x86_ami, arm_ami);
 }
 
-pub async fn get_security_group(aws_profile: String) -> String {
+pub async fn get_security_group(client: &Client) -> String {
     let sec_group = String::new();
-
-    let credentials_provider = ProfileFileCredentialsProvider::builder()
-        .profile_name(aws_profile.as_str())
-        .build();
-
-    let config = aws_config::from_env()
-        .credentials_provider(credentials_provider)
-        .load()
-        .await;
-
-    let client = aws_sdk_ec2::Client::new(&config);
-
     let filter = aws_sdk_ec2::model::Filter::builder()
         .name("tag:project")
         .values("oyster")
         .build();
 
     let resp = client
-    .describe_security_groups()
-    .filters(filter)
-    .send()
-    .await;
+        .describe_security_groups()
+        .filters(filter)
+        .send()
+        .await;
 
     match resp {
         Ok(res) => {
@@ -508,19 +472,8 @@ pub async fn get_security_group(aws_profile: String) -> String {
     sec_group
 }
 
-pub async fn get_subnet(aws_profile: String) -> String {
+pub async fn get_subnet(client: &Client) -> String {
     let subnet = String::new();
-
-    let credentials_provider = ProfileFileCredentialsProvider::builder()
-        .profile_name(aws_profile.as_str())
-        .build();
-
-    let config = aws_config::from_env()
-        .credentials_provider(credentials_provider)
-        .load()
-        .await;
-
-    let client = aws_sdk_ec2::Client::new(&config);
 
     let filter = aws_sdk_ec2::model::Filter::builder()
         .name("tag:project")
@@ -528,10 +481,10 @@ pub async fn get_subnet(aws_profile: String) -> String {
         .build();
 
     let resp = client
-    .describe_subnets()
-    .filters(filter)
-    .send()
-    .await;
+        .describe_subnets()
+        .filters(filter)
+        .send()
+        .await;
 
     match resp {
         Ok(res) => {
@@ -560,18 +513,7 @@ pub async fn get_subnet(aws_profile: String) -> String {
     subnet
 }
 
-pub async fn get_job_instance(aws_profile: String, job: String) -> (bool, String) {
-    let credentials_provider = ProfileFileCredentialsProvider::builder()
-        .profile_name(aws_profile.as_str())
-        .build();
-
-    let config = aws_config::from_env()
-        .credentials_provider(credentials_provider)
-        .load()
-        .await;
-
-    let client = aws_sdk_ec2::Client::new(&config);
-
+pub async fn get_job_instance(client: &Client, job: String) -> (bool, String) {
     let resp = client.describe_instances().send().await;
 
     match resp {
@@ -610,17 +552,7 @@ pub async fn get_job_instance(aws_profile: String, job: String) -> (bool, String
     return (false, String::new());
 }
 
-pub async fn spin_up(aws_profile: String, key_name: String, image_url: &str, job: String, instance_type: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
-    let credentials_provider = ProfileFileCredentialsProvider::builder()
-        .profile_name(aws_profile.as_str())
-        .build();
-
-    let config = aws_config::from_env()
-        .credentials_provider(credentials_provider)
-        .load()
-        .await;
-
-    let client = aws_sdk_ec2::Client::new(&config);
+pub async fn spin_up(client: &Client, key_name: String, image_url: &str, job: String, instance_type: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
     let ec2_type = aws_sdk_ec2::model::InstanceType::from_str(instance_type).unwrap_or_else(|e| {
         println!("ERROR: parsing instance_type, setting default, {}", e);
         return aws_sdk_ec2::model::InstanceType::C6aXlarge;
@@ -678,7 +610,7 @@ pub async fn spin_up(aws_profile: String, key_name: String, image_url: &str, job
         println!("ERROR: parsing instance_type, setting default, {}", e);
         return aws_sdk_ec2::model::InstanceType::C6aXlarge;
     });
-    let instance = launch_instance(aws_profile.clone(), &client, key_name.clone(), job, instance_type, image_url, architecture).await;
+    let instance = launch_instance(client, key_name.clone(), job, instance_type, image_url, architecture).await;
     if let Err(err) = instance {
         println!("ERROR: error launching instance, {}", err);
         return Err("error launching instance".into());
@@ -686,7 +618,7 @@ pub async fn spin_up(aws_profile: String, key_name: String, image_url: &str, job
     let instance = instance.unwrap();
     sleep(Duration::from_secs(100)).await;
 
-    let mut public_ip_address = get_instance_ip(aws_profile, instance.to_string()).await;
+    let mut public_ip_address = get_instance_ip(client, instance.to_string()).await;
     if public_ip_address.len() == 0 {
         return Err("error fetching instance ip address".into());
     }
@@ -708,17 +640,7 @@ pub async fn spin_up(aws_profile: String, key_name: String, image_url: &str, job
 
 }
 
-pub async fn spin_down(aws_profile: String, instance_id: &String) -> Result<(), Box<dyn Error + Send + Sync>>{
-    let credentials_provider = ProfileFileCredentialsProvider::builder()
-        .profile_name(aws_profile.as_str())
-        .build();
-
-    let config = aws_config::from_env()
-        .credentials_provider(credentials_provider)
-        .load()
-        .await;
-
-    let client = aws_sdk_ec2::Client::new(&config);
+pub async fn spin_down(client: &Client, instance_id: &String) -> Result<(), Box<dyn Error + Send + Sync>>{
     let _ = terminate_instance(&client, &instance_id).await?;
     Ok(())
 }

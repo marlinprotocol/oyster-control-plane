@@ -8,35 +8,36 @@ use tokio::time::{sleep, Duration};
 use std::str::FromStr;
 use std::error::Error;
 use async_trait::async_trait;
-
+use aws_types::region::Region;
 use crate::market::AwsManager;
 
 
 #[derive(Clone)]
 pub struct Aws {
-    client: aws_sdk_ec2::Client,
+    aws_profile: String,
     key_name: String,
     // Path cannot be cloned, hence String
     key_location: String,
 }
 
 impl Aws {
-    pub async fn new(aws_profile: &str, key_name: String) -> Aws {
-        let credentials_provider = aws_config::profile::ProfileFileCredentialsProvider::builder()
-            .profile_name(aws_profile)
-            .build();
-        let config = aws_config::from_env()
-            .credentials_provider(credentials_provider)
-            .load()
-            .await;
-        let client = aws_sdk_ec2::Client::new(&config);
+    pub async fn new(aws_profile: String, key_name: String) -> Aws {
         let key_location = "~/.ssh/".to_owned() + &key_name + ".pem";
 
         return Aws {
-            client: client,
+            aws_profile: aws_profile,
             key_name: key_name,
             key_location: key_location,
         };
+    }
+
+    async fn client(&self, region: String) -> aws_sdk_ec2::Client {
+        let config = aws_config::from_env()
+            .profile_name(&self.aws_profile)
+            .region(Region::new(region))
+            .load()
+            .await;
+        return aws_sdk_ec2::Client::new(&config);
     }
 
     /* AWS KEY PAIR UTILITY */
@@ -62,7 +63,7 @@ impl Aws {
     }
 
     async fn create_key_pair(&self) -> Result<(), Box<dyn Error>> {
-        let resp = self.client
+        let resp = self.client("us-east-1".to_owned()).await
             .create_key_pair()
             .key_name(&self.key_name)
             .set_key_type(Some(aws_sdk_ec2::model::KeyType::Ed25519))
@@ -98,7 +99,7 @@ impl Aws {
     }
 
     async fn check_key_pair(&self) -> bool {
-        let resp = self.client
+        let resp = self.client("us-east-1".to_owned()).await
             .describe_key_pairs()
             .key_names(&self.key_name)
             .send()
@@ -225,7 +226,7 @@ impl Aws {
     /* AWS EC2 UTILITY */
 
     pub async fn get_instance_ip(&self, instance_id: String) -> String {
-        let resp = self.client
+        let resp = self.client("us-east-1".to_owned()).await
             .describe_instances()
             .instance_ids(instance_id.to_string())
             .send()
@@ -344,7 +345,7 @@ impl Aws {
         let sec_group = self.get_security_group().await;
 
 
-        let resp = self.client
+        let resp = self.client("us-east-1".to_owned()).await
             .run_instances()
             .set_image_id(Some(instance_ami))
             .set_instance_type(Some(instance_type))
@@ -389,7 +390,7 @@ impl Aws {
     }
 
     async fn terminate_instance(&self, instance_id: &String) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let _resp = self.client
+        let _resp = self.client("us-east-1".to_owned()).await
             .terminate_instances()
             .instance_ids(instance_id)
             .send()
@@ -421,7 +422,7 @@ impl Aws {
             .values("oyster")
             .build();
 
-        let resp = self.client
+        let resp = self.client("us-east-1".to_owned()).await
                 .describe_images()
                 .owners("self")
                 .filters(filter)
@@ -464,7 +465,7 @@ impl Aws {
             .values("oyster")
             .build();
 
-        let resp = self.client
+        let resp = self.client("us-east-1".to_owned()).await
             .describe_security_groups()
             .filters(filter)
             .send()
@@ -505,7 +506,7 @@ impl Aws {
             .values("oyster")
             .build();
 
-        let resp = self.client
+        let resp = self.client("us-east-1".to_owned()).await
             .describe_subnets()
             .filters(filter)
             .send()
@@ -539,7 +540,7 @@ impl Aws {
     }
 
     pub async fn get_job_instance(&self, job: String) -> (bool, String) {
-        let resp = self.client.describe_instances().send().await;
+        let resp = self.client("us-east-1".to_owned()).await.describe_instances().send().await;
 
         match resp {
             Ok(res) => {
@@ -582,7 +583,7 @@ impl Aws {
             println!("ERROR: parsing instance_type, setting default, {}", e);
             return aws_sdk_ec2::model::InstanceType::C6aXlarge;
         });
-        let resp = self.client
+        let resp = self.client("us-east-1".to_owned()).await
                 .describe_instance_types()
                 .instance_types(ec2_type)
                 .send()

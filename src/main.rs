@@ -33,7 +33,7 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
 
     println!("{:?}", cli.region);
 
-    let aws = aws::Aws::new(&cli.profile, cli.key_name).await;
+    let aws = aws::Aws::new(cli.profile, cli.key_name).await;
 
     aws.key_setup().await?;
 

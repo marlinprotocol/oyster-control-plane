@@ -345,8 +345,8 @@ impl Aws {
             .tags(job_tag)
             .tags(project_tag)
             .build();
-        let subnet = self.get_subnet().await;
-        let sec_group = self.get_security_group().await;
+        let subnet = self.get_subnet().await?;
+        let sec_group = self.get_security_group().await?;
 
 
         let resp = self.client("us-east-1".to_owned()).await
@@ -462,85 +462,40 @@ impl Aws {
         return (x86_ami, arm_ami);
     }
 
-    pub async fn get_security_group(&self) -> String {
-        let sec_group = String::new();
+    pub async fn get_security_group(&self) -> Result<String, Box<dyn Error + Send + Sync>> {
         let filter = aws_sdk_ec2::model::Filter::builder()
             .name("tag:project")
             .values("oyster")
             .build();
 
-        let resp = self.client("us-east-1".to_owned()).await
+        Ok(self.client("us-east-1".to_owned()).await
             .describe_security_groups()
             .filters(filter)
             .send()
-            .await;
-
-        match resp {
-            Ok(res) => {
-                let groups = res.security_groups();
-                if groups.is_none() {
-                    println!("WARNING: oyster security groups not found");
-                    return sec_group;
-                }
-                for group in groups.unwrap() {
-                    let tags = group.tags();
-                    if tags.is_none() {
-                        continue;
-                    }
-                    for tagpair in  tags.unwrap() {
-                        if "project" == tagpair.key().unwrap_or("") && "oyster" == tagpair.value().unwrap_or("") {
-
-                            return group.group_id().unwrap_or("").to_string()
-                        }
-                    }
-                }
-            }
-            Err(e) => {
-                println!("ERROR: {}", e.to_string());
-            }
-        }
-        sec_group
+            .await?
+            // response parsing from here
+            .security_groups()
+            .ok_or("Could not parse security groups")?[0]
+            .group_id().ok_or("Could not parse group id")?
+            .to_string())
     }
 
-    pub async fn get_subnet(&self) -> String {
-        let subnet = String::new();
-
+    pub async fn get_subnet(&self) -> Result<String, Box<dyn Error + Send + Sync>> {
         let filter = aws_sdk_ec2::model::Filter::builder()
             .name("tag:project")
             .values("oyster")
             .build();
 
-        let resp = self.client("us-east-1".to_owned()).await
+        Ok(self.client("us-east-1".to_owned()).await
             .describe_subnets()
             .filters(filter)
             .send()
-            .await;
-
-        match resp {
-            Ok(res) => {
-                let subnets = res.subnets();
-                if subnets.is_none() {
-                    println!("WARNING: Oyster Subnet not found");
-                    return subnet;
-                }
-                for subnet in subnets.unwrap() {
-                    let tags = subnet.tags();
-                    if tags.is_none() {
-                        continue;
-                    }
-                    for tagpair in  tags.unwrap() {
-                        if "project" == tagpair.key().unwrap_or("") && "oyster" == tagpair.value().unwrap_or("") {
-                            println!("{}", subnet.subnet_id().unwrap_or(""));
-                            return  subnet.subnet_id().unwrap_or("").to_string();
-                        }
-                    }
-                }
-            }
-            Err(e) => {
-                println!("ERROR: {}", e.to_string());
-            }
-        }
-        subnet
+            .await?
+            // response parsing from here
+            .subnets()
+            .ok_or("Could not parse subnets")?[0]
+            .subnet_id().ok_or("Could not parse subnet id")?
+            .to_string())
     }
 
     pub async fn get_job_instance(&self, job: String) -> (bool, String) {

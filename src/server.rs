@@ -2,7 +2,7 @@ use std::net::{TcpStream, TcpListener};
 use std::io::{Read, Write};
 use crate::launcher;
 
-async fn handle_read(mut stream: &TcpStream) -> String {
+async fn handle_read(aws_profile: String, mut stream: &TcpStream) -> String {
     let mut buf = [0u8 ;4096];
     match stream.read(&mut buf) {
         Ok(_) => {
@@ -14,7 +14,7 @@ async fn handle_read(mut stream: &TcpStream) -> String {
             if body.nth(1).unwrap() == "id" {
                 let id = body.next().unwrap();
                 if body.next().unwrap() == "ip" {
-                    let (exist, ip) = get_ip(id.to_string()).await;
+                    let (exist, ip) = get_ip(aws_profile, id.to_string()).await;
                     let res = "{\"id\": \"".to_owned()+ ip.as_str() +"\"}";
                     let len = res.len();
                     if exist {
@@ -22,7 +22,7 @@ async fn handle_read(mut stream: &TcpStream) -> String {
                     } else {
                         return String::from("HTTP/1.1 404 Not Found\r\n");
                     }
-                    
+
                 } else {
                     return String::from("HTTP/1.1 400 Bad Request\r\n");
                 }
@@ -44,10 +44,10 @@ async fn handle_write(mut stream: TcpStream, response: String) {
     }
 }
 
-async fn get_ip(id: String) -> (bool, String) {
-    let (exists, instance) = launcher::get_job_instance(id).await;
+async fn get_ip(aws_profile: String, id: String) -> (bool, String) {
+    let (exists, instance) = launcher::get_job_instance(aws_profile.clone(), id).await;
     if exists {
-        let ip = launcher::get_instance_ip(instance).await;
+        let ip = launcher::get_instance_ip(aws_profile, instance).await;
         return (true, ip);
     } else {
         return (false, String::new());
@@ -55,20 +55,20 @@ async fn get_ip(id: String) -> (bool, String) {
 
 }
 
-async fn handle_client(stream: TcpStream) {
-    let response = handle_read(&stream).await;
+async fn handle_client(aws_profile: String, stream: TcpStream) {
+    let response = handle_read(aws_profile, &stream).await;
 
     handle_write(stream, response).await;
 }
 
-pub async fn serve() {
+pub async fn serve(aws_profile: String) {
     let listener = TcpListener::bind("127.0.0.1:8080").unwrap();
     println!("Listening for connections on port {}", 8080);
 
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                handle_client(stream).await;
+                handle_client(aws_profile.clone(), stream).await;
             }
             Err(e) => {
                 println!("Unable to connect: {}", e);

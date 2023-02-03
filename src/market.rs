@@ -79,7 +79,10 @@ impl Logger for RealLogger {
     }
 }
 #[derive(Clone)]
-pub struct RealAws {}
+pub struct RealAws {
+    pub aws_profile: String,
+    pub key_name: String,
+}
 
 #[async_trait]
 impl AwsManager for RealAws {
@@ -88,7 +91,7 @@ impl AwsManager for RealAws {
         eif_url: &str,
         job: String,
         instance_type: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
-        let instance = launcher::spin_up(eif_url, job, instance_type).await?;
+        let instance = launcher::spin_up(self.aws_profile.clone(), self.key_name.clone(), eif_url, job, instance_type).await?;
         Ok(instance)
     }
 
@@ -96,14 +99,14 @@ impl AwsManager for RealAws {
         &self,
         instance_id: &String
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
-        let _ = launcher::spin_down(instance_id).await?;
+        let _ = launcher::spin_down(self.aws_profile.clone(), instance_id).await?;
         Ok(true)
     }
 
     async fn get_job_instance(
         &self,
         job: String) -> Result<(bool, String), Box<dyn Error + Send + Sync>> {
-        let (exist, instance) = launcher::get_job_instance(job).await;
+        let (exist, instance) = launcher::get_job_instance(self.aws_profile.clone(), job).await;
         Ok((exist, instance))
     }
 }
@@ -301,7 +304,7 @@ impl JobsService {
                                     println!("job {}: Error reading metadata: {}", job, err);
                                     break 'main;
                                 }
-                    
+
                                 let v: Value = v.unwrap();
 
                                 let r = v["instance"].as_str();

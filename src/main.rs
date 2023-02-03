@@ -3,15 +3,44 @@ mod market;
 mod server;
 
 use std::error::Error;
+use clap::Parser;
+
+
+#[derive(Parser)]
+#[clap(author, version, about, long_about = None)]
+/// Control plane for Oyster
+struct Cli {
+    /// AWS profile
+    #[clap(short, long, value_parser)]
+    profile: String,
+
+    /// AWS keypair name
+    #[clap(short, long, value_parser)]
+    key_name: String,
+
+    /// AWS regions
+    #[clap(short, long, value_parser)]
+    region: Vec<String>,
+
+    /// RPC url
+    #[clap(short, long, value_parser)]
+    rpc: String,
+}
 
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn Error>> {
-    launcher::key_setup().await?;
+    let cli = Cli::parse();
 
-    let _ = tokio::spawn(server::serve());
+    println!("{:?}", cli.region);
 
-    market::JobsService::run(market::RealAws {}, market::RealLogger {}, "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string())
-        .await;
+    launcher::key_setup(cli.profile.clone(), cli.key_name.clone()).await?;
+
+    let _ = tokio::spawn(server::serve(cli.profile.clone()));
+
+    market::JobsService::run(market::RealAws {
+        aws_profile: cli.profile,
+        key_name: cli.key_name,
+    }, market::RealLogger {}, cli.rpc).await;
 
     Ok(())
 }

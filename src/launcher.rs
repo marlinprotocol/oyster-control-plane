@@ -8,17 +8,13 @@ use std::path::Path;
 use std::process::Command;
 use tokio::time::{sleep, Duration};
 use std::str::FromStr;
-use clap::Parser;
 use std::error::Error;
 
 /* AWS KEY PAIR UTILITY */
 
-pub async fn key_setup() -> Result<(), Box<dyn Error>> {
-
-    let (aws_profile, key_pair_name, key_location) = get_envs();
-
+pub async fn key_setup(aws_profile: String, key_name: String) -> Result<(), Box<dyn Error>> {
     let credentials_provider = ProfileFileCredentialsProvider::builder()
-        .profile_name(aws_profile.as_str())
+        .profile_name(&aws_profile)
         .build();
 
     let config = aws_config::from_env()
@@ -28,7 +24,8 @@ pub async fn key_setup() -> Result<(), Box<dyn Error>> {
 
     let client = aws_sdk_ec2::Client::new(&config);
 
-    let key_check = check_key_pair(&client, &key_pair_name).await;
+    let key_check = check_key_pair(&client, &key_name).await;
+    let key_location = "~/.ssh/".to_owned() + &key_name + ".pem";
 
     let file_check = Path::new(key_location.as_str()).exists();
     if !file_check {
@@ -36,7 +33,7 @@ pub async fn key_setup() -> Result<(), Box<dyn Error>> {
     }
 
     if !(key_check || file_check) {
-        create_key_pair(&client, &key_pair_name, key_location.as_str()).await?;
+        create_key_pair(&client, &key_name, key_location.as_str()).await?;
     } else if key_check && file_check {
         println!("Found existing keypair and pem file");
     } else {
@@ -214,9 +211,7 @@ async fn run_enclave(sess: &Session, url: &str, v_cpus: i32, mem: i64) -> Result
 
 /* AWS EC2 UTILITY */
 
-pub async fn get_instance_ip(instance_id: String) -> String {
-    let (aws_profile, _, _) = get_envs();
-
+pub async fn get_instance_ip(aws_profile: String, instance_id: String) -> String {
     let credentials_provider = ProfileFileCredentialsProvider::builder()
         .profile_name(aws_profile.as_str())
         .build();
@@ -261,7 +256,7 @@ pub async fn get_instance_ip(instance_id: String) -> String {
     return String::new();
 }
 
-pub async fn launch_instance(client: &Client, key_pair_name: String, job: String, instance_type: aws_sdk_ec2::model::InstanceType, image_url: &str, architecture: String) -> Result<String, Box<dyn Error + Send + Sync>> {
+pub async fn launch_instance(aws_profile: String, client: &Client, key_name: String, job: String, instance_type: aws_sdk_ec2::model::InstanceType, image_url: &str, architecture: String) -> Result<String, Box<dyn Error + Send + Sync>> {
 
     let mut size: i64 = 0;
     let req_client = reqwest::Client::builder()
@@ -344,15 +339,15 @@ pub async fn launch_instance(client: &Client, key_pair_name: String, job: String
         .tags(job_tag)
         .tags(project_tag)
         .build();
-    let subnet = get_subnet().await;
-    let sec_group = get_security_group().await;
+    let subnet = get_subnet(aws_profile.clone()).await;
+    let sec_group = get_security_group(aws_profile).await;
 
 
     let resp = client
         .run_instances()
         .set_image_id(Some(instance_ami))
         .set_instance_type(Some(instance_type))
-        .set_key_name(Some(key_pair_name))
+        .set_key_name(Some(key_name))
         .set_min_count(Some(1))
         .set_max_count(Some(1))
         .set_enclave_options(Some(enclave_options))
@@ -461,9 +456,8 @@ async fn get_amis(client: &Client) -> (String, String) {
     return (x86_ami, arm_ami);
 }
 
-pub async fn get_security_group() -> String {
+pub async fn get_security_group(aws_profile: String) -> String {
     let sec_group = String::new();
-    let (aws_profile, _, _) = get_envs();
 
     let credentials_provider = ProfileFileCredentialsProvider::builder()
         .profile_name(aws_profile.as_str())
@@ -514,9 +508,8 @@ pub async fn get_security_group() -> String {
     sec_group
 }
 
-pub async fn get_subnet() -> String {
+pub async fn get_subnet(aws_profile: String) -> String {
     let subnet = String::new();
-    let (aws_profile, _, _) = get_envs();
 
     let credentials_provider = ProfileFileCredentialsProvider::builder()
         .profile_name(aws_profile.as_str())
@@ -567,9 +560,7 @@ pub async fn get_subnet() -> String {
     subnet
 }
 
-pub async fn get_job_instance(job: String) -> (bool, String) {
-    let (aws_profile, _, _) = get_envs();
-
+pub async fn get_job_instance(aws_profile: String, job: String) -> (bool, String) {
     let credentials_provider = ProfileFileCredentialsProvider::builder()
         .profile_name(aws_profile.as_str())
         .build();
@@ -619,32 +610,7 @@ pub async fn get_job_instance(job: String) -> (bool, String) {
     return (false, String::new());
 }
 
-fn get_envs() -> (String, String, String) {
-    #[derive(Parser)]
-    #[clap(about)]
-    /// Control plane for enclaves support with the oyster update
-    struct Cli {
-        /// AWS profile
-        #[clap(short, long, value_parser)]
-        profile: String,
-
-        /// AWS keypair name
-        #[clap(short, long, value_parser)]
-        key_name: String,
-
-        /// Keypair private key file location
-        #[clap(short, long, value_parser)]
-        loc: String,
-    }
-    let cli = Cli::parse();
-
-    return (cli.profile, cli.key_name, cli.loc);
-}
-
-pub async fn spin_up(image_url: &str, job: String, instance_type: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
-    let (aws_profile, key_pair_name, key_location) = get_envs();
-
-
+pub async fn spin_up(aws_profile: String, key_name: String, image_url: &str, job: String, instance_type: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
     let credentials_provider = ProfileFileCredentialsProvider::builder()
         .profile_name(aws_profile.as_str())
         .build();
@@ -712,7 +678,7 @@ pub async fn spin_up(image_url: &str, job: String, instance_type: &str) -> Resul
         println!("ERROR: parsing instance_type, setting default, {}", e);
         return aws_sdk_ec2::model::InstanceType::C6aXlarge;
     });
-    let instance = launch_instance(&client, key_pair_name, job, instance_type, image_url, architecture).await;
+    let instance = launch_instance(aws_profile.clone(), &client, key_name.clone(), job, instance_type, image_url, architecture).await;
     if let Err(err) = instance {
         println!("ERROR: error launching instance, {}", err);
         return Err("error launching instance".into());
@@ -720,11 +686,12 @@ pub async fn spin_up(image_url: &str, job: String, instance_type: &str) -> Resul
     let instance = instance.unwrap();
     sleep(Duration::from_secs(100)).await;
 
-    let mut public_ip_address = get_instance_ip(instance.to_string()).await;
+    let mut public_ip_address = get_instance_ip(aws_profile, instance.to_string()).await;
     if public_ip_address.len() == 0 {
         return Err("error fetching instance ip address".into());
     }
     public_ip_address.push_str(":22");
+    let key_location = "~/.ssh/".to_owned() + &key_name + ".pem";
     let sess = ssh_connect(public_ip_address, key_location).await;
     match sess {
         Ok(r) => {
@@ -741,9 +708,7 @@ pub async fn spin_up(image_url: &str, job: String, instance_type: &str) -> Resul
 
 }
 
-pub async fn spin_down(instance_id: &String) -> Result<(), Box<dyn Error + Send + Sync>>{
-    let (aws_profile, _, _) = get_envs();
-
+pub async fn spin_down(aws_profile: String, instance_id: &String) -> Result<(), Box<dyn Error + Send + Sync>>{
     let credentials_provider = ProfileFileCredentialsProvider::builder()
         .profile_name(aws_profile.as_str())
         .build();

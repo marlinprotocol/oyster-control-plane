@@ -506,7 +506,7 @@ impl Aws {
     }
 
     async fn allocate_ip_addr(&self, job: String) -> Result<(String, String), Box<dyn Error + Send + Sync>> {
-        let (exist, alloc_id, public_ip) = self.get_job_elastic_ip(job.clone()).await;
+        let (exist, alloc_id, public_ip) = self.get_job_elastic_ip(job.clone()).await?;
 
         if exist {
             println!("Elastic Ip already exists");
@@ -557,7 +557,7 @@ impl Aws {
         }
     }
 
-    async fn get_job_elastic_ip(&self, job: String) -> (bool, String, String) {
+    async fn get_job_elastic_ip(&self, job: String) -> Result<(bool, String, String), Box<dyn Error + Send + Sync>> {
         let filter_a = aws_sdk_ec2::model::Filter::builder()
                 .name("tag:project")
                 .values("oyster")
@@ -568,41 +568,21 @@ impl Aws {
                 .values(job.clone())
                 .build();
 
-        let resp = self.client("us-east-1".to_owned()).await
+        let addr = self.client("us-east-1".to_owned()).await
                 .describe_addresses()
                 .filters(filter_a)
                 .filters(filter_b)
                 .send()
-                .await;
+                .await?
+                // response parsing from here
+                .addresses()
+                .ok_or("could not parse addresses")?[0].clone();
 
-        match resp {
-            Ok(resp) => {
-                let addrs = resp.addresses();
-                if addrs.is_none() {
-                    return (false, String::new(), String::new());
-                }
-                for addr in addrs.unwrap() {
-                    let ip = addr.public_ip();
-                    let alloc_id = addr.allocation_id();
-                    let tags = addr.tags();
-                    if ip.is_none() || alloc_id.is_none() || tags.is_none() {
-                        continue;
-                    }
-                    for tag in tags.unwrap() {
-                        if tag.key().unwrap_or("") == "jobId" && tag.value().unwrap_or("").to_string() == job
-                        {
-                            println!("Alloc: {}, IP: {}", alloc_id.unwrap(), ip.unwrap());
-                            return (true, alloc_id.unwrap().into(), ip.unwrap().into());
-                        }
-                    }
-                }
-            },
-            Err(e) => {
-                println!("ERROR: failed to fetch address, {}", e);
-                return (false, String::new(), String::new());
-            }
-        }
-        return (false, String::new(), String::new());
+        Ok((
+            true,
+            addr.allocation_id().ok_or("could not parse allocation id")?.to_string(),
+            addr.public_ip().ok_or("could not parse public ip")?.to_string(),
+        ))
     }
 
     async fn associate_address(&self, instance_id: String, alloc_id: String) -> Result<(), Box<dyn Error + Send + Sync>> {

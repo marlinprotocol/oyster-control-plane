@@ -49,7 +49,10 @@ async fn get_ip(client: &Aws, id: String) -> (bool, String) {
     let (exists, instance) = client.get_job_instance(id).await;
     if exists {
         let ip = client.get_instance_ip(instance).await;
-        return (true, ip);
+        match ip {
+        Ok(ip) => (true, ip),
+        Err(_) => (false, String::new())
+        }
     } else {
         return (false, String::new());
     }

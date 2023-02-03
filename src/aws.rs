@@ -229,38 +229,20 @@ impl Aws {
 
     /* AWS EC2 UTILITY */
 
-    pub async fn get_instance_ip(&self, instance_id: String) -> String {
-        let resp = self.client("us-east-1".to_owned()).await
+    pub async fn get_instance_ip(&self, instance_id: String) -> Result<String, Box<dyn Error + Send + Sync>> {
+        Ok(self.client("us-east-1".to_owned()).await
             .describe_instances()
             .instance_ids(instance_id.to_string())
             .send()
-            .await;
-
-        match resp {
-            Ok(res) => {
-                let reservations = res.reservations();
-                if reservations.is_none() {
-                    return String::new();
-                }
-                for reservation in reservations.unwrap() {
-                    let instances = reservation.instances();
-                    if instances.is_none() {
-                        continue;
-                    }
-                    for instance in instances.unwrap() {
-                        let ip = instance.public_ip_address();
-                        if ip.is_some() {
-                            return ip.unwrap().to_string();
-                        }
-                    }
-                }
-            }
-            Err(e) => {
-                println!("ERROR: {}", e.to_string());
-            }
-        }
-
-        return String::new();
+            .await?
+            // response parsing from here
+            .reservations()
+            .ok_or("could not parse reservations")?[0]
+            .instances()
+            .ok_or("could not parse instances")?[0]
+            .public_ip_address()
+            .ok_or("could not parse ip address")?
+            .to_string())
     }
 
     pub async fn launch_instance(&self, job: String, instance_type: aws_sdk_ec2::model::InstanceType, image_url: &str, architecture: String) -> Result<String, Box<dyn Error + Send + Sync>> {
@@ -720,7 +702,7 @@ impl Aws {
         println!("Elastic Ip allocated: {}", ip);
 
         self.associate_address(instance.clone(), alloc_id).await?;
-        let mut public_ip_address = self.get_instance_ip(instance.to_string()).await;
+        let mut public_ip_address = self.get_instance_ip(instance.to_string()).await?;
         if public_ip_address.len() == 0 {
             return Err("error fetching instance ip address".into());
         }

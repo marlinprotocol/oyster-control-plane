@@ -1,23 +1,19 @@
 use aws_config::profile::ProfileFileCredentialsProvider;
 use aws_sdk_ec2::Client;
-use aws_sdk_ec2::Error;
 use ssh2::Session;
-use std::fs;
 use std::fs::File;
-use std::io;
-use std::io::prelude::*;
+use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::os::linux::fs::MetadataExt;
 use std::path::Path;
 use std::process::Command;
 use tokio::time::{sleep, Duration};
 use std::str::FromStr;
 use clap::Parser;
-use std::error;
+use std::error::Error;
 
 /* AWS KEY PAIR UTILITY */
 
-pub async fn key_setup() -> Result<(), Box<dyn error::Error>> {
+pub async fn key_setup() -> Result<(), Box<dyn Error>> {
 
     let (aws_profile, key_pair_name, key_location) = get_envs();
 
@@ -45,13 +41,13 @@ pub async fn key_setup() -> Result<(), Box<dyn error::Error>> {
         println!("Found existing keypair and pem file");
     } else {
         println!("ERROR: either key or file exists but not both");
-        return Err(Box::<dyn error::Error>::from("Key setup failed"));
+        return Err("Key setup failed".into());
     }
 
     return Ok(());
 }
 
-async fn create_key_pair(client: &Client, name: &String, location: &str) -> Result<(), Box<dyn error::Error>> {
+async fn create_key_pair(client: &Client, name: &String, location: &str) -> Result<(), Box<dyn Error>> {
     let resp = client
         .create_key_pair()
         .key_name(name)
@@ -66,13 +62,13 @@ async fn create_key_pair(client: &Client, name: &String, location: &str) -> Resu
             let key_material = res.key_material();
             if key_material.is_none() {
                 println!("ERROR: extracting private key");
-                return Err(Box::<dyn error::Error>::from("Failed to create private key"));
+                return Err(Box::<dyn Error>::from("Failed to create private key"));
             }
             fingerprint.push_str(key_material.unwrap());
         }
         Err(e) => {
             println!("ERROR: {}", e.to_string());
-            return Err(Box::<dyn error::Error>::from("Keypair creation failed"));
+            return Err("Keypair creation failed".into());
         }
     }
 
@@ -81,7 +77,7 @@ async fn create_key_pair(client: &Client, name: &String, location: &str) -> Resu
     let display = path.display();
 
     let mut file = File::create(&path)?;
-    file.write_all(fingerprint.as_bytes())?; 
+    file.write_all(fingerprint.as_bytes())?;
     let mut cmd = Command::new("chmod");
     cmd.arg("400");
     cmd.arg("/home/nisarg/one.pem");
@@ -118,9 +114,9 @@ async fn check_key_pair(client: &Client, name: &String) -> bool {
 
 /* SSH UTILITY */
 
-async fn ssh_connect(ip_address: String, key_location: String) -> Result<Session, Box<dyn error::Error + Send + Sync>> {
+async fn ssh_connect(ip_address: String, key_location: String) -> Result<Session, Box<dyn Error + Send + Sync>> {
     let tcp = TcpStream::connect(&ip_address)?;
-    
+
     let mut sess = Session::new()?;
 
     sess.set_tcp_stream(tcp);
@@ -130,14 +126,14 @@ async fn ssh_connect(ip_address: String, key_location: String) -> Result<Session
     return Ok(sess);
 }
 
-async fn run_enclave(sess: &Session, url: &str, v_cpus: i32, mem: i64) -> Result<(), Box<dyn error::Error + Send + Sync>>{
+async fn run_enclave(sess: &Session, url: &str, v_cpus: i32, mem: i64) -> Result<(), Box<dyn Error + Send + Sync>>{
     let mut channel = sess.channel_session()?;
     let mut s = String::new();
     channel
         .exec(
             &("echo -e '---\\nmemory_mib: ".to_owned() + &((mem-2048).to_string()) + "\\ncpu_count: " + &((v_cpus-2).to_string()) + "' >> /home/ubuntu/allocator_new.yaml"),
         )?;
-    
+
     let _ = channel.read_to_string(&mut s);
     let _ = channel.wait_close();
     println!("{}", s);
@@ -217,69 +213,7 @@ async fn run_enclave(sess: &Session, url: &str, v_cpus: i32, mem: i64) -> Result
     Ok(())
 }
 
-#[allow(dead_code)]
-async fn terminate_enclave(sess: &Session) {
-    let mut channel = sess.channel_session().unwrap();
-    channel.exec("nitro-cli terminate-enclave --all").unwrap();
-    let mut s = String::new();
-    channel.read_to_string(&mut s).unwrap();
-    println!("{}", s);
-    let _close = channel.wait_close();
-}
-
-#[allow(dead_code)]
-async fn copy_eif(sess: &Session, eif_path: String) -> io::Result<()> {
-    let meta = fs::metadata(eif_path.as_str())?;
-    let sz = meta.st_size();
-    let mut remote_file = sess.scp_send(&Path::new("/home/ubuntu/gg.txt"), 0o777, sz, None)?;
-    let data = get_file_as_byte_vec(&eif_path);
-    let _written = remote_file.write_all(&data);
-
-    remote_file.send_eof().unwrap();
-    remote_file.wait_eof().unwrap();
-    remote_file.close().unwrap();
-    remote_file.wait_close().unwrap();
-    println!("eif file copied");
-    Ok(())
-}
-
-#[allow(dead_code)]
-fn get_file_as_byte_vec(filename: &String) -> Vec<u8> {
-    let mut f = File::open(&filename).expect("no file found");
-    let metadata = fs::metadata(&filename).expect("unable to read metadata");
-    let mut buffer = vec![0; metadata.len() as usize];
-    f.read(&mut buffer).expect("buffer overflow");
-
-    buffer
-}
-
 /* AWS EC2 UTILITY */
-
-#[allow(dead_code)]
-async fn show_state(client: &Client) -> Result<(), Error> {
-    let resp = client.describe_instances().send().await;
-
-    match resp {
-        Ok(res) => {
-            println!("Instances present :");
-            for reservation in res.reservations().unwrap_or_default() {
-                for instance in reservation.instances().unwrap_or_default() {
-                    println!("Instance ID: {}", instance.instance_id().unwrap());
-                    println!(
-                        "State:       {:?}",
-                        instance.state().unwrap().name().unwrap()
-                    );
-                    println!();
-                }
-            }
-        }
-        Err(e) => {
-            println!("ERROR: {}", e.to_string());
-        }
-    }
-
-    Ok(())
-}
 
 pub async fn get_instance_ip(instance_id: String) -> String {
     let (aws_profile, _, _) = get_envs();
@@ -328,7 +262,7 @@ pub async fn get_instance_ip(instance_id: String) -> String {
     return String::new();
 }
 
-pub async fn launch_instance(client: &Client, key_pair_name: String, job: String, instance_type: aws_sdk_ec2::model::InstanceType, image_url: &str, architecture: String) -> Result<String, Box<dyn error::Error + Send + Sync>> {
+async fn launch_instance(client: &Client, key_pair_name: String, job: String, instance_type: aws_sdk_ec2::model::InstanceType, image_url: &str, architecture: String) -> Result<String, Box<dyn Error + Send + Sync>> {
 
     let mut size: i64 = 0;
     let req_client = reqwest::Client::builder()
@@ -358,7 +292,7 @@ pub async fn launch_instance(client: &Client, key_pair_name: String, job: String
             println!("ERROR: failed to fetch eif file header, setting default 15 GBs, {}", e);
         }
     }
-    
+
 
     println!("eif size: {} MB", size);
     let size = size / 1000;
@@ -367,11 +301,11 @@ pub async fn launch_instance(client: &Client, key_pair_name: String, job: String
         sdd = size + 10;
     }
 
-    
+
     let (x86_ami, arm_ami) = get_amis(&client).await;
     if x86_ami == String::new() || arm_ami == String::new() {
         println!("ERROR: AMI's not found");
-        return Err(Box::<dyn error::Error + Send + Sync>::from("AMI's not found"));
+        return Err("AMI's not found".into());
     }
     let mut instance_ami = x86_ami;
     if architecture == "arm64".to_string() {
@@ -435,31 +369,31 @@ pub async fn launch_instance(client: &Client, key_pair_name: String, job: String
             let instances = res.instances();
             if instances.is_none() {
                 println!("ERROR: instance launch failed");
-                return Err(Box::<dyn error::Error + Send + Sync>::from("Instance launch fail"));
+                return Err("Instance launch fail".into());
             }
             for instance in instances.unwrap() {
                 let id = instance.instance_id();
                 if id.is_none() {
                     println!("ERROR: error fetching instance id");
-                    return Err(Box::<dyn error::Error + Send + Sync>::from("Instance launch fail"));
+                    return Err("Instance launch fail".into());
                 }
                 println!(
                     "Instance launched - ID: {}",
                     id.unwrap()
                 );
                 return Ok(id.unwrap().to_string());
-            }    
+            }
         }
         Err(e) => {
             println!("ERROR: {}", e.to_string());
-            return Err(Box::<dyn error::Error + Send + Sync>::from("Instance launch fail"));
+            return Err("Instance launch fail".into());
         }
     }
 
-    return Err(Box::<dyn error::Error + Send + Sync>::from("Instance launch fail"));
+    return Err("Instance launch fail".into());
 }
 
-async fn terminate_instance(client: &Client, instance_id: &String) -> Result<(), Error> {
+async fn terminate_instance(client: &Client, instance_id: &String) -> Result<(), Box<dyn Error + Send + Sync>> {
     let _resp = client
         .terminate_instances()
         .instance_ids(instance_id)
@@ -528,7 +462,7 @@ async fn get_amis(client: &Client) -> (String, String) {
     return (x86_ami, arm_ami);
 }
 
-pub async fn get_security_group() -> String {
+async fn get_security_group() -> String {
     let sec_group = String::new();
     let (aws_profile, _, _) = get_envs();
 
@@ -581,7 +515,7 @@ pub async fn get_security_group() -> String {
     sec_group
 }
 
-pub async fn get_subnet() -> String {
+async fn get_subnet() -> String {
     let subnet = String::new();
     let (aws_profile, _, _) = get_envs();
 
@@ -708,7 +642,7 @@ fn get_envs() -> (String, String, String) {
     return (cli.profile, cli.key_name, cli.loc);
 }
 
-pub async fn allocate_ip_addr(job: String) -> Result<(String, String), Box<dyn error::Error + Send + Sync>> {
+async fn allocate_ip_addr(job: String) -> Result<(String, String), Box<dyn Error + Send + Sync>> {
     let (aws_profile, _, _) = get_envs();
 
     let credentials_provider = ProfileFileCredentialsProvider::builder()
@@ -761,19 +695,19 @@ pub async fn allocate_ip_addr(job: String) -> Result<(String, String), Box<dyn e
             let alloc_id = resp.allocation_id();
             if public_ip.is_none() || alloc_id.is_none() {
                 println!("ERROR: elastic ip address allocation failed");
-                return Err(Box::<dyn error::Error + Send + Sync>::from("error allocating ip address"));
+                return Err("error allocating ip address".into());
             }
             println!("New elastic ip, Alloc ID: {}, IP Allocated : {}", alloc_id.unwrap(), public_ip.unwrap());
             return Ok((alloc_id.unwrap().into(), public_ip.unwrap().into()));
         },
         Err(e) => {
             println!("ERROR: elastic ip address allocation failed, {}", e);
-            return Err(Box::<dyn error::Error + Send + Sync>::from("error allocating ip address")); 
+            return Err("error allocating ip address".into()); 
         }
     }
 }
 
-pub async fn get_job_elastic_ip(job: String) -> (bool, String, String) {
+async fn get_job_elastic_ip(job: String) -> (bool, String, String) {
     let (aws_profile, _, _) = get_envs();
 
     let credentials_provider = ProfileFileCredentialsProvider::builder()
@@ -834,7 +768,7 @@ pub async fn get_job_elastic_ip(job: String) -> (bool, String, String) {
     return (false, String::new(), String::new());
 }
 
-pub async fn associate_address(instance_id: String, alloc_id: String) -> Result<(), Box<dyn error::Error + Send + Sync>> {
+async fn associate_address(instance_id: String, alloc_id: String) -> Result<(), Box<dyn Error + Send + Sync>> {
     let (aws_profile, _, _) = get_envs();
 
 
@@ -862,20 +796,20 @@ pub async fn associate_address(instance_id: String, alloc_id: String) -> Result<
 
             if association_id.is_none() {
                 println!("elastic ip association failed");
-                return Err(Box::<dyn error::Error + Send + Sync>::from("error associating elastic ip to instance"));    
+                return Err("error associating elastic ip to instance".into());    
             }
             println!("Association successful, Id for elastic ip association: {}", association_id.unwrap());
         },
         Err(e) => {
             println!("elastic ip association failed: {}", e);
-            return Err(Box::<dyn error::Error + Send + Sync>::from("error associating elastic ip to instance"));
+            return Err("error associating elastic ip to instance".into());
         }
     }
     Ok(())
 
 }
 
-pub async fn spin_up(image_url: &str, job: String, instance_type: &str) -> Result<String, Box<dyn error::Error + Send + Sync>> {
+pub async fn spin_up(image_url: &str, job: String, instance_type: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
     let (aws_profile, key_pair_name, key_location) = get_envs();
 
 
@@ -903,7 +837,7 @@ pub async fn spin_up(image_url: &str, job: String, instance_type: &str) -> Resul
     let mut mem: i64 = 8192;
     match resp {
         Ok(resp) => {
-            let instance_types = resp.instance_types(); 
+            let instance_types = resp.instance_types();
             if instance_types.is_none() {
                 println!("ERROR: fetching instance info setting default");
             } else {
@@ -917,7 +851,7 @@ pub async fn spin_up(image_url: &str, job: String, instance_type: &str) -> Resul
                                 println!("architecture: {}", arch.as_str());
                                 break;
                             }
-                        }    
+                        }
                     }
                     let v_cpu_info = instance.v_cpu_info();
                     if v_cpu_info.is_some() {
@@ -949,7 +883,7 @@ pub async fn spin_up(image_url: &str, job: String, instance_type: &str) -> Resul
     let instance = launch_instance(&client, key_pair_name, job.clone(), instance_type, image_url, architecture).await;
     if let Err(err) = instance {
         println!("ERROR: error launching instance, {}", err);
-        return Err(Box::<dyn error::Error + Send + Sync>::from("error launching instance"));
+        return Err("error launching instance".into());
     }
     let instance = instance.unwrap();
     sleep(Duration::from_secs(100)).await;
@@ -959,26 +893,26 @@ pub async fn spin_up(image_url: &str, job: String, instance_type: &str) -> Resul
     associate_address(instance.clone(), alloc_id).await?;
     let mut public_ip_address = get_instance_ip(instance.to_string()).await;
     if public_ip_address.len() == 0 {
-        return Err(Box::<dyn error::Error + Send + Sync>::from("error fetching instance ip address"));
+        return Err("error fetching instance ip address".into());
     }
     public_ip_address.push_str(":22");
-    let sess: Result<Session, Box<dyn error::Error + Send + Sync>> = ssh_connect(public_ip_address, key_location).await;
+    let sess = ssh_connect(public_ip_address, key_location).await;
     match sess {
         Ok(r) => {
             let res = run_enclave(&r, image_url, v_cpus, mem).await;
             match res {
                 Ok(_) => return Ok(instance),
-                Err(_) => Err(Box::<dyn error::Error + Send + Sync>::from("error running enclave")),
+                Err(_) => Err("error running enclave".into()),
             }
         },
         Err(_) => {
-            return Err(Box::<dyn error::Error + Send + Sync>::from("error establishing ssh connection"));
+            return Err("error establishing ssh connection".into());
         }
     }
-    
+
 }
 
-pub async fn spin_down(instance_id: &String) -> Result<(), Box<dyn error::Error + Send + Sync>>{
+pub async fn spin_down(instance_id: &String) -> Result<(), Box<dyn Error + Send + Sync>>{
     let (aws_profile, _, _) = get_envs();
 
     let credentials_provider = ProfileFileCredentialsProvider::builder()

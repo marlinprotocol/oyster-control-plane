@@ -6,7 +6,7 @@ use std::path::Path;
 use std::process::Command;
 use tokio::time::{sleep, Duration};
 use std::str::FromStr;
-use std::error::Error;
+use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use aws_types::region::Region;
 use whoami::username;
@@ -44,28 +44,26 @@ impl Aws {
 
     /* AWS KEY PAIR UTILITY */
 
-    pub async fn key_setup(&self) -> Result<(), Box<dyn Error>> {
+    pub async fn key_setup(&self) -> Result<()> {
         let key_check = self.check_key_pair().await;
 
         let file_check = Path::new(&self.key_location).exists();
         if !file_check {
-            println!("{}", &self.key_location);
-            println!("key file not found");
+            println!("key file not found at: {}", &self.key_location);
         }
 
         if !(key_check || file_check) {
             self.create_key_pair().await?;
         } else if key_check && file_check {
-            println!("Found existing keypair and pem file");
+            println!("found existing keypair and pem file, skipping key setup");
         } else {
-            println!("ERROR: either key or file exists but not both");
-            return Err("Key setup failed".into());
+            return Err(anyhow!("key setup failed: either key or file exists but not both"));
         }
 
         return Ok(());
     }
 
-    async fn create_key_pair(&self) -> Result<(), Box<dyn Error>> {
+    async fn create_key_pair(&self) -> Result<()> {
         let resp = self.client("us-east-1".to_owned()).await
             .create_key_pair()
             .key_name(&self.key_name)
@@ -80,13 +78,13 @@ impl Aws {
                 let key_material = res.key_material();
                 if key_material.is_none() {
                     println!("ERROR: extracting private key");
-                    return Err("Failed to create private key".into());
+                    return Err(anyhow!("Failed to create private key"));
                 }
                 fingerprint.push_str(key_material.unwrap());
             }
             Err(e) => {
                 println!("ERROR: {}", e.to_string());
-                return Err("Keypair creation failed".into());
+                return Err(anyhow!("Keypair creation failed"));
             }
         }
 
@@ -128,7 +126,7 @@ impl Aws {
 
     /* SSH UTILITY */
 
-    async fn ssh_connect(&self, ip_address: String) -> Result<Session, Box<dyn Error + Send + Sync>> {
+    async fn ssh_connect(&self, ip_address: String) -> Result<Session> {
         let tcp = TcpStream::connect(&ip_address)?;
 
         let mut sess = Session::new()?;
@@ -140,7 +138,7 @@ impl Aws {
         return Ok(sess);
     }
 
-    async fn run_enclave(&self, sess: &Session, url: &str, v_cpus: i32, mem: i64) -> Result<(), Box<dyn Error + Send + Sync>>{
+    async fn run_enclave(&self, sess: &Session, url: &str, v_cpus: i32, mem: i64) -> Result<()>{
         let mut channel = sess.channel_session()?;
         let mut s = String::new();
         channel
@@ -229,7 +227,7 @@ impl Aws {
 
     /* AWS EC2 UTILITY */
 
-    pub async fn get_instance_ip(&self, instance_id: String) -> Result<String, Box<dyn Error + Send + Sync>> {
+    pub async fn get_instance_ip(&self, instance_id: String) -> Result<String> {
         Ok(self.client("us-east-1".to_owned()).await
             .describe_instances()
             .instance_ids(instance_id.to_string())
@@ -237,15 +235,15 @@ impl Aws {
             .await?
             // response parsing from here
             .reservations()
-            .ok_or("could not parse reservations")?[0]
+            .ok_or(anyhow!("could not parse reservations"))?[0]
             .instances()
-            .ok_or("could not parse instances")?[0]
+            .ok_or(anyhow!("could not parse instances"))?[0]
             .public_ip_address()
-            .ok_or("could not parse ip address")?
+            .ok_or(anyhow!("could not parse ip address"))?
             .to_string())
     }
 
-    pub async fn launch_instance(&self, job: String, instance_type: aws_sdk_ec2::model::InstanceType, image_url: &str, architecture: String) -> Result<String, Box<dyn Error + Send + Sync>> {
+    pub async fn launch_instance(&self, job: String, instance_type: aws_sdk_ec2::model::InstanceType, image_url: &str, architecture: String) -> Result<String> {
         let mut size: i64 = 0;
         let req_client = reqwest::Client::builder()
                 .no_gzip()
@@ -287,7 +285,7 @@ impl Aws {
         let (x86_ami, arm_ami) = self.get_amis().await;
         if x86_ami == String::new() || arm_ami == String::new() {
             println!("ERROR: AMI's not found");
-            return Err("AMI's not found".into());
+            return Err(anyhow!("AMI's not found"));
         }
         let mut instance_ami = x86_ami;
         if architecture == "arm64".to_string() {
@@ -351,13 +349,13 @@ impl Aws {
                 let instances = res.instances();
                 if instances.is_none() {
                     println!("ERROR: instance launch failed");
-                    return Err("Instance launch fail".into());
+                    return Err(anyhow!("Instance launch fail"));
                 }
                 for instance in instances.unwrap() {
                     let id = instance.instance_id();
                     if id.is_none() {
                         println!("ERROR: error fetching instance id");
-                        return Err("Instance launch fail".into());
+                        return Err(anyhow!("Instance launch fail"));
                     }
                     println!(
                         "Instance launched - ID: {}",
@@ -368,14 +366,14 @@ impl Aws {
             }
             Err(e) => {
                 println!("ERROR: {}", e.to_string());
-                return Err("Instance launch fail".into());
+                return Err(anyhow!("Instance launch fail"));
             }
         }
 
-        return Err("Instance launch fail".into());
+        return Err(anyhow!("Instance launch fail"));
     }
 
-    async fn terminate_instance(&self, instance_id: &String) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn terminate_instance(&self, instance_id: &String) -> Result<()> {
         let _ = self.client("us-east-1".to_owned()).await
             .terminate_instances()
             .instance_ids(instance_id)
@@ -430,7 +428,7 @@ impl Aws {
         return (x86_ami, arm_ami);
     }
 
-    pub async fn get_security_group(&self) -> Result<String, Box<dyn Error + Send + Sync>> {
+    pub async fn get_security_group(&self) -> Result<String> {
         let filter = aws_sdk_ec2::model::Filter::builder()
             .name("tag:project")
             .values("oyster")
@@ -443,12 +441,12 @@ impl Aws {
             .await?
             // response parsing from here
             .security_groups()
-            .ok_or("Could not parse security groups")?[0]
-            .group_id().ok_or("Could not parse group id")?
+            .ok_or(anyhow!("Could not parse security groups"))?[0]
+            .group_id().ok_or(anyhow!("Could not parse group id"))?
             .to_string())
     }
 
-    pub async fn get_subnet(&self) -> Result<String, Box<dyn Error + Send + Sync>> {
+    pub async fn get_subnet(&self) -> Result<String> {
         let filter = aws_sdk_ec2::model::Filter::builder()
             .name("tag:project")
             .values("oyster")
@@ -461,8 +459,8 @@ impl Aws {
             .await?
             // response parsing from here
             .subnets()
-            .ok_or("Could not parse subnets")?[0]
-            .subnet_id().ok_or("Could not parse subnet id")?
+            .ok_or(anyhow!("Could not parse subnets"))?[0]
+            .subnet_id().ok_or(anyhow!("Could not parse subnet id"))?
             .to_string())
     }
 
@@ -505,7 +503,7 @@ impl Aws {
         return (false, String::new());
     }
 
-    async fn allocate_ip_addr(&self, job: String) -> Result<(String, String), Box<dyn Error + Send + Sync>> {
+    async fn allocate_ip_addr(&self, job: String) -> Result<(String, String)> {
         let (exist, alloc_id, public_ip) = self.get_job_elastic_ip(job.clone()).await?;
 
         if exist {
@@ -545,19 +543,19 @@ impl Aws {
                 let alloc_id = resp.allocation_id();
                 if public_ip.is_none() || alloc_id.is_none() {
                     println!("ERROR: elastic ip address allocation failed");
-                    return Err("error allocating ip address".into());
+                    return Err(anyhow!("error allocating ip address"));
                 }
                 println!("New elastic ip, Alloc ID: {}, IP Allocated : {}", alloc_id.unwrap(), public_ip.unwrap());
                 return Ok((alloc_id.unwrap().into(), public_ip.unwrap().into()));
             },
             Err(e) => {
                 println!("ERROR: elastic ip address allocation failed, {}", e);
-                return Err("error allocating ip address".into());
+                return Err(anyhow!("error allocating ip address"));
             }
         }
     }
 
-    async fn get_job_elastic_ip(&self, job: String) -> Result<(bool, String, String), Box<dyn Error + Send + Sync>> {
+    async fn get_job_elastic_ip(&self, job: String) -> Result<(bool, String, String)> {
         let filter_a = aws_sdk_ec2::model::Filter::builder()
                 .name("tag:project")
                 .values("oyster")
@@ -579,13 +577,13 @@ impl Aws {
             None => (false, String::new(), String::new()),
             Some(addrs) => (
                 true,
-                addrs[0].allocation_id().ok_or("could not parse allocation id")?.to_string(),
-                addrs[0].public_ip().ok_or("could not parse public ip")?.to_string(),
+                addrs[0].allocation_id().ok_or(anyhow!("could not parse allocation id"))?.to_string(),
+                addrs[0].public_ip().ok_or(anyhow!("could not parse public ip"))?.to_string(),
             )
         })
     }
 
-    async fn associate_address(&self, instance_id: String, alloc_id: String) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn associate_address(&self, instance_id: String, alloc_id: String) -> Result<()> {
         let resp = self.client("us-east-1".to_owned()).await
                 .associate_address()
                 .allocation_id(alloc_id)
@@ -599,13 +597,13 @@ impl Aws {
 
                 if association_id.is_none() {
                     println!("elastic ip association failed");
-                    return Err("error associating elastic ip to instance".into());
+                    return Err(anyhow!("error associating elastic ip to instance"));
                 }
                 println!("Association successful, Id for elastic ip association: {}", association_id.unwrap());
             },
             Err(e) => {
                 println!("elastic ip association failed: {}", e);
-                return Err("error associating elastic ip to instance".into());
+                return Err(anyhow!("error associating elastic ip to instance"));
             }
         }
         Ok(())
@@ -613,7 +611,7 @@ impl Aws {
     }
 
 
-    pub async fn spin_up(&self, image_url: &str, job: String, instance_type: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
+    pub async fn spin_up(&self, image_url: &str, job: String, instance_type: &str) -> Result<String> {
         let ec2_type = aws_sdk_ec2::model::InstanceType::from_str(instance_type).unwrap_or_else(|e| {
             println!("ERROR: parsing instance_type, setting default, {}", e);
             return aws_sdk_ec2::model::InstanceType::C6aXlarge;
@@ -674,7 +672,7 @@ impl Aws {
         let instance = self.launch_instance(job.clone(), instance_type, image_url, architecture).await;
         if let Err(err) = instance {
             println!("ERROR: error launching instance, {}", err);
-            return Err("error launching instance".into());
+            return Err(anyhow!("error launching instance"));
         }
         let instance = instance.unwrap();
         sleep(Duration::from_secs(100)).await;
@@ -684,7 +682,7 @@ impl Aws {
         self.associate_address(instance.clone(), alloc_id).await?;
         let mut public_ip_address = self.get_instance_ip(instance.to_string()).await?;
         if public_ip_address.len() == 0 {
-            return Err("error fetching instance ip address".into());
+            return Err(anyhow!("error fetching instance ip address"));
         }
         public_ip_address.push_str(":22");
         let sess = self.ssh_connect(public_ip_address).await;
@@ -693,22 +691,25 @@ impl Aws {
                 let res = self.run_enclave(&r, image_url, v_cpus, mem).await;
                 match res {
                     Ok(_) => return Ok(instance),
-                    Err(_) => Err("error running enclave".into()),
+                    Err(_) => Err(anyhow!("error running enclave")),
                 }
             },
             Err(_) => {
-                return Err("error establishing ssh connection".into());
+                return Err(anyhow!("error establishing ssh connection"));
             }
         }
 
     }
 
-    pub async fn spin_down(&self, instance_id: &String) -> Result<(), Box<dyn Error + Send + Sync>>{
+    pub async fn spin_down(&self, instance_id: &String) -> Result<()>{
         let _ = self.terminate_instance(&instance_id).await?;
         Ok(())
     }
 
 }
+
+
+use std::error::Error;
 
 #[async_trait]
 impl AwsManager for Aws {

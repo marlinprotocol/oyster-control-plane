@@ -6,7 +6,7 @@ use std::path::Path;
 use std::process::Command;
 use tokio::time::{sleep, Duration};
 use std::str::FromStr;
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
 use aws_types::region::Region;
 use whoami::username;
@@ -45,7 +45,7 @@ impl Aws {
     /* AWS KEY PAIR UTILITY */
 
     pub async fn key_setup(&self) -> Result<()> {
-        let key_check = self.check_key_pair().await;
+        let key_check = self.check_key_pair().await.context("failed to check key pair")?;
 
         let file_check = Path::new(&self.key_location).exists();
         if !file_check {
@@ -57,7 +57,7 @@ impl Aws {
         } else if key_check && file_check {
             println!("found existing keypair and pem file, skipping key setup");
         } else {
-            return Err(anyhow!("key setup failed: either key or file exists but not both"));
+            return Err(anyhow!("either key or file exists but not both"));
         }
 
         return Ok(());
@@ -100,28 +100,15 @@ impl Aws {
         Ok(())
     }
 
-    async fn check_key_pair(&self) -> bool {
-        let resp = self.client("us-east-1".to_owned()).await
+    async fn check_key_pair(&self) -> Result<bool> {
+        Ok(!self.client("us-east-1".to_owned()).await
             .describe_key_pairs()
-            .key_names(&self.key_name)
+            .filters(aws_sdk_ec2::model::Filter::builder().name("key-name").values(&self.key_name).build())
             .send()
-            .await;
-
-        match resp {
-            Ok(res) => match res.key_pairs() {
-                None => {
-                    println!("key not found");
-                    return false;
-                }
-                Some(_) => {
-                    return true;
-                }
-            },
-            Err(_) => {
-                println!("key not found");
-                return false;
-            }
-        }
+            .await.context("failed to query key pairs")?
+            .key_pairs()
+            .ok_or(anyhow!("failed to parse key pairs"))?
+            .is_empty())
     }
 
     /* SSH UTILITY */

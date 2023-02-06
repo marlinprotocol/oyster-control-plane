@@ -215,19 +215,23 @@ impl Aws {
     /* AWS EC2 UTILITY */
 
     pub async fn get_instance_ip(&self, instance_id: String) -> Result<String> {
-        Ok(self.client("us-east-1".to_owned()).await
+        let res = self.client("us-east-1".to_owned()).await
             .describe_instances()
-            .instance_ids(instance_id.to_string())
+            .filters(aws_sdk_ec2::model::Filter::builder().name("instance-id").values(instance_id).build())
             .send()
-            .await?
+            .await?;
             // response parsing from here
-            .reservations()
-            .ok_or(anyhow!("could not parse reservations"))?[0]
-            .instances()
+        if res.reservations()
+            .ok_or(anyhow!("could not parse reservations"))?
+            .is_empty() {
+            Err(anyhow!("instance not found"))
+        } else {
+            Ok(res.reservations().unwrap()[0].instances()
             .ok_or(anyhow!("could not parse instances"))?[0]
             .public_ip_address()
             .ok_or(anyhow!("could not parse ip address"))?
             .to_string())
+        }   
     }
 
     pub async fn launch_instance(&self, job: String, instance_type: aws_sdk_ec2::model::InstanceType, image_url: &str, architecture: String) -> Result<String> {
@@ -421,16 +425,22 @@ impl Aws {
             .values("oyster")
             .build();
 
-        Ok(self.client("us-east-1".to_owned()).await
+        let res = self.client("us-east-1".to_owned()).await
             .describe_security_groups()
             .filters(filter)
             .send()
-            .await?
-            // response parsing from here
-            .security_groups()
-            .ok_or(anyhow!("Could not parse security groups"))?[0]
-            .group_id().ok_or(anyhow!("Could not parse group id"))?
+            .await?;
+        // response parsing from here
+        if res.security_groups()
+            .ok_or(anyhow!("Could not parse security groups"))?
+            .is_empty() {
+            Err(anyhow!("no groups found"))
+        } else {
+            Ok(res.security_groups().unwrap()[0]
+            .group_id()
+            .ok_or(anyhow!("Could not parse group id"))?
             .to_string())
+        }
     }
 
     pub async fn get_subnet(&self) -> Result<String> {
@@ -439,55 +449,43 @@ impl Aws {
             .values("oyster")
             .build();
 
-        Ok(self.client("us-east-1".to_owned()).await
+        let res = self.client("us-east-1".to_owned()).await
             .describe_subnets()
             .filters(filter)
             .send()
-            .await?
-            // response parsing from here
-            .subnets()
-            .ok_or(anyhow!("Could not parse subnets"))?[0]
-            .subnet_id().ok_or(anyhow!("Could not parse subnet id"))?
-            .to_string())
+            .await?;
+
+        // response parsing from here
+        if res.subnets()
+            .ok_or(anyhow!("Could not parse subnets"))?
+            .is_empty() {
+            Err(anyhow!("no subnet found"))
+        } else {
+            Ok(res.subnets.unwrap()[0]
+                .subnet_id()
+                .ok_or(anyhow!("Could not parse subnet id"))?
+                .to_string())
+        }
     }
 
-    pub async fn get_job_instance(&self, job: String) -> (bool, String) {
-        let resp = self.client("us-east-1".to_owned()).await.describe_instances().send().await;
-
-        match resp {
-            Ok(res) => {
-                println!("Checking existing instance...");
-                let reservations = res.reservations();
-                if reservations.is_none() {
-                    return (false, String::new());
-                }
-                for reservation in reservations.unwrap() {
-                    let instances = reservation.instances();
-                    if instances.is_none() {
-                        continue;
-                    }
-                    for instance in instances.unwrap() {
-                        let instance_id = instance.instance_id();
-                        let tags = instance.tags();
-
-                        if instance_id.is_none() || tags.is_none() {
-                            continue;
-                        }
-
-                        for tag in tags.unwrap() {
-                            if tag.key().unwrap_or("") == "jobId" && tag.value().unwrap_or("").to_string() == job
-                            {
-                                return (true, instance_id.unwrap().to_string());
-                            }
-                        }
-                    }
-                }
-            }
-            Err(e) => {
-                println!("ERROR: {}", e.to_string());
-            }
+    pub async fn get_job_instance(&self, job: String) -> Result<String> {
+        let res = self.client("us-east-1".to_owned()).await
+            .describe_instances()
+            .filters(aws_sdk_ec2::model::Filter::builder().name("tag:jobId").values(job).build())
+            .send()
+            .await?;
+            // response parsing from here
+        if res.reservations()
+            .ok_or(anyhow!("could not parse reservations"))?
+            .is_empty() {
+            Err(anyhow!("instance not found"))
+        } else {
+            Ok(res.reservations().unwrap()[0].instances()
+            .ok_or(anyhow!("could not parse instances"))?[0]
+            .instance_id()
+            .ok_or(anyhow!("could not parse ip address"))?
+            .to_string())
         }
-        return (false, String::new());
     }
 
     async fn allocate_ip_addr(&self, job: String) -> Result<(String, String)> {
@@ -560,14 +558,20 @@ impl Aws {
                 .send()
                 .await?;
 
-        Ok(match addrs.addresses() {
-            None => (false, String::new(), String::new()),
-            Some(addrs) => (
-                true,
-                addrs[0].allocation_id().ok_or(anyhow!("could not parse allocation id"))?.to_string(),
-                addrs[0].public_ip().ok_or(anyhow!("could not parse public ip"))?.to_string(),
-            )
-        })
+        let addrs = addrs.addresses()
+                        .ok_or(anyhow!("could not parse subnets"))?;
+        
+        if addrs.is_empty() {
+            Err(anyhow!("address not found"))
+        } else {
+            Ok((
+                    true,
+                    addrs[0].allocation_id().ok_or(anyhow!("could not parse allocation id"))?.to_string(),
+                    addrs[0].public_ip().ok_or(anyhow!("could not parse public ip"))?.to_string(),
+            ))
+        }
+                        
+
     }
 
     async fn associate_address(&self, instance_id: String, alloc_id: String) -> Result<()> {
@@ -720,8 +724,8 @@ impl AwsManager for Aws {
     async fn get_job_instance(
         &self,
         job: String) -> Result<(bool, String), Box<dyn Error + Send + Sync>> {
-        let (exist, instance) = self.get_job_instance(job).await;
-        Ok((exist, instance))
+        let instance = self.get_job_instance(job).await?;
+        Ok((true, instance))
     }
 }
 

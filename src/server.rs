@@ -1,6 +1,8 @@
 use std::net::{TcpStream, TcpListener};
 use std::io::{Read, Write};
 use crate::aws::Aws;
+use anyhow::Result;
+
 
 
 async fn handle_read(client: &Aws, mut stream: &TcpStream) -> String {
@@ -15,15 +17,15 @@ async fn handle_read(client: &Aws, mut stream: &TcpStream) -> String {
             if body.nth(1).unwrap() == "id" {
                 let id = body.next().unwrap();
                 if body.next().unwrap() == "ip" {
-                    let (exist, ip) = get_ip(client, id.to_string()).await;
-                    let res = "{\"id\": \"".to_owned()+ ip.as_str() +"\"}";
-                    let len = res.len();
-                    if exist {
-                        return "HTTP/1.1 200 OK\r\nContent-Type: application/json;\r\nContent-Length: ".to_owned() + &len.to_string() +"\r\n\r\n" + res.as_str();
-                    } else {
+                    let ip = get_ip(client, id.to_string()).await;
+                    if let Err(err) = ip {
+                        println!("server: {}", err);
                         return String::from("HTTP/1.1 404 Not Found\r\n");
+                    } else {
+                        let res = "{\"id\": \"".to_owned()+ ip.unwrap().as_str() +"\"}";
+                        let len = res.len();
+                        return "HTTP/1.1 200 OK\r\nContent-Type: application/json;\r\nContent-Length: ".to_owned() + &len.to_string() +"\r\n\r\n" + res.as_str();
                     }
-
                 } else {
                     return String::from("HTTP/1.1 400 Bad Request\r\n");
                 }
@@ -45,18 +47,12 @@ async fn handle_write(mut stream: TcpStream, response: String) {
     }
 }
 
-async fn get_ip(client: &Aws, id: String) -> (bool, String) {
-    let (exists, instance) = client.get_job_instance(id).await;
-    if exists {
-        let ip = client.get_instance_ip(instance).await;
-        match ip {
-        Ok(ip) => (true, ip),
-        Err(_) => (false, String::new())
-        }
-    } else {
-        return (false, String::new());
-    }
+async fn get_ip(client: &Aws, id: String) -> Result<String> {
+    let instance = client.get_job_instance(id).await?;
 
+    let ip = client.get_instance_ip(instance).await?;
+
+    Ok(ip)
 }
 
 async fn handle_client(client: &Aws, stream: TcpStream) {

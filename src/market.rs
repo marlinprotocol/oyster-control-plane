@@ -28,16 +28,19 @@ pub trait AwsManager {
         &self,
         eif_url: &str,
         job: String,
-        instance_type: &str) -> Result<String, Box<dyn Error + Send + Sync>>;
+        instance_type: &str,
+        region: String) -> Result<String, Box<dyn Error + Send + Sync>>;
 
     async fn spin_down(
         &self,
-        instance_id: &String
+        instance_id: &String,
+        region: String
     ) -> Result<bool, Box<dyn Error + Send + Sync>>;
 
     async fn get_job_instance(
         &self,
-        job: String
+        job: String,
+        region: String
     ) -> Result<(bool, String), Box<dyn Error + Send + Sync>>;
 }
 
@@ -82,7 +85,8 @@ impl JobsService {
     pub async fn run(
         aws_manager_impl: impl AwsManager + Send + Sync + Clone + 'static,
         logger_impl: impl Logger + Send + Sync + Clone + 'static,
-        url: String) {
+        url: String,
+        regions: Vec<String>) {
         let mut backoff = 1;
 
         // connection level loop
@@ -116,7 +120,7 @@ impl JobsService {
             let mut job_stream = Box::into_pin(res.unwrap());
             while let Some((job, removed)) = job_stream.next().await {
                 println!("main: New job: {}, {}", job, removed);
-                tokio::spawn(Self::job_manager(aws_manager_impl.clone(), logger_impl.clone(), url.clone(), job));
+                tokio::spawn(Self::job_manager(aws_manager_impl.clone(), logger_impl.clone(), url.clone(), job, regions.clone()));
             }
 
             println!("main: Job stream ended");
@@ -144,7 +148,7 @@ impl JobsService {
 
 
     // manage the complete lifecycle of a job
-    async fn job_manager(aws_manager_impl: impl AwsManager + Send + Sync + Clone, logger_impl: impl Logger + Send + Sync + Send, url: String, job: H256) {
+    async fn job_manager(aws_manager_impl: impl AwsManager + Send + Sync + Clone, logger_impl: impl Logger + Send + Sync + Send, url: String, job: H256, allowed_regions: Vec<String>) {
         let mut backoff = 1;
 
         // connection level loop
@@ -209,6 +213,7 @@ impl JobsService {
             let mut min_rate = U256::one();
             let mut eif_url = String::new();
             let mut instance_type = "c6a.xlarge".to_string();
+            let mut region = "ap-south-1".to_string();
             'event: loop {
                 // compute time to insolvency
                 let now_ts = SystemTime::now()
@@ -241,7 +246,7 @@ impl JobsService {
                     () = sleep(insolvency_duration) => {
                         // spin down instance
                         if instance_id != String::new() {
-                            let res = aws_manager_impl.spin_down(&instance_id).await;
+                            let res = aws_manager_impl.spin_down(&instance_id, region.clone()).await;
                             if let Err(err) = res {
                                 println!("job {}: ERROR failed to terminate instance, {}", job, err);
                                 break 'event;
@@ -285,6 +290,22 @@ impl JobsService {
                                     }
                                 }
 
+                                let r = v["region"].as_str();
+                                match r {
+                                    Some(t) => {
+                                        region = t.to_string();
+                                        println!("job {}: Job region set: {}", job, region);
+                                    }
+                                    None => {
+                                        println!("job {}: Job region not set, using default", job);
+                                    }
+                                }
+
+                                if !allowed_regions.contains(&region) {
+                                    println!("job {}: region : {} not suppported", job, region);
+                                    break 'main;
+                                }
+
                                 let url = v["url"].as_str();
                                 if url.is_none() {
                                     println!("job {}: eif url not found! Exiting job", job);
@@ -309,13 +330,13 @@ impl JobsService {
                                     }
                                 }
                                 println!("job {}: MIN RATE for {} instance is {}", job, instance_type, min_rate);
-                                let (exist, instance) = aws_manager_impl.get_job_instance(job.to_string()).await.unwrap_or((false, "".to_string()));
+                                let (exist, instance) = aws_manager_impl.get_job_instance(job.to_string(), region.clone()).await.unwrap_or((false, "".to_string()));
                                 if exist {
                                     instance_id = instance;
                                     println!("job {}: Found, instance id: {}", job, instance_id);
                                     if rate < min_rate {
                                         println!("job {}: Rate below minimum, shutting down instance", job);
-                                        let res = aws_manager_impl.spin_down(&instance_id).await;
+                                        let res = aws_manager_impl.spin_down(&instance_id, region.clone()).await;
                                         if let Err(err) = res {
                                             println!("job {}: ERROR failed to terminate instance, {}", job, err);
                                             break 'event;
@@ -323,7 +344,7 @@ impl JobsService {
                                     }
                                 } else {
                                     if rate >= min_rate {
-                                        let res = aws_manager_impl.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str()).await;
+                                        let res = aws_manager_impl.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str(), region.clone()).await;
                                         if let Err(err) = res {
                                             println!("job {}: Instance launch failed, {}", job, err);
                                             break 'event;
@@ -350,7 +371,7 @@ impl JobsService {
                                 println!("job {}: SETTLED: Decode failure: {}", job, log.data);
                             }
                         } else if log.topics[0] == JOB_CLOSED {
-                            let res = aws_manager_impl.spin_down(&instance_id).await;
+                            let res = aws_manager_impl.spin_down(&instance_id, region.clone()).await;
                             if let Err(err) = res {
                                 println!("job {}: ERROR failed to terminate instance, {}", job, err);
                                 break 'event;
@@ -383,12 +404,12 @@ impl JobsService {
 
                             original_rate = rate;
                             if rate >= min_rate {
-                                let (exist, instance) = aws_manager_impl.get_job_instance(job.to_string()).await.unwrap_or((false, "".to_string()));
+                                let (exist, instance) = aws_manager_impl.get_job_instance(job.to_string(), region.clone()).await.unwrap_or((false, "".to_string()));
                                 if exist {
                                     instance_id = instance;
                                     println!("job {}: Found, instance id: {}", job, instance_id);
                                 } else {
-                                    let res = aws_manager_impl.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str()).await;
+                                    let res = aws_manager_impl.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str(), region.clone()).await;
                                     if let Err(err) = res {
                                         println!("job {}: Instance launch failed, {}", job, err);
                                         break 'event;
@@ -404,7 +425,7 @@ impl JobsService {
                                 original_rate = rate;
                                 rate = new_rate;
                                 if rate < min_rate {
-                                    let res = aws_manager_impl.spin_down(&instance_id).await;
+                                    let res = aws_manager_impl.spin_down(&instance_id, region.clone()).await;
                                     if let Err(err) = res {
                                         println!("job {}: ERROR failed to terminate instance, {}", job, err);
                                         break 'event;
@@ -495,22 +516,28 @@ pub struct TestAws {}
 impl AwsManager for TestAws {
     async fn spin_up(
         &self,
-        _eif_url: &str,
-        _job: String,
-        _instance_type: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
-            Ok("12345".to_string())
+        eif_url: &str,
+        job: String,
+        instance_type: &str,
+        region: String) -> Result<String, Box<dyn Error + Send + Sync>> {
+        println!("TEST: spin_up | job: {}, region: {}, instance_type: {}, eif_url: {}", job, region, instance_type, eif_url);
+        Ok("12345".to_string())
     }
 
     async fn spin_down(
         &self,
-        _instance_id: &String
+        instance_id: &String,
+        region: String
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        println!("TEST: spin_down | instance_id: {}, region: {}", instance_id, region);
         Ok(true)
     }
 
     async fn get_job_instance(
         &self,
-        _job: String) -> Result<(bool, String), Box<dyn Error + Send + Sync>> {
+        job: String,
+        region: String) -> Result<(bool, String), Box<dyn Error + Send + Sync>> {
+        println!("TEST: get_job_instance | job: {}, region: {}", job, region);
         Ok((false, "".to_string()))
     }
 }
@@ -528,7 +555,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_run() {
-        market::JobsService::run(market::TestAws {}, market::TestLogger {}, "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string()).await;
+        market::JobsService::run(market::TestAws {}, market::TestLogger {}, "test_eif_url".to_string(), ["ap-south-1"]).await;
         assert_eq!(2,2);
     }
 }

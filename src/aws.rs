@@ -1,6 +1,6 @@
 use ssh2::Session;
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::{Read, Write, BufReader};
 use std::net::TcpStream;
 use std::path::Path;
 use std::process::Command;
@@ -20,16 +20,19 @@ pub struct Aws {
     key_name: String,
     // Path cannot be cloned, hence String
     key_location: String,
+    pub_key_location: String,
 }
 
 impl Aws {
     pub async fn new(aws_profile: String, key_name: String) -> Aws {
-        let key_location = "/home/".to_owned() + &username() + "/.ssh/" + &key_name + ".pem";
+        let key_location = "/home/".to_owned() + &username() + "/.ssh/" + &key_name;
+        let pub_key_location = "/home/".to_owned() + &username() + "/.ssh/" + &key_name + ".pub";
 
         return Aws {
             aws_profile: aws_profile,
             key_name: key_name,
             key_location: key_location,
+            pub_key_location: pub_key_location,
         };
     }
 
@@ -43,28 +46,75 @@ impl Aws {
     }
 
     /* AWS KEY PAIR UTILITY */
-
-    pub async fn key_setup(&self) -> Result<()> {
-        let key_check = self.check_key_pair().await.context("failed to check key pair")?;
-
-        let file_check = Path::new(&self.key_location).exists();
-        if !file_check {
-            println!("key file not found at: {}", &self.key_location);
-        }
-
-        if !(key_check || file_check) {
-            self.create_key_pair().await?;
-        } else if key_check && file_check {
-            println!("found existing keypair and pem file, skipping key setup");
+    pub async fn generate_key_pair(&self) -> Result<()> {
+        let priv_check = Path::new(&self.key_location).exists();
+        let pub_check =  Path::new(&self.pub_key_location).exists();
+        if priv_check && pub_check {
+            return Ok(());
+        } else if priv_check {
+            let output = Command::new("ssh-keygen")
+                .arg("-y")
+                .arg("-f")
+                .arg(&self.key_location)
+                .arg(">")
+                .arg(&self.pub_key_location)                
+                .output()?;
+    
+            if output.status.success() {
+                Ok(())
+            } else {
+                Err(anyhow!("Failed to generate key pair"))
+            }
         } else {
-            return Err(anyhow!("either key or file exists but not both"));
+            let output = Command::new("ssh-keygen")
+                .arg("-t")
+                .arg("ed25519")
+                .arg("-f")
+                .arg(&self.key_location)
+                .arg("-N")
+                .arg("")                
+                .output()?;
+        
+            if output.status.success() {
+                Ok(())
+            } else {
+                Err(anyhow!("Failed to generate key pair"))
+            }
+        }
+    } 
+
+    pub async fn key_setup(&self, region: String) -> Result<()> {
+        let key_check = self.check_key_pair(region.clone()).await.context("failed to check key pair")?;
+
+        if !key_check {
+            self.import_key_pair(region).await?;
+        } else {
+            println!("found existing keypair and pem file, skipping key setup");
         }
 
-        return Ok(());
+        Ok(())
     }
 
-    async fn create_key_pair(&self) -> Result<()> {
-        let resp = self.client("us-east-1".to_owned()).await
+    pub async fn import_key_pair(&self, region: String) -> Result<()> {
+        let f = File::open(&self.pub_key_location)?;
+        let mut reader = BufReader::new(f);
+        let mut buffer = Vec::new();
+
+        reader.read_to_end(&mut buffer)?;
+        
+        self.client(region).await
+            .import_key_pair()
+            .key_name(&self.key_name)
+            .public_key_material(aws_sdk_ec2::types::Blob::new(buffer))
+            .send()
+            .await?;
+        
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    async fn create_key_pair(&self, region: String) -> Result<()> {
+        let resp = self.client(region).await
             .create_key_pair()
             .key_name(&self.key_name)
             .set_key_type(Some(aws_sdk_ec2::model::KeyType::Ed25519))
@@ -100,8 +150,8 @@ impl Aws {
         Ok(())
     }
 
-    async fn check_key_pair(&self) -> Result<bool> {
-        Ok(!self.client("us-east-1".to_owned()).await
+    async fn check_key_pair(&self, region: String) -> Result<bool> {
+        Ok(!self.client(region).await
             .describe_key_pairs()
             .filters(aws_sdk_ec2::model::Filter::builder().name("key-name").values(&self.key_name).build())
             .send()
@@ -113,7 +163,7 @@ impl Aws {
 
     /* SSH UTILITY */
 
-    async fn ssh_connect(&self, ip_address: String) -> Result<Session> {
+    pub async fn ssh_connect(&self, ip_address: String) -> Result<Session> {
         let tcp = TcpStream::connect(&ip_address)?;
 
         let mut sess = Session::new()?;
@@ -214,8 +264,8 @@ impl Aws {
 
     /* AWS EC2 UTILITY */
 
-    pub async fn get_instance_ip(&self, instance_id: String) -> Result<String> {
-        let res = self.client("us-east-1".to_owned()).await
+    pub async fn get_instance_ip(&self, instance_id: String, region: String) -> Result<String> {
+        let res = self.client(region).await
             .describe_instances()
             .filters(aws_sdk_ec2::model::Filter::builder().name("instance-id").values(instance_id).build())
             .send()
@@ -234,7 +284,7 @@ impl Aws {
         }   
     }
 
-    pub async fn launch_instance(&self, job: String, instance_type: aws_sdk_ec2::model::InstanceType, image_url: &str, architecture: String) -> Result<String> {
+    pub async fn launch_instance(&self, job: String, instance_type: aws_sdk_ec2::model::InstanceType, image_url: &str, architecture: String, region: String) -> Result<String> {
         let mut size: i64 = 0;
         let req_client = reqwest::Client::builder()
                 .no_gzip()
@@ -273,7 +323,7 @@ impl Aws {
         }
 
 
-        let (x86_ami, arm_ami) = self.get_amis().await;
+        let (x86_ami, arm_ami) = self.get_amis(region.clone()).await;
         if x86_ami == String::new() || arm_ami == String::new() {
             println!("ERROR: AMI's not found");
             return Err(anyhow!("AMI's not found"));
@@ -316,11 +366,11 @@ impl Aws {
             .tags(job_tag)
             .tags(project_tag)
             .build();
-        let subnet = self.get_subnet().await?;
-        let sec_group = self.get_security_group().await?;
+        let subnet = self.get_subnet(region.clone()).await?;
+        let sec_group = self.get_security_group(region.clone()).await?;
 
 
-        let resp = self.client("us-east-1".to_owned()).await
+        let resp = self.client(region).await
             .run_instances()
             .set_image_id(Some(instance_ami))
             .set_instance_type(Some(instance_type))
@@ -364,8 +414,8 @@ impl Aws {
         return Err(anyhow!("Instance launch fail"));
     }
 
-    async fn terminate_instance(&self, instance_id: &String) -> Result<()> {
-        let _ = self.client("us-east-1".to_owned()).await
+    async fn terminate_instance(&self, instance_id: &String, region: String) -> Result<()> {
+        let _ = self.client(region).await
             .terminate_instances()
             .instance_ids(instance_id)
             .send()
@@ -374,7 +424,7 @@ impl Aws {
         Ok(())
     }
 
-    async fn get_amis(&self) -> (String, String) {
+    async fn get_amis(&self, region: String) -> (String, String) {
         let mut arm_ami = String::new();
         let mut x86_ami = String::new();
 
@@ -383,7 +433,7 @@ impl Aws {
             .values("oyster")
             .build();
 
-        let resp = self.client("us-east-1".to_owned()).await
+        let resp = self.client(region).await
                 .describe_images()
                 .owners("self")
                 .filters(filter)
@@ -419,13 +469,13 @@ impl Aws {
         return (x86_ami, arm_ami);
     }
 
-    pub async fn get_security_group(&self) -> Result<String> {
+    pub async fn get_security_group(&self, region: String) -> Result<String> {
         let filter = aws_sdk_ec2::model::Filter::builder()
             .name("tag:project")
             .values("oyster")
             .build();
 
-        let res = self.client("us-east-1".to_owned()).await
+        let res = self.client(region).await
             .describe_security_groups()
             .filters(filter)
             .send()
@@ -443,13 +493,13 @@ impl Aws {
         }
     }
 
-    pub async fn get_subnet(&self) -> Result<String> {
+    pub async fn get_subnet(&self, region: String) -> Result<String> {
         let filter = aws_sdk_ec2::model::Filter::builder()
             .name("tag:project")
             .values("oyster")
             .build();
 
-        let res = self.client("us-east-1".to_owned()).await
+        let res = self.client(region).await
             .describe_subnets()
             .filters(filter)
             .send()
@@ -468,8 +518,8 @@ impl Aws {
         }
     }
 
-    pub async fn get_job_instance(&self, job: String) -> Result<String> {
-        let res = self.client("us-east-1".to_owned()).await
+    pub async fn get_job_instance(&self, job: String, region: String) -> Result<String> {
+        let res = self.client(region).await
             .describe_instances()
             .filters(aws_sdk_ec2::model::Filter::builder().name("tag:jobId").values(job).build())
             .send()
@@ -488,8 +538,8 @@ impl Aws {
         }
     }
 
-    async fn allocate_ip_addr(&self, job: String) -> Result<(String, String)> {
-        let (exist, alloc_id, public_ip) = self.get_job_elastic_ip(job.clone()).await?;
+    async fn allocate_ip_addr(&self, job: String, region: String) -> Result<(String, String)> {
+        let (exist, alloc_id, public_ip) = self.get_job_elastic_ip(job.clone(), region.clone()).await?;
 
         if exist {
             println!("Elastic Ip already exists");
@@ -515,7 +565,7 @@ impl Aws {
             .tags(project_tag)
             .build();
 
-        let resp = self.client("us-east-1".to_owned()).await
+        let resp = self.client(region).await
                 .allocate_address()
                 .domain(aws_sdk_ec2::model::DomainType::Vpc)
                 .tag_specifications(tags)
@@ -540,7 +590,7 @@ impl Aws {
         }
     }
 
-    async fn get_job_elastic_ip(&self, job: String) -> Result<(bool, String, String)> {
+    async fn get_job_elastic_ip(&self, job: String, region: String) -> Result<(bool, String, String)> {
         let filter_a = aws_sdk_ec2::model::Filter::builder()
                 .name("tag:project")
                 .values("oyster")
@@ -551,7 +601,7 @@ impl Aws {
                 .values(job.clone())
                 .build();
 
-        let addrs = self.client("us-east-1".to_owned()).await
+        let addrs = self.client(region).await
                 .describe_addresses()
                 .filters(filter_a)
                 .filters(filter_b)
@@ -574,8 +624,8 @@ impl Aws {
 
     }
 
-    async fn associate_address(&self, instance_id: String, alloc_id: String) -> Result<()> {
-        let resp = self.client("us-east-1".to_owned()).await
+    async fn associate_address(&self, instance_id: String, alloc_id: String, region: String) -> Result<()> {
+        let resp = self.client(region).await
                 .associate_address()
                 .allocation_id(alloc_id)
                 .instance_id(instance_id)
@@ -602,12 +652,12 @@ impl Aws {
     }
 
 
-    pub async fn spin_up(&self, image_url: &str, job: String, instance_type: &str) -> Result<String> {
+    pub async fn spin_up(&self, image_url: &str, job: String, instance_type: &str, region: String) -> Result<String> {
         let ec2_type = aws_sdk_ec2::model::InstanceType::from_str(instance_type).unwrap_or_else(|e| {
             println!("ERROR: parsing instance_type, setting default, {}", e);
             return aws_sdk_ec2::model::InstanceType::C6aXlarge;
         });
-        let resp = self.client("us-east-1".to_owned()).await
+        let resp = self.client(region.clone()).await
                 .describe_instance_types()
                 .instance_types(ec2_type)
                 .send()
@@ -660,18 +710,18 @@ impl Aws {
             println!("ERROR: parsing instance_type, setting default, {}", e);
             return aws_sdk_ec2::model::InstanceType::C6aXlarge;
         });
-        let instance = self.launch_instance(job.clone(), instance_type, image_url, architecture).await;
+        let instance = self.launch_instance(job.clone(), instance_type, image_url, architecture, region.clone()).await;
         if let Err(err) = instance {
             println!("ERROR: error launching instance, {}", err);
             return Err(anyhow!("error launching instance"));
         }
         let instance = instance.unwrap();
         sleep(Duration::from_secs(100)).await;
-        let (alloc_id, ip) = self.allocate_ip_addr(job).await?;
+        let (alloc_id, ip) = self.allocate_ip_addr(job, region.clone()).await?;
         println!("Elastic Ip allocated: {}", ip);
 
-        self.associate_address(instance.clone(), alloc_id).await?;
-        let mut public_ip_address = self.get_instance_ip(instance.to_string()).await?;
+        self.associate_address(instance.clone(), alloc_id, region.clone()).await?;
+        let mut public_ip_address = self.get_instance_ip(instance.to_string(), region).await?;
         if public_ip_address.len() == 0 {
             return Err(anyhow!("error fetching instance ip address"));
         }
@@ -692,8 +742,8 @@ impl Aws {
 
     }
 
-    pub async fn spin_down(&self, instance_id: &String) -> Result<()>{
-        let _ = self.terminate_instance(&instance_id).await?;
+    pub async fn spin_down(&self, instance_id: &String, region: String) -> Result<()>{
+        let _ = self.terminate_instance(&instance_id, region).await?;
         Ok(())
     }
 
@@ -708,23 +758,26 @@ impl AwsManager for Aws {
         &self,
         eif_url: &str,
         job: String,
-        instance_type: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
-        let instance = self.spin_up(eif_url, job, instance_type).await?;
+        instance_type: &str,
+        region: String) -> Result<String, Box<dyn Error + Send + Sync>> {
+        let instance = self.spin_up(eif_url, job, instance_type, region).await?;
         Ok(instance)
     }
 
     async fn spin_down(
         &self,
-        instance_id: &String
+        instance_id: &String,
+        region: String
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
-        let _ = self.spin_down(instance_id).await?;
+        let _ = self.spin_down(instance_id, region).await?;
         Ok(true)
     }
 
     async fn get_job_instance(
         &self,
-        job: String) -> Result<(bool, String), Box<dyn Error + Send + Sync>> {
-        let instance = self.get_job_instance(job).await?;
+        job: String,
+        region: String) -> Result<(bool, String), Box<dyn Error + Send + Sync>> {
+        let instance = self.get_job_instance(job, region).await?;
         Ok((true, instance))
     }
 }

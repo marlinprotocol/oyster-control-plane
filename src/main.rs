@@ -31,15 +31,19 @@ struct Cli {
 pub async fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
 
-    println!("{:?}", cli.region);
+    println!("Supported regions: {:?}", cli.region);   
 
     let aws = aws::Aws::new(cli.profile, cli.key_name).await;
 
-    aws.key_setup().await?;
+    aws.generate_key_pair().await?; 
+
+    for region in cli.region.clone() {
+        aws.key_setup(region.into()).await?;
+    }
 
     let _ = tokio::spawn(server::serve(aws.clone()));
 
-    market::JobsService::run(aws, market::RealLogger {}, cli.rpc).await;
+    market::JobsService::run(aws, market::RealLogger {}, cli.rpc, cli.region).await;
 
     Ok(())
 }

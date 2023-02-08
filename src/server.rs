@@ -48,9 +48,9 @@ async fn handle_write(mut stream: TcpStream, response: String) {
 }
 
 async fn get_ip(client: &Aws, id: String) -> Result<String> {
-    let instance = client.get_job_instance(id).await?;
+    let instance = client.get_job_instance(id, "us-east-1".into()).await?;
 
-    let ip = client.get_instance_ip(instance).await?;
+    let ip = client.get_instance_ip(instance, "us-east-1".into()).await?;
 
     Ok(ip)
 }

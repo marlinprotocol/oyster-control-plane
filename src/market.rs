@@ -5,7 +5,7 @@ use serde_json::Value;
 use std::error::Error;
 use std::time::SystemTime;
 use tokio::time::sleep;
-use tokio::time::Duration;
+use tokio::time::{Duration, Instant};
 use tokio_stream::Stream;
 use std::fs;
 use whoami;
@@ -214,6 +214,8 @@ impl JobsService {
             let mut eif_url = String::new();
             let mut instance_type = "c6a.xlarge".to_string();
             let mut region = "ap-south-1".to_string();
+            let mut aws_launch_time = Instant::now();
+            let mut aws_launch_scheduled = false;               
             'event: loop {
                 // compute time to insolvency
                 let now_ts = SystemTime::now()
@@ -241,6 +243,13 @@ impl JobsService {
                     insolvency_duration.as_secs()
                 );
 
+                let aws_delay_duration = if aws_launch_scheduled {
+                    aws_launch_time.saturating_duration_since(Instant::now())
+                } else {
+                    insolvency_duration + Duration::from_secs(100)
+                };
+
+
                 tokio::select! {
                     // insolvency check
                     () = sleep(insolvency_duration) => {
@@ -256,6 +265,33 @@ impl JobsService {
 
                         // exit fully
                         break 'main;
+                    }
+                    () = sleep(aws_delay_duration) => {
+                        let (exist, instance) = aws_manager_impl.get_job_instance(job.to_string(), region.clone()).await.unwrap_or((false, "".to_string()));
+                        if exist {
+                            instance_id = instance;
+                            println!("job {}: Found, instance id: {}", job, instance_id);
+                            if rate < min_rate {
+                                println!("job {}: Rate below minimum, shutting down instance", job);
+                                let res = aws_manager_impl.spin_down(&instance_id, region.clone()).await;
+                                if let Err(err) = res {
+                                    println!("job {}: ERROR failed to terminate instance, {}", job, err);
+                                    break 'event;
+                                }
+                            }
+                        } else {
+                            if rate >= min_rate {
+                                let res = aws_manager_impl.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str(), region.clone()).await;
+                                if let Err(err) = res {
+                                    println!("job {}: Instance launch failed, {}", job, err);
+                                    break 'event;
+                                }
+                                instance_id = res.unwrap();
+                            } else {
+                                println!("job {}: Rate below minimum, aborting launch.", job);
+                            }
+                        }
+                        aws_launch_scheduled = false;
                     }
                     log = job_stream.next() => {
                         if log.is_none() { break 'event; }
@@ -330,33 +366,10 @@ impl JobsService {
                                     }
                                 }
                                 println!("job {}: MIN RATE for {} instance is {}", job, instance_type, min_rate);
-                                let (exist, instance) = aws_manager_impl.get_job_instance(job.to_string(), region.clone()).await.unwrap_or((false, "".to_string()));
-                                if exist {
-                                    instance_id = instance;
-                                    println!("job {}: Found, instance id: {}", job, instance_id);
-                                    if rate < min_rate {
-                                        println!("job {}: Rate below minimum, shutting down instance", job);
-                                        let res = aws_manager_impl.spin_down(&instance_id, region.clone()).await;
-                                        if let Err(err) = res {
-                                            println!("job {}: ERROR failed to terminate instance, {}", job, err);
-                                            break 'event;
-                                        }
-                                    }
-                                } else {
-                                    if rate >= min_rate {
-                                        let res = aws_manager_impl.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str(), region.clone()).await;
-                                        if let Err(err) = res {
-                                            println!("job {}: Instance launch failed, {}", job, err);
-                                            break 'event;
-                                        }
-                                        instance_id = res.unwrap();
-                                    } else {
-                                        println!("job {}: Rate below minimum, aborting launch.", job);
-                                    }
 
-                                }
-
-                                println!("job {}: OPENED: Spun up instance", job);
+                                aws_launch_time = Instant::now().checked_add(Duration::from_secs(5)).unwrap();
+                                aws_launch_scheduled = true;
+                                println!("job {}: Instance scheduled", job);
                             } else {
                                 println!("job {}: OPENED: Decode failure: {}", job, log.data);
                             }
@@ -371,13 +384,16 @@ impl JobsService {
                                 println!("job {}: SETTLED: Decode failure: {}", job, log.data);
                             }
                         } else if log.topics[0] == JOB_CLOSED {
-                            let res = aws_manager_impl.spin_down(&instance_id, region.clone()).await;
-                            if let Err(err) = res {
-                                println!("job {}: ERROR failed to terminate instance, {}", job, err);
-                                break 'event;
+                            if !aws_launch_scheduled {
+                                let res = aws_manager_impl.spin_down(&instance_id, region.clone()).await;
+                                if let Err(err) = res {
+                                    println!("job {}: ERROR failed to terminate instance, {}", job, err);
+                                    break 'event;
+                                }
+                                println!("job {}: CLOSED: Spinning down instance", job);
+                            } else {
+                                println!("job {}: Cancelled scheduled instance", job);
                             }
-                            println!("job {}: CLOSED: Spinning down instance", job);
-
                             // exit fully
                             println!("job {}: CLOSED", job);
                             break 'main;
@@ -404,18 +420,9 @@ impl JobsService {
 
                             original_rate = rate;
                             if rate >= min_rate {
-                                let (exist, instance) = aws_manager_impl.get_job_instance(job.to_string(), region.clone()).await.unwrap_or((false, "".to_string()));
-                                if exist {
-                                    instance_id = instance;
-                                    println!("job {}: Found, instance id: {}", job, instance_id);
-                                } else {
-                                    let res = aws_manager_impl.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str(), region.clone()).await;
-                                    if let Err(err) = res {
-                                        println!("job {}: Instance launch failed, {}", job, err);
-                                        break 'event;
-                                    }
-                                    instance_id = res.unwrap();
-                                }
+                                aws_launch_scheduled = true;
+                                aws_launch_time = Instant::now().checked_add(Duration::from_secs(5)).unwrap();
+                                println!("job {}: Instance scheduled", job);
                             }
                             println!("job {}: REVISED_RATE: rate: {}, balance: {}, timestamp: {}", job, rate, balance, last_settled.as_secs());
                         } else if log.topics[0] == LOCK_CREATED {
@@ -425,12 +432,17 @@ impl JobsService {
                                 original_rate = rate;
                                 rate = new_rate;
                                 if rate < min_rate {
-                                    let res = aws_manager_impl.spin_down(&instance_id, region.clone()).await;
-                                    if let Err(err) = res {
-                                        println!("job {}: ERROR failed to terminate instance, {}", job, err);
-                                        break 'event;
+                                    if aws_launch_scheduled {
+                                        aws_launch_scheduled = false;
+                                        println!("job {}: Canelled scheduled instance", job);
+                                    } else {
+                                        let res = aws_manager_impl.spin_down(&instance_id, region.clone()).await;
+                                        if let Err(err) = res {
+                                            println!("job {}: ERROR failed to terminate instance, {}", job, err);
+                                            break 'event;
+                                        }
                                     }
-                                    println!("job {}: Revised job rate below min rate, shutting down", job);
+                                    println!("job {}: Revised job rate below min rate, shut down", job);
                                 }
                                 println!("job {}: LOCK_CREATED: original_rate: {}, rate: {}, balance: {}, timestamp: {}", job, original_rate, rate, balance, last_settled.as_secs());
                             } else {

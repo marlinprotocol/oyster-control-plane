@@ -1,6 +1,6 @@
 use ssh2::Session;
 use std::fs::File;
-use std::io::{Read, Write, BufReader};
+use std::io::{Read, BufReader};
 use std::net::TcpStream;
 use std::path::Path;
 use std::process::Command;
@@ -109,44 +109,6 @@ impl Aws {
             .send()
             .await?;
         
-        Ok(())
-    }
-
-    #[allow(dead_code)]
-    async fn create_key_pair(&self, region: String) -> Result<()> {
-        let resp = self.client(region).await
-            .create_key_pair()
-            .key_name(&self.key_name)
-            .set_key_type(Some(aws_sdk_ec2::model::KeyType::Ed25519))
-            .send()
-            .await;
-
-        let mut fingerprint = String::new();
-
-        match resp {
-            Ok(res) => {
-                let key_material = res.key_material();
-                if key_material.is_none() {
-                    println!("ERROR: extracting private key");
-                    return Err(anyhow!("Failed to create private key"));
-                }
-                fingerprint.push_str(key_material.unwrap());
-            }
-            Err(e) => {
-                println!("ERROR: {}", e.to_string());
-                return Err(anyhow!("Keypair creation failed"));
-            }
-        }
-
-        let mut file = File::create(Path::new(&self.key_location))?;
-        file.write_all(fingerprint.as_bytes())?;
-        let mut cmd = Command::new("chmod");
-        cmd.arg("400");
-        cmd.arg("/home/nisarg/one.pem");
-        let _output = cmd.output();
-
-        println!("Key-pair created, private key written to {}", self.key_location);
-
         Ok(())
     }
 
@@ -265,23 +227,23 @@ impl Aws {
     /* AWS EC2 UTILITY */
 
     pub async fn get_instance_ip(&self, instance_id: String, region: String) -> Result<String> {
-        let res = self.client(region).await
+        Ok(self.client(region).await
             .describe_instances()
             .filters(aws_sdk_ec2::model::Filter::builder().name("instance-id").values(instance_id).build())
             .send()
-            .await?;
+            .await?
             // response parsing from here
-        if res.reservations()
+            .reservations()
             .ok_or(anyhow!("could not parse reservations"))?
-            .is_empty() {
-            Err(anyhow!("instance not found"))
-        } else {
-            Ok(res.reservations().unwrap()[0].instances()
-            .ok_or(anyhow!("could not parse instances"))?[0]
+            .first()
+            .ok_or(anyhow!("no reservation found"))?
+            .instances()
+            .ok_or(anyhow!("could not parse instances"))?
+            .first()
+            .ok_or(anyhow!("no instances with the given id"))?
             .public_ip_address()
             .ok_or(anyhow!("could not parse ip address"))?
             .to_string())
-        }   
     }
 
     pub async fn launch_instance(&self, job: String, instance_type: aws_sdk_ec2::model::InstanceType, image_url: &str, architecture: String, region: String) -> Result<String> {
@@ -475,22 +437,20 @@ impl Aws {
             .values("oyster")
             .build();
 
-        let res = self.client(region).await
+        Ok(self.client(region).await
             .describe_security_groups()
             .filters(filter)
             .send()
-            .await?;
-        // response parsing from here
-        if res.security_groups()
-            .ok_or(anyhow!("Could not parse security groups"))?
-            .is_empty() {
-            Err(anyhow!("no groups found"))
-        } else {
-            Ok(res.security_groups().unwrap()[0]
+            .await?
+            // response parsing from here
+            .security_groups()
+            .ok_or(anyhow!("could not parse security groups"))?
+            .first()
+            .ok_or(anyhow!("no security group found"))?
             .group_id()
-            .ok_or(anyhow!("Could not parse group id"))?
-            .to_string())
-        }
+            .ok_or(anyhow!("could not parse group id"))?
+            .to_string()
+            )
     }
 
     pub async fn get_subnet(&self, region: String) -> Result<String> {
@@ -499,43 +459,41 @@ impl Aws {
             .values("oyster")
             .build();
 
-        let res = self.client(region).await
+        Ok(self.client(region).await
             .describe_subnets()
             .filters(filter)
             .send()
-            .await?;
-
-        // response parsing from here
-        if res.subnets()
+            .await?
+            // response parsing from here
+            .subnets()
             .ok_or(anyhow!("Could not parse subnets"))?
-            .is_empty() {
-            Err(anyhow!("no subnet found"))
-        } else {
-            Ok(res.subnets.unwrap()[0]
-                .subnet_id()
-                .ok_or(anyhow!("Could not parse subnet id"))?
-                .to_string())
-        }
+            .first()
+            .ok_or(anyhow!("no subnet found"))?
+            .subnet_id()
+            .ok_or(anyhow!("Could not parse subnet id"))?
+            .to_string()
+        )
     }
 
     pub async fn get_job_instance(&self, job: String, region: String) -> Result<String> {
-        let res = self.client(region).await
+
+        Ok(self.client(region).await
             .describe_instances()
             .filters(aws_sdk_ec2::model::Filter::builder().name("tag:jobId").values(job).build())
             .send()
-            .await?;
+            .await?
             // response parsing from here
-        if res.reservations()
+            .reservations()
             .ok_or(anyhow!("could not parse reservations"))?
-            .is_empty() {
-            Err(anyhow!("instance not found"))
-        } else {
-            Ok(res.reservations().unwrap()[0].instances()
-            .ok_or(anyhow!("could not parse instances"))?[0]
+            .first()
+            .ok_or(anyhow!("reservation not found"))?
+            .instances()
+            .ok_or(anyhow!("could not parse instances"))?
+            .first()
+            .ok_or(anyhow!("no instances for the given job"))?
             .instance_id()
             .ok_or(anyhow!("could not parse ip address"))?
             .to_string())
-        }
     }
 
     async fn allocate_ip_addr(&self, job: String, region: String) -> Result<(String, String)> {
@@ -600,28 +558,24 @@ impl Aws {
                 .name("tag:jobId")
                 .values(job.clone())
                 .build();
-
-        let addrs = self.client(region).await
-                .describe_addresses()
-                .filters(filter_a)
-                .filters(filter_b)
-                .send()
-                .await?;
-
-        let addrs = addrs.addresses()
-                        .ok_or(anyhow!("could not parse subnets"))?;
         
-        if addrs.is_empty() {
-            Err(anyhow!("address not found"))
-        } else {
-            Ok((
-                    true,
-                    addrs[0].allocation_id().ok_or(anyhow!("could not parse allocation id"))?.to_string(),
-                    addrs[0].public_ip().ok_or(anyhow!("could not parse public ip"))?.to_string(),
-            ))
-        }
-                        
-
+        Ok(match self.client(region).await
+                    .describe_addresses()
+                    .filters(filter_a)
+                    .filters(filter_b)
+                    .send()
+                    .await?
+                    // Response parsing starts here
+                    .addresses()
+                    .ok_or(anyhow!("could not parse addresses"))?
+                    .first() {
+                        None => (false, String::new(), String::new()),
+                        Some(addrs) => (
+                            true,
+                            addrs.allocation_id().ok_or(anyhow!("could not parse allocation id"))?.to_string(),
+                            addrs.public_ip().ok_or(anyhow!("could not parse public ip"))?.to_string(),
+                        )
+        })
     }
 
     async fn associate_address(&self, instance_id: String, alloc_id: String, region: String) -> Result<()> {

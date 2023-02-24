@@ -1,6 +1,7 @@
 mod aws;
 mod market;
 mod server;
+mod test;
 
 use std::error::Error;
 use clap::Parser;

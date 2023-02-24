@@ -14,7 +14,8 @@ use async_trait::async_trait;
 
 use tokio_stream::StreamExt;
 use ethers::types::Log;
-use ethers::types::Bytes;
+
+use crate::test;
 
 // Basic architecture:
 // One future listening to new jobs
@@ -338,7 +339,7 @@ impl JobsService {
                                 }
 
                                 if !allowed_regions.contains(&region) {
-                                    println!("job {}: region : {} not suppported", job, region);
+                                    println!("job {}: region : {} not suppported, exiting job", job, region);
                                     break 'main;
                                 }
 
@@ -501,23 +502,17 @@ impl Logger for TestLogger {
         &'a self,
         _client: &'a Provider<Ws>
     ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>, Box<dyn Error + Send + Sync + 'a>> {
-        Ok(Box::new(tokio_stream::iter([(H256::default(), false)])))
+        let logs: Vec<Log> = test::test_logs();
+        Ok(Box::new(tokio_stream::iter(logs.iter().map(|job| (job.topics[1], false)).collect::<Vec<_>>())))
     }
 
     async fn job_logs<'a>(
         &'a self,
         _client: &'a Provider<Ws>,
-        _job: H256
+        job: H256
     ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>, Box<dyn Error + Send + Sync + 'a>> {
-        let mut log_a = Log::default();
-        log_a.address = H160::from_str("0x3FA4718a2fd55297CD866E5a0dE6Bc75E2b777d1").unwrap();
-        log_a.topics = vec![H256::from(keccak256(
-            "JobOpened(bytes32,string,address,address,uint256,uint256,uint256)",
-        )), H256::default()];
-        log_a.removed = Some(false);
-        log_a.data = Bytes::from_str("0x000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000038d7ea4c6800000000000000000000000000000000000000000000000000d8d726b7177a8000000000000000000000000000000000000000000000000000000000000638af1b5000000000000000000000000000000000000000000000000000000000000007d7b22726567696f6e223a2261702d736f7574682d31222c2275726c223a2268747470733a2f2f7733732e6c696e6b2f697066732f626166796265696737736f756232666834676d696a6b62666b6335766b686666717433716a706d7766716f75746d6f6c6c707975367770366468712f656e636c6176652e656966227d000000").unwrap();
-
-        Ok(Box::new(tokio_stream::iter([log_a])))
+        let logs: Vec<Log> = test::test_logs().into_iter().filter(|log| log.topics[1] == job).collect();
+        Ok(Box::new(tokio_stream::iter(logs)))
     }
 }
 
@@ -560,14 +555,9 @@ impl AwsManager for TestAws {
 mod tests {
     use crate::market;
 
-    #[test]
-    fn test_test() {
-        assert_eq!(2,2);
-    }
-
     #[tokio::test]
     async fn test_run() {
-        market::JobsService::run(market::TestAws {}, market::TestLogger {}, "test_eif_url".to_string(), ["ap-south-1"]).await;
+        market::JobsService::run(market::TestAws {}, market::TestLogger {}, "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(), vec!["ap-south-1".into()]).await;
         assert_eq!(2,2);
     }
 }

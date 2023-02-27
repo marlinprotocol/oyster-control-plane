@@ -18,17 +18,104 @@ enum actions {
 
 
 fn get_logs_data() -> Vec<(actions, Bytes, U256)> {
-    let mut idx = U256::one();
-    let mut time = SystemTime::now()
+    let mut idx: i128 = 1;
+    let time = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap().as_secs();
-    vec![
+    let input = vec![
         // test : 1 -> job open and close
-        (actions::Open, Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\"}".to_string(),2,1001,time+1).encode()), U256::from_dec_str("1").unwrap_or(U256::one())),
-        (actions::Close, Bytes::new(), U256::from_dec_str("1").unwrap_or(U256::one()))
+        (actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\"}".to_string(),2,1001,time+1).encode()),
+        (actions::Close, [].into()),
 
-        // test : 2 -> 
-    ]
+        // test : 2 -> deposit
+        (actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\"}".to_string(),2,1001,time+3).encode()),
+        (actions::Deposit, (500).encode()),
+        (actions::Close, [].into()),
+
+        // test : 3 -> withdraw
+        (actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\"}".to_string(),2,1001,time+6).encode()),
+        (actions::Withdraw, (500).encode()),
+        (actions::Close, [].into()),
+
+        // test : 4 -> settle
+        (actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\"}".to_string(),2,1001,time+9).encode()),
+        (actions::Settle, (2, time+10).encode()),
+        (actions::Close, [].into()),
+
+        // test : 5 -> revise rate
+        (actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\"}".to_string(),2,1001,time+12).encode()),
+        (actions::LockCreate, (5,0).encode()),
+        (actions::LockDelete, [].into()),
+        (actions::ReviseRate, [].into()),
+        (actions::Close, [].into()),
+
+        // test : 6 -> revise rate cancel
+        (actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\"}".to_string(),2,1001,time+17).encode()),
+        (actions::LockCreate, (5,0).encode()),
+        (actions::LockDelete, [].into()),
+        (actions::Close, [].into()),
+
+        // test : 7 -> region type not supported
+        (actions::Open, ("{\"region\":\"ap-east-2\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\"}".to_string(),2,1001,time+21).encode()),
+        (actions::Close, [].into()),
+
+        // test : 8 -> region not provided
+        (actions::Open, ("{\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\"}".to_string(),2,1001,time+23).encode()),
+        (actions::Close, [].into()),
+        
+        // test : 9 -> instance type not provided
+        (actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\"}".to_string(),2,1001,time+25).encode()),
+        (actions::Close, [].into()),
+
+        // test : 10 -> instance type not supported
+        (actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.vsmall\"}".to_string(),2,1001,time+27).encode()),
+        (actions::Close, [].into()),
+
+        // test : 11 -> eif url not provided
+        (actions::Open, ("{\"region\":\"ap-south-1\",\"instance\":\"c6a.xlarge\"}".to_string(),2,1001,time+29).encode()),
+        (actions::Close, [].into()),
+
+        // test : 12 -> rate lower than min rate
+        (actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.large\"}".to_string(),2,1001,time+31).encode()),
+        (actions::Close, [].into()),
+
+        // test : 13 -> rate higher than balance
+        (actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\"}".to_string(),50,49,time+33).encode()),
+        (actions::Close, [].into()),
+
+        // test : 14 -> withdraw to amount lower than rate
+        (actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\"}".to_string(),20,1001,time+35).encode()),
+        (actions::Withdraw, (990).encode()),
+        (actions::Close, [].into()),
+
+        // test : 15 -> revised rate lower than min rate and again to higher
+        (actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.large\"}".to_string(),5,1001,time+38).encode()),
+        (actions::LockCreate, (3,0).encode()),
+        (actions::LockDelete, [].into()),
+        (actions::ReviseRate, [].into()),
+        (actions::LockCreate, (8,0).encode()),
+        (actions::LockDelete, [].into()),
+        (actions::ReviseRate, [].into()),
+        (actions::Close, [].into()),
+    ];
+    let mut res: Vec<(actions, Bytes, U256)> = Vec::new();
+    for v in input {
+        match v.0 {
+            actions::Open => {
+                idx += 1;
+            },
+            _ => {
+
+            }
+        }
+        res.push(get_data_tuple(v.0, v.1, idx));
+    }
+
+    res
+}
+
+fn get_data_tuple(action: actions, data: Vec<u8>, job: i128) -> (actions, Bytes, U256) {
+    (action, Bytes::from(data), U256::from_dec_str(&job.to_string()).unwrap_or(U256::one()))
 }
 
 pub fn test_logs() -> Vec<Log> {

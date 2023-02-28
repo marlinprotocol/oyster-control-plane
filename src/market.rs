@@ -43,6 +43,11 @@ pub trait AwsManager {
         job: String,
         region: String
     ) -> Result<(bool, String), Box<dyn Error + Send + Sync>>;
+
+    async fn check_instance_running(
+        &self,
+        instance_id: &String,
+        region: String) -> Result<bool, Box<dyn Error + Send + Sync>>;
 }
 
 #[async_trait]
@@ -252,6 +257,35 @@ impl JobsService {
 
 
                 tokio::select! {
+                    // running instance heartbeat check
+                    () = sleep(Duration::from_secs(5)) => {
+                        if instance_id.as_str() != "" {
+                            let running = aws_manager_impl.check_instance_running(&instance_id, region.clone()).await;
+                            if let Err(err) = running {
+                                println!("job {}: failed to retrieve instance state, {}", job, err);
+                                if rate >= min_rate {
+                                    let res = aws_manager_impl.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str(), region.clone()).await;
+                                    if let Err(err) = res {
+                                        println!("job {}: Instance launch failed, {}", job, err);
+                                        break 'event;
+                                    }
+                                    instance_id = res.unwrap();
+                                }
+                            } else {
+                                let running = running.unwrap();
+                                if !running {
+                                    if rate >= min_rate {
+                                        let res = aws_manager_impl.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str(), region.clone()).await;
+                                        if let Err(err) = res {
+                                            println!("job {}: Instance launch failed, {}", job, err);
+                                            break 'event;
+                                        }
+                                        instance_id = res.unwrap();
+                                    }
+                                }
+                            }
+                        }
+                    }
                     // insolvency check
                     () = sleep(insolvency_duration) => {
                         // spin down instance
@@ -267,6 +301,7 @@ impl JobsService {
                         // exit fully
                         break 'main;
                     }
+                    // aws delayed spin up check
                     () = sleep(aws_delay_duration) => {
                         let (exist, instance) = aws_manager_impl.get_job_instance(job.to_string(), region.clone()).await.unwrap_or((false, "".to_string()));
                         if exist {
@@ -279,6 +314,7 @@ impl JobsService {
                                     println!("job {}: ERROR failed to terminate instance, {}", job, err);
                                     break 'event;
                                 }
+                                instance_id = String::new();
                             }
                         } else {
                             if rate >= min_rate {
@@ -442,6 +478,7 @@ impl JobsService {
                                             println!("job {}: ERROR failed to terminate instance, {}", job, err);
                                             break 'event;
                                         }
+                                        instance_id = String::new();
                                     }
                                     println!("job {}: Revised job rate below min rate, shut down", job);
                                 }
@@ -546,6 +583,14 @@ impl AwsManager for TestAws {
         region: String) -> Result<(bool, String), Box<dyn Error + Send + Sync>> {
         println!("TEST: get_job_instance | job: {}, region: {}", job, region);
         Ok((false, "".to_string()))
+    }
+
+    async fn check_instance_running(
+        &self,
+        _instance_id: &String,
+        _region: String) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        // println!("TEST: check_instance_running | instance_id: {}, region: {}", instance_id, region);    
+        Ok(true)
     }
 }
 

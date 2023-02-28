@@ -496,6 +496,29 @@ impl Aws {
             .to_string())
     }
 
+    async fn get_instance_state(&self, instance_id: &String, region: String) -> Result<String> {
+        Ok(self.client(region).await
+            .describe_instances()
+            .filters(aws_sdk_ec2::model::Filter::builder().name("instance-id").values(instance_id).build())
+            .send()
+            .await?
+            // response parsing from here
+            .reservations()
+            .ok_or(anyhow!("could not parse reservations"))?
+            .first()
+            .ok_or(anyhow!("no reservation found"))?
+            .instances()
+            .ok_or(anyhow!("could not parse instances"))?
+            .first()
+            .ok_or(anyhow!("no instances with the given id"))?
+            .state()
+            .ok_or(anyhow!("could not parse instance state"))?
+            .name()
+            .ok_or(anyhow!("could not parse instance state name"))?
+            .as_str()
+            .into())
+    } 
+
     async fn allocate_ip_addr(&self, job: String, region: String) -> Result<(String, String)> {
         let (exist, alloc_id, public_ip) = self.get_job_elastic_ip(job.clone(), region.clone()).await?;
 
@@ -733,6 +756,18 @@ impl AwsManager for Aws {
         region: String) -> Result<(bool, String), Box<dyn Error + Send + Sync>> {
         let instance = self.get_job_instance(job, region).await?;
         Ok((true, instance))
+    }
+
+    async fn check_instance_running(
+        &self,
+        instance_id: &String,
+        region: String) -> Result<bool, Box<dyn Error + Send + Sync>> {
+            let res = self.get_instance_state(instance_id, region).await?;
+            if res.as_str() == "Running" || res.as_str() == "Pending" {
+                Ok(true)
+            } else {
+                Ok(false)
+            }
     }
 }
 

@@ -496,7 +496,7 @@ impl Aws {
             .to_string())
     }
 
-    async fn get_instance_state(&self, instance_id: &String, region: String) -> Result<String> {
+    pub async fn get_instance_state(&self, instance_id: &String, region: String) -> Result<String> {
         Ok(self.client(region).await
             .describe_instances()
             .filters(aws_sdk_ec2::model::Filter::builder().name("instance-id").values(instance_id).build())
@@ -763,7 +763,7 @@ impl AwsManager for Aws {
         instance_id: &String,
         region: String) -> Result<bool, Box<dyn Error + Send + Sync>> {
             let res = self.get_instance_state(instance_id, region).await?;
-            if res.as_str() == "Running" || res.as_str() == "Pending" {
+            if res.as_str() == "running" || res.as_str() == "pending" {
                 Ok(true)
             } else {
                 Ok(false)

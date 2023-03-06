@@ -475,7 +475,7 @@ impl Aws {
         )
     }
 
-    pub async fn get_job_instance(&self, job: String, region: String) -> Result<String> {
+    pub async fn get_job_instance_id(&self, job: String, region: String) -> Result<String> {
 
         Ok(self.client(region).await
             .describe_instances()
@@ -629,7 +629,7 @@ impl Aws {
     }
 
 
-    pub async fn spin_up(&self, image_url: &str, job: String, instance_type: &str, region: String) -> Result<String> {
+    pub async fn spin_up_instance(&self, image_url: &str, job: String, instance_type: &str, region: String) -> Result<String> {
         let ec2_type = aws_sdk_ec2::model::InstanceType::from_str(instance_type).unwrap_or_else(|e| {
             println!("ERROR: parsing instance_type, setting default, {}", e);
             return aws_sdk_ec2::model::InstanceType::C6aXlarge;
@@ -719,7 +719,7 @@ impl Aws {
 
     }
 
-    pub async fn spin_down(&self, instance_id: &String, region: String) -> Result<()>{
+    pub async fn spin_down_instance(&self, instance_id: &String, region: String) -> Result<()>{
         let _ = self.terminate_instance(&instance_id, region).await?;
         Ok(())
     }
@@ -732,34 +732,34 @@ use std::error::Error;
 #[async_trait]
 impl AwsManager for Aws {
     async fn spin_up(
-        &self,
+        &mut self,
         eif_url: &str,
         job: String,
         instance_type: &str,
         region: String) -> Result<String, Box<dyn Error + Send + Sync>> {
-        let instance = self.spin_up(eif_url, job, instance_type, region).await?;
+        let instance = self.spin_up_instance(eif_url, job, instance_type, region).await?;
         Ok(instance)
     }
 
     async fn spin_down(
-        &self,
+        &mut self,
         instance_id: &String,
         region: String
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
-        let _ = self.spin_down(instance_id, region).await?;
+        let _ = self.spin_down_instance(instance_id, region).await?;
         Ok(true)
     }
 
     async fn get_job_instance(
-        &self,
+        &mut self,
         job: String,
         region: String) -> Result<(bool, String), Box<dyn Error + Send + Sync>> {
-        let instance = self.get_job_instance(job, region).await?;
+        let instance = self.get_job_instance_id(job, region).await?;
         Ok((true, instance))
     }
 
     async fn check_instance_running(
-        &self,
+        &mut self,
         instance_id: &String,
         region: String) -> Result<bool, Box<dyn Error + Send + Sync>> {
             let res = self.get_instance_state(instance_id, region).await?;

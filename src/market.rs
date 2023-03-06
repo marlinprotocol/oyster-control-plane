@@ -26,26 +26,26 @@ pub struct JobsService {}
 #[async_trait]
 pub trait AwsManager {
     async fn spin_up(
-        &self,
+        &mut self,
         eif_url: &str,
         job: String,
         instance_type: &str,
         region: String) -> Result<String, Box<dyn Error + Send + Sync>>;
 
     async fn spin_down(
-        &self,
+        &mut self,
         instance_id: &String,
         region: String
     ) -> Result<bool, Box<dyn Error + Send + Sync>>;
 
     async fn get_job_instance(
-        &self,
+        &mut self,
         job: String,
         region: String
     ) -> Result<(bool, String), Box<dyn Error + Send + Sync>>;
 
     async fn check_instance_running(
-        &self,
+        &mut self,
         instance_id: &String,
         region: String) -> Result<bool, Box<dyn Error + Send + Sync>>;
 }
@@ -126,7 +126,7 @@ impl JobsService {
             let mut job_stream = Box::into_pin(res.unwrap());
             while let Some((job, removed)) = job_stream.next().await {
                 println!("main: New job: {}, {}", job, removed);
-                tokio::spawn(Self::job_manager(aws_manager_impl.clone(), logger_impl.clone(), url.clone(), job, regions.clone()));
+                tokio::spawn(Self::job_manager(aws_manager_impl.clone(), logger_impl.clone(), url.clone(), job, regions.clone(), 3));
             }
 
             println!("main: Job stream ended");
@@ -154,7 +154,12 @@ impl JobsService {
 
 
     // manage the complete lifecycle of a job
-    async fn job_manager(aws_manager_impl: impl AwsManager + Send + Sync + Clone, logger_impl: impl Logger + Send + Sync + Send, url: String, job: H256, allowed_regions: Vec<String>) {
+    async fn job_manager(mut aws_manager_impl: impl AwsManager + Send + Sync + Clone,
+        logger_impl: impl Logger + Send + Sync + Send,
+        url: String,
+        job: H256,
+        allowed_regions: Vec<String>,
+        aws_delay_duration: u64) {
         let mut backoff = 1;
 
         // connection level loop
@@ -249,7 +254,7 @@ impl JobsService {
                     insolvency_duration.as_secs()
                 );
 
-                let aws_delay_duration = if aws_launch_scheduled {
+                let aws_delay_timeout = if aws_launch_scheduled {
                     aws_launch_time.saturating_duration_since(Instant::now())
                 } else {
                     insolvency_duration + Duration::from_secs(100)
@@ -289,7 +294,7 @@ impl JobsService {
                     // insolvency check
                     () = sleep(insolvency_duration) => {
                         // spin down instance
-                        if instance_id != String::new() {
+                        if instance_id.as_str() != "" {
                             let res = aws_manager_impl.spin_down(&instance_id, region.clone()).await;
                             if let Err(err) = res {
                                 println!("job {}: ERROR failed to terminate instance, {}", job, err);
@@ -302,7 +307,7 @@ impl JobsService {
                         break 'main;
                     }
                     // aws delayed spin up check
-                    () = sleep(aws_delay_duration) => {
+                    () = sleep(aws_delay_timeout) => {
                         let (exist, instance) = aws_manager_impl.get_job_instance(job.to_string(), region.clone()).await.unwrap_or((false, "".to_string()));
                         if exist {
                             instance_id = instance;
@@ -395,16 +400,22 @@ impl JobsService {
                                     let contents = contents.unwrap().to_string();
 
                                     let lines = contents.lines();
+                                    let mut supported = false;
                                     for line in lines {
                                         if line.contains(&instance_type) {
                                             let rate_card: Vec<String> = line.split(":").map(String::from).collect();
                                             min_rate = U256::from_str(rate_card[1].as_str()).unwrap_or(min_rate);
+                                            supported = true;
                                         }
+                                    }
+                                    if !supported {
+                                        println!("job {}: instance type {}, not supported", job, instance_type);
+                                        break 'main;
                                     }
                                 }
                                 println!("job {}: MIN RATE for {} instance is {}", job, instance_type, min_rate);
 
-                                aws_launch_time = Instant::now().checked_add(Duration::from_secs(5)).unwrap();
+                                aws_launch_time = Instant::now().checked_add(Duration::from_secs(aws_delay_duration)).unwrap();
                                 aws_launch_scheduled = true;
                                 println!("job {}: Instance scheduled", job);
                             } else {
@@ -421,7 +432,7 @@ impl JobsService {
                                 println!("job {}: SETTLED: Decode failure: {}", job, log.data);
                             }
                         } else if log.topics[0] == JOB_CLOSED {
-                            if !aws_launch_scheduled {
+                            if !aws_launch_scheduled && instance_id.as_str() != "" {
                                 let res = aws_manager_impl.spin_down(&instance_id, region.clone()).await;
                                 if let Err(err) = res {
                                     println!("job {}: ERROR failed to terminate instance, {}", job, err);
@@ -455,10 +466,10 @@ impl JobsService {
                         } else if log.topics[0] == JOB_REVISED_RATE {
                             // update solvency metrics
 
-                            original_rate = rate;
+                            rate = original_rate;
                             if rate >= min_rate {
                                 aws_launch_scheduled = true;
-                                aws_launch_time = Instant::now().checked_add(Duration::from_secs(5)).unwrap();
+                                aws_launch_time = Instant::now().checked_add(Duration::from_secs(aws_delay_duration)).unwrap();
                                 println!("job {}: Instance scheduled", job);
                             }
                             println!("job {}: REVISED_RATE: rate: {}, balance: {}, timestamp: {}", job, rate, balance, last_settled.as_secs());
@@ -472,7 +483,7 @@ impl JobsService {
                                     if aws_launch_scheduled {
                                         aws_launch_scheduled = false;
                                         println!("job {}: Canelled scheduled instance", job);
-                                    } else {
+                                    } else if instance_id.as_str() != ""{
                                         let res = aws_manager_impl.spin_down(&instance_id, region.clone()).await;
                                         if let Err(err) = res {
                                             println!("job {}: ERROR failed to terminate instance, {}", job, err);
@@ -488,8 +499,10 @@ impl JobsService {
                             }
                         } else if log.topics[0] == LOCK_DELETED {
                             // update solvency metrics
-                            rate = original_rate;
-                            println!("job {}: LOCK_DELETED: original_rate: {}, rate: {}, balance: {}, timestamp: {}", job, original_rate, rate, balance, last_settled.as_secs());
+                            rate = rate + original_rate;
+                            original_rate = rate - original_rate;
+                            rate = rate - original_rate;
+                            println!("job {}: LOCK_DELETED: rate: {}, balance: {}, timestamp: {}", job, rate, balance, last_settled.as_secs());
                         } else {
                             println!("job {}: Unknown event: {}", job, log.topics[0]);
                         }
@@ -540,7 +553,7 @@ impl Logger for TestLogger {
         _client: &'a Provider<Ws>
     ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>, Box<dyn Error + Send + Sync + 'a>> {
         let logs: Vec<Log> = test::test_logs();
-        Ok(Box::new(tokio_stream::iter(logs.iter().map(|job| (job.topics[1], false)).collect::<Vec<_>>())))
+        Ok(Box::new(tokio_stream::iter(logs.iter().map(|job| (job.topics[1], false)).collect::<Vec<_>>()).throttle(Duration::from_secs(2))))
     }
 
     async fn job_logs<'a>(
@@ -549,36 +562,69 @@ impl Logger for TestLogger {
         job: H256
     ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>, Box<dyn Error + Send + Sync + 'a>> {
         let logs: Vec<Log> = test::test_logs().into_iter().filter(|log| log.topics[1] == job).collect();
-        Ok(Box::new(tokio_stream::iter(logs)))
+        Ok(Box::new(tokio_stream::iter(logs).throttle(Duration::from_secs(2))))
     }
 }
 
 #[derive(Clone)]
-pub struct TestAws {}
+pub struct TestAws {
+    outcomes: Vec<char>,
+    cur_idx: i32,
+    max_idx: i32,
+    outfile: String,
+}
+
+use std::fs::OpenOptions;
+use std::io::Write;
 
 #[async_trait]
 impl AwsManager for TestAws {
+
     async fn spin_up(
-        &self,
+        &mut self,
         eif_url: &str,
         job: String,
         instance_type: &str,
         region: String) -> Result<String, Box<dyn Error + Send + Sync>> {
+        if self.outfile.as_str() != "" {
+            let mut file = OpenOptions::new().append(true).open(&self.outfile).expect("Unable to open out file");   
+            file.write_all("SpinUp\n".as_bytes()).expect("write failed");
+        }
         println!("TEST: spin_up | job: {}, region: {}, instance_type: {}, eif_url: {}", job, region, instance_type, eif_url);
+        if self.cur_idx >= self.max_idx {
+            println!("TEST FAIL!\nTEST FAIL!\nTEST FAIL!\n");
+            return Err("fail".into());
+        } else if self.outcomes[self.cur_idx as usize] != 'U' {
+            println!("TEST FAIL!\nTEST FAIL!\nTEST FAIL!\n");
+            return Err("fail".into());
+        }
+        self.cur_idx = self.cur_idx + 1;
         Ok("12345".to_string())
     }
 
     async fn spin_down(
-        &self,
+        &mut self,
         instance_id: &String,
         region: String
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        if self.outfile.as_str() != "" {
+            let mut file = OpenOptions::new().append(true).open(&self.outfile).expect("Unable to open out file");   
+            file.write_all("SpinDown\n".as_bytes()).expect("write failed");
+        }
         println!("TEST: spin_down | instance_id: {}, region: {}", instance_id, region);
+        if self.cur_idx >= self.max_idx {
+            println!("TEST FAIL!\nTEST FAIL!\nTEST FAIL!\n");
+            return Err("fail".into());
+        } else if self.outcomes[self.cur_idx as usize] != 'D' {
+            println!("TEST FAIL!\nTEST FAIL!\nTEST FAIL!\n");
+            return Err("fail".into());
+        }
+        self.cur_idx = self.cur_idx + 1;
         Ok(true)
     }
 
     async fn get_job_instance(
-        &self,
+        &mut self,
         job: String,
         region: String) -> Result<(bool, String), Box<dyn Error + Send + Sync>> {
         println!("TEST: get_job_instance | job: {}, region: {}", job, region);
@@ -586,7 +632,7 @@ impl AwsManager for TestAws {
     }
 
     async fn check_instance_running(
-        &self,
+        &mut self,
         _instance_id: &String,
         _region: String) -> Result<bool, Box<dyn Error + Send + Sync>> {
         // println!("TEST: check_instance_running | instance_id: {}, region: {}", instance_id, region);    
@@ -599,10 +645,246 @@ impl AwsManager for TestAws {
 #[cfg(test)]
 mod tests {
     use crate::market;
+    use ethers::prelude::*;
 
     #[tokio::test]
-    async fn test_run() {
-        market::JobsService::run(market::TestAws {}, market::TestLogger {}, "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(), vec!["ap-south-1".into()]).await;
-        assert_eq!(2,2);
+    async fn test_1() {
+        market::JobsService::job_manager(
+            market::TestAws {
+                outcomes: vec!['U','D'],
+                cur_idx: 0,
+                max_idx: 2,
+                outfile: "".into()
+            },
+            market::TestLogger {},
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+            H256::from_uint(&U256::from_dec_str("1").unwrap_or(U256::one())),
+            vec!["ap-south-1".into()],
+            1).await;
+    }
+
+    #[tokio::test]
+    async fn test_2() {
+        market::JobsService::job_manager(
+            market::TestAws {
+                outcomes: vec!['U','D'],
+                cur_idx: 0,
+                max_idx: 2,
+                outfile: "".into()
+            },
+            market::TestLogger {},
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+            H256::from_uint(&U256::from_dec_str("2").unwrap_or(U256::one())),
+            vec!["ap-south-1".into()],
+            1).await;
+    }
+
+    #[tokio::test]
+    async fn test_3() {
+        market::JobsService::job_manager(
+            market::TestAws {
+                outcomes: vec!['U','D'],
+                cur_idx: 0,
+                max_idx: 2,
+                outfile: "".into()
+            },
+            market::TestLogger {},
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+            H256::from_uint(&U256::from_dec_str("3").unwrap_or(U256::one())),
+            vec!["ap-south-1".into()],
+            1).await;
+    }
+
+    #[tokio::test]
+    async fn test_4() {
+        market::JobsService::job_manager(
+            market::TestAws {
+                outcomes: vec!['U','D'],
+                cur_idx: 0,
+                max_idx: 2,
+                outfile: "".into()
+            },
+            market::TestLogger {},
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+            H256::from_uint(&U256::from_dec_str("4").unwrap_or(U256::one())),
+            vec!["ap-south-1".into()],
+            1).await;
+    }
+
+    #[tokio::test]
+    async fn test_5() {
+        market::JobsService::job_manager(
+            market::TestAws {
+                outcomes: vec!['U','U','D'],
+                cur_idx: 0,
+                max_idx: 3,
+                outfile: "".into()
+            },
+            market::TestLogger {},
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+            H256::from_uint(&U256::from_dec_str("5").unwrap_or(U256::one())),
+            vec!["ap-south-1".into()],
+            1).await;
+    }
+
+    #[tokio::test]
+    async fn test_6() {
+        market::JobsService::job_manager(
+            market::TestAws {
+                outcomes: vec!['U','D'],
+                cur_idx: 0,
+                max_idx: 2,
+                outfile: "".into()
+            },
+            market::TestLogger {},
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+            H256::from_uint(&U256::from_dec_str("6").unwrap_or(U256::one())),
+            vec!["ap-south-1".into()],
+            1).await;
+    }
+
+    #[tokio::test]
+    async fn test_7() {
+        market::JobsService::job_manager(
+            market::TestAws {
+                outcomes: vec![],
+                cur_idx: 0,
+                max_idx: 0,
+                outfile: "".into()
+            },
+            market::TestLogger {},
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+            H256::from_uint(&U256::from_dec_str("7").unwrap_or(U256::one())),
+            vec!["ap-south-1".into()],
+            1).await;
+    }
+
+    #[tokio::test]
+    async fn test_8() {
+        market::JobsService::job_manager(
+            market::TestAws {
+                outcomes: vec!['U','D'],
+                cur_idx: 0,
+                max_idx: 2,
+                outfile: "".into()
+            },
+            market::TestLogger {},
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+            H256::from_uint(&U256::from_dec_str("8").unwrap_or(U256::one())),
+            vec!["ap-south-1".into()],
+            1).await;
+    }
+
+    #[tokio::test]
+    async fn test_9() {
+        market::JobsService::job_manager(
+            market::TestAws {
+                outcomes: vec!['U','D'],
+                cur_idx: 0,
+                max_idx: 2,
+                outfile: "".into()
+            },
+            market::TestLogger {},
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+            H256::from_uint(&U256::from_dec_str("9").unwrap_or(U256::one())),
+            vec!["ap-south-1".into()],
+            1).await;
+    }
+
+    #[tokio::test]
+    async fn test_10() {
+        market::JobsService::job_manager(
+            market::TestAws {
+                outcomes: vec![],
+                cur_idx: 0,
+                max_idx: 0,
+                outfile: "".into()
+            },
+            market::TestLogger {},
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+            H256::from_uint(&U256::from_dec_str("10").unwrap_or(U256::one())),
+            vec!["ap-south-1".into()],
+            1).await;
+    }
+
+    #[tokio::test]
+    async fn test_11() {
+        market::JobsService::job_manager(
+            market::TestAws {
+                outcomes: vec![],
+                cur_idx: 0,
+                max_idx: 0,
+                outfile: "".into()
+            },
+            market::TestLogger {},
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+            H256::from_uint(&U256::from_dec_str("11").unwrap_or(U256::one())),
+            vec!["ap-south-1".into()],
+            1).await;
+    }
+
+    #[tokio::test]
+    async fn test_12() {
+        market::JobsService::job_manager(
+            market::TestAws {
+                outcomes: vec![],
+                cur_idx: 0,
+                max_idx: 0,
+                outfile: "".into()
+            },
+            market::TestLogger {},
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+            H256::from_uint(&U256::from_dec_str("12").unwrap_or(U256::one())),
+            vec!["ap-south-1".into()],
+            1).await;
+    }
+
+    #[tokio::test]
+    async fn test_13() {
+        market::JobsService::job_manager(
+            market::TestAws {
+                outcomes: vec![],
+                cur_idx: 0,
+                max_idx: 0,
+                outfile: "".into()
+            },
+            market::TestLogger {},
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+            H256::from_uint(&U256::from_dec_str("13").unwrap_or(U256::one())),
+            vec!["ap-south-1".into()],
+            1).await;
+    }
+
+    #[tokio::test]
+    async fn test_14() {
+        market::JobsService::job_manager(
+            market::TestAws {
+                outcomes: vec!['U','D'],
+                cur_idx: 0,
+                max_idx: 2,
+                outfile: "".into()
+            },
+            market::TestLogger {},
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+            H256::from_uint(&U256::from_dec_str("14").unwrap_or(U256::one())),
+            vec!["ap-south-1".into()],
+            1).await;
+    }
+
+    #[tokio::test]
+    async fn test_15() {
+        market::JobsService::job_manager(
+            market::TestAws {
+                outcomes: vec!['U','D','U','D'],
+                cur_idx: 0,
+                max_idx: 4,
+                outfile: "".into()
+            },
+            market::TestLogger {},
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+            H256::from_uint(&U256::from_dec_str("15").unwrap_or(U256::one())),
+            vec!["ap-south-1".into()],
+            1).await;
     }
 }
+

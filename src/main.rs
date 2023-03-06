@@ -21,7 +21,7 @@ struct Cli {
 
     /// AWS regions
     #[clap(long, value_parser)]
-    region: Vec<String>,
+    regions: String,
 
     /// RPC url
     #[clap(long, value_parser)]
@@ -32,19 +32,20 @@ struct Cli {
 pub async fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
 
-    println!("Supported regions: {:?}", cli.region);   
+    let regions: Vec<String> = cli.regions.split(",").map(|r| (r.into())).collect();
+    println!("Supported regions: {:?}", regions);   
 
     let aws = aws::Aws::new(cli.profile, cli.key_name).await;
 
     aws.generate_key_pair().await?; 
 
-    for region in cli.region.clone() {
+    for region in regions.clone() {
         aws.key_setup(region.into()).await?;
     }
 
     let _ = tokio::spawn(server::serve(aws.clone()));
 
-    market::JobsService::run(aws, market::RealLogger {}, cli.rpc, cli.region).await;
+    market::JobsService::run(aws, market::RealLogger {}, cli.rpc, regions).await;
 
     Ok(())
 }

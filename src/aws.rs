@@ -10,6 +10,7 @@ use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
 use aws_types::region::Region;
 use whoami::username;
+use std::fs;
 
 use crate::market::AwsManager;
 
@@ -21,10 +22,12 @@ pub struct Aws {
     // Path cannot be cloned, hence String
     key_location: String,
     pub_key_location: String,
+    whitelist: bool,
+    blacklist: bool,
 }
 
 impl Aws {
-    pub async fn new(aws_profile: String, key_name: String) -> Aws {
+    pub async fn new(aws_profile: String, key_name: String, whitelist: bool, blacklist: bool) -> Aws {
         let key_location = "/home/".to_owned() + &username() + "/.ssh/" + &key_name;
         let pub_key_location = "/home/".to_owned() + &username() + "/.ssh/" + &key_name + ".pub";
 
@@ -33,6 +36,8 @@ impl Aws {
             key_name: key_name,
             key_location: key_location,
             pub_key_location: pub_key_location,
+            whitelist: whitelist,
+            blacklist: blacklist,
         };
     }
 
@@ -147,7 +152,14 @@ impl Aws {
 
         let _ = channel.read_to_string(&mut s);
         let _ = channel.wait_close();
-        println!("{}", s);
+
+        channel = sess.channel_session()?;
+        channel
+            .exec(
+                &("sudo apt-get update -y"),
+            )?;
+        let _ = channel.read_to_string(&mut s);
+        let _ = channel.wait_close();
 
         channel = sess.channel_session()?;
         channel
@@ -156,10 +168,10 @@ impl Aws {
             )?;
 
         let _ = channel.read_to_string(&mut s);
-        println!("{}", s);
         let _ = channel.wait_close();
 
         channel = sess.channel_session()?;
+        s = String::new();
         channel
             .exec(
                 &("sudo systemctl restart nitro-enclaves-allocator.service"),
@@ -172,6 +184,7 @@ impl Aws {
         println!("Nitro Enclave Service set up with cpus: {} and memory: {}", v_cpus-2, mem-2048);
 
         channel = sess.channel_session()?;
+        s = String::new();
         channel
             .exec(
                 &("wget -O enclave.eif ".to_owned() + url),
@@ -180,7 +193,84 @@ impl Aws {
         let _ = channel.wait_close();
         println!("{}", s);
 
+        if self.whitelist || self.blacklist {
+            channel = sess.channel_session()?;
+            channel
+                .exec(
+                    &("sudo apt-get install -y hashrat"),
+                )?;
+
+            let _ = channel.read_to_string(&mut s);
+            let _ = channel.wait_close();
+            
+            channel = sess.channel_session()?;
+            s = String::new();
+            channel
+                .exec(
+                    &("hashrat -sha256 /home/ubuntu/enclave.eif"),
+                )?;
+            let _ = channel.read_to_string(&mut s);
+            let _ = channel.wait_close();
+            println!("{}", s);
+
+            for line in s.split_whitespace() {
+                let len = line.len();
+                let substr = line.get(13..len-1).unwrap();
+                println!("Hash : {}", substr);
+                if self.whitelist {
+                    println!("Checking whitelist...");
+                    let file_path = "/home/".to_owned() + &whoami::username() +"/.marlin/whitelist.txt";
+                    let contents = fs::read_to_string(file_path);
+
+                    if let Err(err) = contents {
+                        println!("Error reading whitelist file : {}", err);
+                    } else {
+                        let contents = contents.unwrap().to_string();
+                        let lines = contents.lines();
+                        let mut allowed = false;
+                        for line in lines {
+                            if line.contains(&substr) {
+                                allowed = true;
+                            }
+                        }
+                        if allowed {
+                            println!("EIF ALLOWED!");
+                        } else {
+                            println!("EIF NOT ALLOWED!");
+                            return Err(anyhow!("EIF NOT ALLOWED"));
+                        }
+                    }
+                } 
+                if self.blacklist {
+                    println!("Checking blacklist...");
+                    let file_path = "/home/".to_owned() + &whoami::username() +"/.marlin/blacklist.txt";
+                    let contents = fs::read_to_string(file_path);
+
+                    if let Err(err) = contents {
+                        println!("Error reading whitelist file : {}", err);
+                    } else {
+                        let contents = contents.unwrap().to_string();
+                        let lines = contents.lines();
+                        let mut allowed = true;
+                        for line in lines {
+                            if line.contains(&substr) {
+                                allowed = false;
+                            }
+                        }
+                        if allowed {
+                            println!("EIF ALLOWED!");
+                        } else {
+                            println!("EIF NOT ALLOWED!");
+                            return Err(anyhow!("EIF NOT ALLOWED"));
+                        }
+                    }
+                }
+                break;
+            }
+        }
+
         channel = sess.channel_session()?;
+        s = String::new();
         channel
             .exec(
                 &("sudo iptables -A PREROUTING -t nat -p tcp --dport 80 -i ens5 -j REDIRECT --to-port 1200"),
@@ -191,6 +281,7 @@ impl Aws {
         let _ = channel.wait_close();
 
         channel = sess.channel_session()?;
+        s = String::new();
         channel
             .exec(
                 &("sudo iptables -A PREROUTING -t nat -p tcp --dport 443 -i ens5 -j REDIRECT --to-port 1200"),
@@ -201,6 +292,7 @@ impl Aws {
         let _ = channel.wait_close();
 
         channel = sess.channel_session()?;
+        s = String::new();
         channel
             .exec(
                 &("sudo iptables -A PREROUTING -t nat -p tcp --dport 1025:65535 -i ens5 -j REDIRECT --to-port 1200"),
@@ -211,6 +303,7 @@ impl Aws {
         let _ = channel.wait_close();
 
         channel = sess.channel_session()?;
+        s = String::new();
         channel
             .exec(
                 &("nitro-cli run-enclave --cpu-count ".to_owned() + &((v_cpus-2).to_string()) + " --memory " + &((mem-2200).to_string()) +" --eif-path enclave.eif --enclave-cid 88"),

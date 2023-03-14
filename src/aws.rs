@@ -22,12 +22,12 @@ pub struct Aws {
     // Path cannot be cloned, hence String
     key_location: String,
     pub_key_location: String,
-    whitelist: bool,
-    blacklist: bool,
+    whitelist: String,
+    blacklist: String,
 }
 
 impl Aws {
-    pub async fn new(aws_profile: String, key_name: String, whitelist: bool, blacklist: bool) -> Aws {
+    pub async fn new(aws_profile: String, key_name: String, whitelist: String, blacklist: String) -> Aws {
         let key_location = "/home/".to_owned() + &username() + "/.ssh/" + &key_name;
         let pub_key_location = "/home/".to_owned() + &username() + "/.ssh/" + &key_name + ".pub";
 
@@ -193,7 +193,7 @@ impl Aws {
         let _ = channel.wait_close();
         println!("{}", s);
 
-        if self.whitelist || self.blacklist {
+        if self.whitelist.as_str() != "" || self.blacklist.as_str() != "" {
             channel = sess.channel_session()?;
             channel
                 .exec(
@@ -217,9 +217,9 @@ impl Aws {
                 let len = line.len();
                 let substr = line.get(13..len-1).unwrap();
                 println!("Hash : {}", substr);
-                if self.whitelist {
+                if self.whitelist.as_str() != "" {
                     println!("Checking whitelist...");
-                    let file_path = "/home/".to_owned() + &whoami::username() +"/.marlin/whitelist.txt";
+                    let file_path = self.whitelist.as_str();
                     let contents = fs::read_to_string(file_path);
 
                     if let Err(err) = contents {
@@ -241,9 +241,9 @@ impl Aws {
                         }
                     }
                 } 
-                if self.blacklist {
+                if self.blacklist.as_str() != "" {
                     println!("Checking blacklist...");
-                    let file_path = "/home/".to_owned() + &whoami::username() +"/.marlin/blacklist.txt";
+                    let file_path = self.blacklist.as_str();
                     let contents = fs::read_to_string(file_path);
 
                     if let Err(err) = contents {

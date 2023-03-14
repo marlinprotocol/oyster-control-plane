@@ -26,6 +26,19 @@ struct Cli {
     /// RPC url
     #[clap(long, value_parser)]
     rpc: String,
+
+    /// Rates location
+    #[clap(long, value_parser)]
+    rates: String,
+
+    /// Blacklist location
+    #[clap(long, value_parser)]
+    black: String,
+
+    /// Whitelist location
+    #[clap(long, value_parser)]
+    white: String,
+
 }
 
 #[tokio::main]
@@ -35,7 +48,7 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
     let regions: Vec<String> = cli.regions.split(",").map(|r| (r.into())).collect();
     println!("Supported regions: {:?}", regions);   
 
-    let aws = aws::Aws::new(cli.profile, cli.key_name, false, true).await;
+    let aws = aws::Aws::new(cli.profile, cli.key_name, cli.white, cli.black).await;
 
     aws.generate_key_pair().await?; 
 
@@ -45,7 +58,7 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
 
     let _ = tokio::spawn(server::serve(aws.clone()));
 
-    market::JobsService::run(aws, market::RealLogger {}, cli.rpc, regions).await;
+    market::JobsService::run(aws, market::RealLogger {}, cli.rpc, regions, cli.rates).await;
 
     Ok(())
 }

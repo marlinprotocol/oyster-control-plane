@@ -8,7 +8,6 @@ use tokio::time::sleep;
 use tokio::time::{Duration, Instant};
 use tokio_stream::Stream;
 use std::fs;
-use whoami;
 use std::str::FromStr;
 use async_trait::async_trait;
 
@@ -92,7 +91,8 @@ impl JobsService {
         aws_manager_impl: impl AwsManager + Send + Sync + Clone + 'static,
         logger_impl: impl Logger + Send + Sync + Clone + 'static,
         url: String,
-        regions: Vec<String>) {
+        regions: Vec<String>,
+        rates_path: String) {
         let mut backoff = 1;
 
         // connection level loop
@@ -126,7 +126,7 @@ impl JobsService {
             let mut job_stream = Box::into_pin(res.unwrap());
             while let Some((job, removed)) = job_stream.next().await {
                 println!("main: New job: {}, {}", job, removed);
-                tokio::spawn(Self::job_manager(aws_manager_impl.clone(), logger_impl.clone(), url.clone(), job, regions.clone(), 3));
+                tokio::spawn(Self::job_manager(aws_manager_impl.clone(), logger_impl.clone(), url.clone(), job, regions.clone(), 3, rates_path.clone()));
             }
 
             println!("main: Job stream ended");
@@ -159,7 +159,8 @@ impl JobsService {
         url: String,
         job: H256,
         allowed_regions: Vec<String>,
-        aws_delay_duration: u64) {
+        aws_delay_duration: u64,
+        rates_path: String) {
         let mut backoff = 1;
 
         // connection level loop
@@ -391,7 +392,7 @@ impl JobsService {
                                 }
                                 eif_url = url.unwrap().to_string();
 
-                                let file_path = "/home/".to_owned() + &whoami::username() +"/.marlin/rates.txt";
+                                let file_path = rates_path.clone();
                                 let contents = fs::read_to_string(file_path);
 
                                 if let Err(err) = contents {

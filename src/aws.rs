@@ -643,28 +643,16 @@ impl Aws {
             .domain(aws_sdk_ec2::model::DomainType::Vpc)
             .tag_specifications(tags)
             .send()
-            .await;
+            .await?;
 
-        match resp {
-            Ok(resp) => {
-                let public_ip = resp.public_ip();
-                let alloc_id = resp.allocation_id();
-                if public_ip.is_none() || alloc_id.is_none() {
-                    println!("ERROR: elastic ip address allocation failed");
-                    return Err(anyhow!("error allocating ip address"));
-                }
-                println!(
-                    "New elastic ip, Alloc ID: {}, IP Allocated : {}",
-                    alloc_id.unwrap(),
-                    public_ip.unwrap()
-                );
-                Ok((alloc_id.unwrap().into(), public_ip.unwrap().into()))
-            }
-            Err(e) => {
-                println!("ERROR: elastic ip address allocation failed, {}", e);
-                Err(anyhow!("error allocating ip address"))
-            }
-        }
+        Ok((
+            resp.allocation_id()
+                .ok_or(anyhow!("could not parse allocation id"))?
+                .to_string(),
+            resp.public_ip()
+                .ok_or(anyhow!("could not parse public ip"))?
+                .to_string(),
+        ))
     }
 
     async fn get_job_elastic_ip(

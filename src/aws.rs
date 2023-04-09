@@ -449,7 +449,7 @@ impl Aws {
         let subnet = self.get_subnet(region.clone()).await?;
         let sec_group = self.get_security_group(region.clone()).await?;
 
-        let resp = self
+        Ok(self
             .client(region)
             .await
             .run_instances()
@@ -464,32 +464,15 @@ impl Aws {
             .security_group_ids(sec_group)
             .subnet_id(subnet)
             .send()
-            .await;
-
-        match resp {
-            Ok(res) => {
-                let instances = res.instances();
-                if instances.is_none() {
-                    println!("ERROR: instance launch failed");
-                    return Err(anyhow!("Instance launch fail"));
-                }
-                for instance in instances.unwrap() {
-                    let id = instance.instance_id();
-                    if id.is_none() {
-                        println!("ERROR: error fetching instance id");
-                        return Err(anyhow!("Instance launch fail"));
-                    }
-                    println!("Instance launched - ID: {}", id.unwrap());
-                    return Ok(id.unwrap().to_string());
-                }
-            }
-            Err(e) => {
-                println!("ERROR: {}", e.to_string());
-                return Err(anyhow!("Instance launch fail"));
-            }
-        }
-
-        return Err(anyhow!("Instance launch fail"));
+            .await?
+            // response parsing from here
+            .instances()
+            .ok_or(anyhow!("could not parse instances"))?
+            .first()
+            .ok_or(anyhow!("no instance found"))?
+            .instance_id()
+            .ok_or(anyhow!("could not parse group id"))?
+            .to_string())
     }
 
     async fn terminate_instance(&self, instance_id: &String, region: String) -> Result<()> {

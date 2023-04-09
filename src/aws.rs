@@ -706,33 +706,13 @@ impl Aws {
         alloc_id: String,
         region: String,
     ) -> Result<()> {
-        let resp = self
-            .client(region)
+        self.client(region)
             .await
             .associate_address()
             .allocation_id(alloc_id)
             .instance_id(instance_id)
             .send()
-            .await;
-
-        match resp {
-            Ok(resp) => {
-                let association_id = resp.association_id();
-
-                if association_id.is_none() {
-                    println!("elastic ip association failed");
-                    return Err(anyhow!("error associating elastic ip to instance"));
-                }
-                println!(
-                    "Association successful, Id for elastic ip association: {}",
-                    association_id.unwrap()
-                );
-            }
-            Err(e) => {
-                println!("elastic ip association failed: {}", e);
-                return Err(anyhow!("error associating elastic ip to instance"));
-            }
-        }
+            .await?;
         Ok(())
     }
 

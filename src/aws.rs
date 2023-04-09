@@ -400,15 +400,7 @@ impl Aws {
             sdd = size + 10;
         }
 
-        let (x86_ami, arm_ami) = self.get_amis(region.clone()).await;
-        if x86_ami == String::new() || arm_ami == String::new() {
-            println!("ERROR: AMI's not found");
-            return Err(anyhow!("AMI's not found"));
-        }
-        let mut instance_ami = x86_ami;
-        if architecture == *"arm64" {
-            instance_ami = arm_ami;
-        }
+        let instance_ami = self.get_amis(region.clone(), &architecture).await?;
 
         let enclave_options = aws_sdk_ec2::model::EnclaveOptionsRequest::builder()
             .set_enabled(Some(true))
@@ -484,50 +476,33 @@ impl Aws {
         Ok(())
     }
 
-    async fn get_amis(&self, region: String) -> (String, String) {
-        let mut arm_ami = String::new();
-        let mut x86_ami = String::new();
-
-        let filter = aws_sdk_ec2::model::Filter::builder()
+    async fn get_amis(&self, region: String, architecture: &str) -> Result<String> {
+        let project_filter = aws_sdk_ec2::model::Filter::builder()
             .name("tag:project")
             .values("oyster")
             .build();
+        let name_filter = aws_sdk_ec2::model::Filter::builder()
+            .name("name")
+            .values("MarlinLauncher".to_owned() + architecture)
+            .build();
 
-        let resp = self
+        Ok(self
             .client(region)
             .await
             .describe_images()
             .owners("self")
-            .filters(filter)
+            .filters(project_filter)
+            .filters(name_filter)
             .send()
-            .await;
-
-        match resp {
-            Ok(res) => {
-                let images = res.images();
-                if images.is_none() {
-                    return (x86_ami, arm_ami);
-                }
-                for image in images.unwrap() {
-                    let image_name = image.name();
-                    let image_id = image.image_id();
-                    if image_name.is_none() || image_id.is_none() {
-                        continue;
-                    }
-                    if "MarlinLauncherx86_64" == image_name.unwrap() {
-                        println!("x86_64 ami: {}", image_id.unwrap());
-                        x86_ami = image_id.unwrap().to_string();
-                    } else if "MarlinLauncherARM64" == image_name.unwrap() {
-                        println!("arm64 ami: {}", image_id.unwrap());
-                        arm_ami = image_id.unwrap().to_string();
-                    }
-                }
-            }
-            Err(e) => {
-                println!("ERROR: {}", e);
-            }
-        }
-        (x86_ami, arm_ami)
+            .await?
+            // response parsing from here
+            .images()
+            .ok_or(anyhow!("could not parse images"))?
+            .first()
+            .ok_or(anyhow!("no images found"))?
+            .image_id()
+            .ok_or(anyhow!("could not parse image id"))?
+            .to_string())
     }
 
     pub async fn get_security_group(&self, region: String) -> Result<String> {

@@ -220,8 +220,7 @@ impl Aws {
             println!("{}", s);
 
             if let Some(line) = s.split_whitespace().next() {
-                let len = line.len();
-                let substr = line.get(13..len - 1).unwrap();
+                let substr = &line[13..];
                 println!("Hash : {}", substr);
                 if self.whitelist.as_str() != "" {
                     println!("Checking whitelist...");

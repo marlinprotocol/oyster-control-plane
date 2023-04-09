@@ -1,9 +1,9 @@
-use std::net::{TcpStream, TcpListener};
-use std::io::{Read, Write};
 use crate::aws::Aws;
 use anyhow::Result;
-use std::fs;
 use serde::{Deserialize, Serialize};
+use std::fs;
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
 
 #[derive(Serialize, Deserialize)]
 struct Spec {
@@ -23,8 +23,13 @@ pub struct RegionalRates {
     pub rate_cards: Vec<RateCard>,
 }
 
-async fn handle_read(client: &Aws, mut stream: &TcpStream, regions: Vec<String>, rates_path: String) -> String {
-    let mut buf = [0u8 ;4096];
+async fn handle_read(
+    client: &Aws,
+    mut stream: &TcpStream,
+    regions: Vec<String>,
+    rates_path: String,
+) -> String {
+    let mut buf = [0u8; 4096];
     match stream.read(&mut buf) {
         Ok(_) => {
             let req_str = String::from_utf8_lossy(&buf);
@@ -51,7 +56,10 @@ async fn handle_read(client: &Aws, mut stream: &TcpStream, regions: Vec<String>,
                         .split('&')
                         .map(|s| {
                             let mut parts = s.split('=');
-                            (parts.next().unwrap().to_owned(), parts.next().unwrap().to_owned())
+                            (
+                                parts.next().unwrap().to_owned(),
+                                parts.next().unwrap().to_owned(),
+                            )
                         })
                         .collect();
                 } else {
@@ -74,9 +82,12 @@ async fn handle_read(client: &Aws, mut stream: &TcpStream, regions: Vec<String>,
                     println!("Server: {}", err);
                     return String::from("HTTP/1.1 404 Not Found\r\n");
                 } else {
-                    let res = "{\"id\": \"".to_owned()+ ip.unwrap().as_str() +"\"}";
+                    let res = "{\"id\": \"".to_owned() + ip.unwrap().as_str() + "\"}";
                     let len = res.len();
-                    return "HTTP/1.1 200 OK\r\nContent-Type: application/json;\r\nContent-Length: ".to_owned() + &len.to_string() +"\r\n\r\n" + res.as_str();
+                    return "HTTP/1.1 200 OK\r\nContent-Type: application/json;\r\nContent-Length: "
+                        .to_owned()
+                        + &len.to_string()
+                        + "\r\n\r\n" + res.as_str();
                 }
             } else if route.starts_with("spec") {
                 let file_path = rates_path.clone();
@@ -86,10 +97,11 @@ async fn handle_read(client: &Aws, mut stream: &TcpStream, regions: Vec<String>,
                     println!("Server : Error reading rates file : {}", err);
                 } else {
                     let contents = contents.unwrap();
-                    let data : Vec<RegionalRates> = serde_json::from_str(&contents).unwrap_or_default();
+                    let data: Vec<RegionalRates> =
+                        serde_json::from_str(&contents).unwrap_or_default();
                     if data.len() != 0 {
                         let res = Spec {
-                            allowed_regions : regions,
+                            allowed_regions: regions,
                             min_rates: data,
                         };
                         let res = serde_json::to_string(&res).unwrap();
@@ -97,15 +109,15 @@ async fn handle_read(client: &Aws, mut stream: &TcpStream, regions: Vec<String>,
                         return "HTTP/1.1 200 OK\r\nContent-Type: application/json;\r\nContent-Length: ".to_owned() + &len.to_string() +"\r\n\r\n" + res.as_str();
                     }
                 }
-                return String::from("HTTP/1.1 500 Internal Server Error\r\n"); 
+                return String::from("HTTP/1.1 500 Internal Server Error\r\n");
             } else {
                 return String::from("HTTP/1.1 400 Bad Request\r\n");
             }
-        },
+        }
         Err(e) => {
             println!("Server: Unable to read stream: {}", e);
             return String::from("HTTP/1.1 500 Internal Server Error\r\n");
-        },
+        }
     }
 }
 

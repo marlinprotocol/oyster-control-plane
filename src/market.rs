@@ -1,20 +1,20 @@
+use async_trait::async_trait;
 use ethers::abi::AbiDecode;
 use ethers::prelude::*;
 use ethers::utils::keccak256;
 use serde_json::Value;
 use std::error::Error;
+use std::fs;
 use std::time::SystemTime;
 use tokio::time::sleep;
 use tokio::time::{Duration, Instant};
 use tokio_stream::Stream;
-use std::fs;
-use async_trait::async_trait;
 
-use tokio_stream::StreamExt;
 use ethers::types::Log;
+use tokio_stream::StreamExt;
 
-use crate::test;
 use crate::server;
+use crate::test;
 
 // Basic architecture:
 // One future listening to new jobs
@@ -29,37 +29,39 @@ pub trait AwsManager {
         eif_url: &str,
         job: String,
         instance_type: &str,
-        region: String) -> Result<String, Box<dyn Error + Send + Sync>>;
+        region: String,
+    ) -> Result<String, Box<dyn Error + Send + Sync>>;
 
     async fn spin_down(
         &mut self,
         instance_id: &String,
-        region: String
+        region: String,
     ) -> Result<bool, Box<dyn Error + Send + Sync>>;
 
     async fn get_job_instance(
         &mut self,
         job: String,
-        region: String
+        region: String,
     ) -> Result<(bool, String), Box<dyn Error + Send + Sync>>;
 
     async fn check_instance_running(
         &mut self,
         instance_id: &String,
-        region: String) -> Result<bool, Box<dyn Error + Send + Sync>>;
+        region: String,
+    ) -> Result<bool, Box<dyn Error + Send + Sync>>;
 }
 
 #[async_trait]
 pub trait Logger {
     async fn new_jobs<'a>(
         &'a self,
-        client: &'a Provider<Ws>
+        client: &'a Provider<Ws>,
     ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>, Box<dyn Error + Send + Sync + 'a>>;
 
     async fn job_logs<'a>(
         &'a self,
         client: &'a Provider<Ws>,
-        job: H256
+        job: H256,
     ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>, Box<dyn Error + Send + Sync + 'a>>;
 }
 
@@ -70,7 +72,7 @@ pub struct RealLogger {}
 impl Logger for RealLogger {
     async fn new_jobs<'a>(
         &'a self,
-        client: &'a Provider<Ws>
+        client: &'a Provider<Ws>,
     ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>, Box<dyn Error + Send + Sync + 'a>> {
         let res = JobsService::new_jobs(client).await;
         res
@@ -79,7 +81,7 @@ impl Logger for RealLogger {
     async fn job_logs<'a>(
         &'a self,
         client: &'a Provider<Ws>,
-        job: H256
+        job: H256,
     ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>, Box<dyn Error + Send + Sync + 'a>> {
         let res = JobsService::job_logs(client, job).await;
         res
@@ -92,7 +94,8 @@ impl JobsService {
         logger_impl: impl Logger + Send + Sync + Clone + 'static,
         url: String,
         regions: Vec<String>,
-        rates_path: String) {
+        rates_path: String,
+    ) {
         let mut backoff = 1;
 
         // connection level loop
@@ -126,7 +129,15 @@ impl JobsService {
             let mut job_stream = Box::into_pin(res.unwrap());
             while let Some((job, removed)) = job_stream.next().await {
                 println!("main: New job: {}, {}", job, removed);
-                tokio::spawn(Self::job_manager(aws_manager_impl.clone(), logger_impl.clone(), url.clone(), job, regions.clone(), 3, rates_path.clone()));
+                tokio::spawn(Self::job_manager(
+                    aws_manager_impl.clone(),
+                    logger_impl.clone(),
+                    url.clone(),
+                    job,
+                    regions.clone(),
+                    3,
+                    rates_path.clone(),
+                ));
             }
 
             println!("main: Job stream ended");
@@ -137,30 +148,33 @@ impl JobsService {
         client: &Provider<Ws>,
     ) -> Result<Box<dyn Stream<Item = (H256, bool)> + '_>, Box<dyn Error + Send + Sync + '_>> {
         // TODO: Filter by contract and provider address
-        let event_filter =
-            Filter::new()
-                .address(ValueOrArray::Value("0x3FA4718a2fd55297CD866E5a0dE6Bc75E2b777d1".parse::<Address>()?))
-                .select(0..)
-                .topic0(ValueOrArray::Array(vec![H256::from(keccak256(
-                    "JobOpened(bytes32,string,address,address,uint256,uint256,uint256)",
-                ))]));
+        let event_filter = Filter::new()
+            .address(ValueOrArray::Value(
+                "0x3FA4718a2fd55297CD866E5a0dE6Bc75E2b777d1".parse::<Address>()?,
+            ))
+            .select(0..)
+            .topic0(ValueOrArray::Array(vec![H256::from(keccak256(
+                "JobOpened(bytes32,string,address,address,uint256,uint256,uint256)",
+            ))]));
 
         // register subscription
         let stream = client.subscribe_logs(&event_filter).await?;
 
-        Ok(Box::new(stream.map(|item| (item.topics[1], item.removed.unwrap_or(false)))))
+        Ok(Box::new(stream.map(|item| {
+            (item.topics[1], item.removed.unwrap_or(false))
+        })))
     }
 
-
-
     // manage the complete lifecycle of a job
-    async fn job_manager(mut aws_manager_impl: impl AwsManager + Send + Sync + Clone,
+    async fn job_manager(
+        mut aws_manager_impl: impl AwsManager + Send + Sync + Clone,
         logger_impl: impl Logger + Send + Sync + Send,
         url: String,
         job: H256,
         allowed_regions: Vec<String>,
         aws_delay_duration: u64,
-        rates_path: String) {
+        rates_path: String,
+    ) {
         let mut backoff = 1;
 
         // connection level loop
@@ -227,7 +241,7 @@ impl JobsService {
             let mut instance_type = "c6a.xlarge".to_string();
             let mut region = "ap-south-1".to_string();
             let mut aws_launch_time = Instant::now();
-            let mut aws_launch_scheduled = false;               
+            let mut aws_launch_scheduled = false;
             'event: loop {
                 // compute time to insolvency
                 let now_ts = SystemTime::now()
@@ -260,7 +274,6 @@ impl JobsService {
                 } else {
                     insolvency_duration + Duration::from_secs(100)
                 };
-
 
                 tokio::select! {
                     // running instance heartbeat check
@@ -524,20 +537,24 @@ impl JobsService {
         job: H256,
     ) -> Result<Box<dyn Stream<Item = Log> + Send + '_>, Box<dyn Error + Send + Sync + '_>> {
         // TODO: Filter by contract and job
-        let event_filter = Filter::new().select(0..)
-            .address(ValueOrArray::Value("0x3FA4718a2fd55297CD866E5a0dE6Bc75E2b777d1".parse::<Address>()?))
+        let event_filter = Filter::new()
+            .select(0..)
+            .address(ValueOrArray::Value(
+                "0x3FA4718a2fd55297CD866E5a0dE6Bc75E2b777d1".parse::<Address>()?,
+            ))
             .topic0(ValueOrArray::Array(vec![
-            H256::from(keccak256(
-                "JobOpened(bytes32,string,address,address,uint256,uint256,uint256)",
-            )),
-            H256::from(keccak256("JobSettled(bytes32,uint256,uint256)")),
-            H256::from(keccak256("JobClosed(bytes32)")),
-            H256::from(keccak256("JobDeposited(bytes32,address,uint256)")),
-            H256::from(keccak256("JobWithdrew(bytes32,address,uint256)")),
-            H256::from(keccak256("JobRevisedRate(bytes32,uint256)")),
-            H256::from(keccak256("LockCreated(bytes32,bytes32,uint256,uint256)")),
-            H256::from(keccak256("LockDeleted(bytes32,bytes32,uint256)")),
-        ])).topic1(ValueOrArray::Value(job));
+                H256::from(keccak256(
+                    "JobOpened(bytes32,string,address,address,uint256,uint256,uint256)",
+                )),
+                H256::from(keccak256("JobSettled(bytes32,uint256,uint256)")),
+                H256::from(keccak256("JobClosed(bytes32)")),
+                H256::from(keccak256("JobDeposited(bytes32,address,uint256)")),
+                H256::from(keccak256("JobWithdrew(bytes32,address,uint256)")),
+                H256::from(keccak256("JobRevisedRate(bytes32,uint256)")),
+                H256::from(keccak256("LockCreated(bytes32,bytes32,uint256,uint256)")),
+                H256::from(keccak256("LockDeleted(bytes32,bytes32,uint256)")),
+            ]))
+            .topic1(ValueOrArray::Value(job));
 
         // register subscription
         let stream = client.subscribe_logs(&event_filter).await?;
@@ -546,8 +563,6 @@ impl JobsService {
     }
 }
 
-
-
 #[derive(Clone)]
 pub struct TestLogger {}
 
@@ -555,19 +570,31 @@ pub struct TestLogger {}
 impl Logger for TestLogger {
     async fn new_jobs<'a>(
         &'a self,
-        _client: &'a Provider<Ws>
+        _client: &'a Provider<Ws>,
     ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>, Box<dyn Error + Send + Sync + 'a>> {
         let logs: Vec<Log> = test::test_logs();
-        Ok(Box::new(tokio_stream::iter(logs.iter().map(|job| (job.topics[1], false)).collect::<Vec<_>>()).throttle(Duration::from_secs(2))))
+        Ok(Box::new(
+            tokio_stream::iter(
+                logs.iter()
+                    .map(|job| (job.topics[1], false))
+                    .collect::<Vec<_>>(),
+            )
+            .throttle(Duration::from_secs(2)),
+        ))
     }
 
     async fn job_logs<'a>(
         &'a self,
         _client: &'a Provider<Ws>,
-        job: H256
+        job: H256,
     ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>, Box<dyn Error + Send + Sync + 'a>> {
-        let logs: Vec<Log> = test::test_logs().into_iter().filter(|log| log.topics[1] == job).collect();
-        Ok(Box::new(tokio_stream::iter(logs).throttle(Duration::from_secs(2))))
+        let logs: Vec<Log> = test::test_logs()
+            .into_iter()
+            .filter(|log| log.topics[1] == job)
+            .collect();
+        Ok(Box::new(
+            tokio_stream::iter(logs).throttle(Duration::from_secs(2)),
+        ))
     }
 }
 
@@ -584,18 +611,24 @@ use std::io::Write;
 
 #[async_trait]
 impl AwsManager for TestAws {
-
     async fn spin_up(
         &mut self,
         eif_url: &str,
         job: String,
         instance_type: &str,
-        region: String) -> Result<String, Box<dyn Error + Send + Sync>> {
+        region: String,
+    ) -> Result<String, Box<dyn Error + Send + Sync>> {
         if self.outfile.as_str() != "" {
-            let mut file = OpenOptions::new().append(true).open(&self.outfile).expect("Unable to open out file");   
+            let mut file = OpenOptions::new()
+                .append(true)
+                .open(&self.outfile)
+                .expect("Unable to open out file");
             file.write_all("SpinUp\n".as_bytes()).expect("write failed");
         }
-        println!("TEST: spin_up | job: {}, region: {}, instance_type: {}, eif_url: {}", job, region, instance_type, eif_url);
+        println!(
+            "TEST: spin_up | job: {}, region: {}, instance_type: {}, eif_url: {}",
+            job, region, instance_type, eif_url
+        );
         if self.cur_idx >= self.max_idx {
             println!("TEST FAIL!\nTEST FAIL!\nTEST FAIL!\n");
             return Err("fail".into());
@@ -610,13 +643,20 @@ impl AwsManager for TestAws {
     async fn spin_down(
         &mut self,
         instance_id: &String,
-        region: String
+        region: String,
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
         if self.outfile.as_str() != "" {
-            let mut file = OpenOptions::new().append(true).open(&self.outfile).expect("Unable to open out file");   
-            file.write_all("SpinDown\n".as_bytes()).expect("write failed");
+            let mut file = OpenOptions::new()
+                .append(true)
+                .open(&self.outfile)
+                .expect("Unable to open out file");
+            file.write_all("SpinDown\n".as_bytes())
+                .expect("write failed");
         }
-        println!("TEST: spin_down | instance_id: {}, region: {}", instance_id, region);
+        println!(
+            "TEST: spin_down | instance_id: {}, region: {}",
+            instance_id, region
+        );
         if self.cur_idx >= self.max_idx {
             println!("TEST FAIL!\nTEST FAIL!\nTEST FAIL!\n");
             return Err("fail".into());
@@ -631,7 +671,8 @@ impl AwsManager for TestAws {
     async fn get_job_instance(
         &mut self,
         job: String,
-        region: String) -> Result<(bool, String), Box<dyn Error + Send + Sync>> {
+        region: String,
+    ) -> Result<(bool, String), Box<dyn Error + Send + Sync>> {
         println!("TEST: get_job_instance | job: {}, region: {}", job, region);
         Ok((false, "".to_string()))
     }
@@ -639,13 +680,12 @@ impl AwsManager for TestAws {
     async fn check_instance_running(
         &mut self,
         _instance_id: &String,
-        _region: String) -> Result<bool, Box<dyn Error + Send + Sync>> {
-        // println!("TEST: check_instance_running | instance_id: {}, region: {}", instance_id, region);    
+        _region: String,
+    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        // println!("TEST: check_instance_running | instance_id: {}, region: {}", instance_id, region);
         Ok(true)
     }
 }
-
-
 
 #[cfg(test)]
 mod tests {
@@ -656,96 +696,108 @@ mod tests {
     async fn test_1() {
         market::JobsService::job_manager(
             market::TestAws {
-                outcomes: vec!['U','D'],
+                outcomes: vec!['U', 'D'],
                 cur_idx: 0,
                 max_idx: 2,
-                outfile: "".into()
+                outfile: "".into(),
             },
             market::TestLogger {},
             "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
             H256::from_uint(&U256::from_dec_str("1").unwrap_or(U256::one())),
             vec!["ap-south-1".into()],
-            1).await;
+            1,
+        )
+        .await;
     }
 
     #[tokio::test]
     async fn test_2() {
         market::JobsService::job_manager(
             market::TestAws {
-                outcomes: vec!['U','D'],
+                outcomes: vec!['U', 'D'],
                 cur_idx: 0,
                 max_idx: 2,
-                outfile: "".into()
+                outfile: "".into(),
             },
             market::TestLogger {},
             "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
             H256::from_uint(&U256::from_dec_str("2").unwrap_or(U256::one())),
             vec!["ap-south-1".into()],
-            1).await;
+            1,
+        )
+        .await;
     }
 
     #[tokio::test]
     async fn test_3() {
         market::JobsService::job_manager(
             market::TestAws {
-                outcomes: vec!['U','D'],
+                outcomes: vec!['U', 'D'],
                 cur_idx: 0,
                 max_idx: 2,
-                outfile: "".into()
+                outfile: "".into(),
             },
             market::TestLogger {},
             "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
             H256::from_uint(&U256::from_dec_str("3").unwrap_or(U256::one())),
             vec!["ap-south-1".into()],
-            1).await;
+            1,
+        )
+        .await;
     }
 
     #[tokio::test]
     async fn test_4() {
         market::JobsService::job_manager(
             market::TestAws {
-                outcomes: vec!['U','D'],
+                outcomes: vec!['U', 'D'],
                 cur_idx: 0,
                 max_idx: 2,
-                outfile: "".into()
+                outfile: "".into(),
             },
             market::TestLogger {},
             "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
             H256::from_uint(&U256::from_dec_str("4").unwrap_or(U256::one())),
             vec!["ap-south-1".into()],
-            1).await;
+            1,
+        )
+        .await;
     }
 
     #[tokio::test]
     async fn test_5() {
         market::JobsService::job_manager(
             market::TestAws {
-                outcomes: vec!['U','U','D'],
+                outcomes: vec!['U', 'U', 'D'],
                 cur_idx: 0,
                 max_idx: 3,
-                outfile: "".into()
+                outfile: "".into(),
             },
             market::TestLogger {},
             "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
             H256::from_uint(&U256::from_dec_str("5").unwrap_or(U256::one())),
             vec!["ap-south-1".into()],
-            1).await;
+            1,
+        )
+        .await;
     }
 
     #[tokio::test]
     async fn test_6() {
         market::JobsService::job_manager(
             market::TestAws {
-                outcomes: vec!['U','D'],
+                outcomes: vec!['U', 'D'],
                 cur_idx: 0,
                 max_idx: 2,
-                outfile: "".into()
+                outfile: "".into(),
             },
             market::TestLogger {},
             "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
             H256::from_uint(&U256::from_dec_str("6").unwrap_or(U256::one())),
             vec!["ap-south-1".into()],
-            1).await;
+            1,
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -755,45 +807,51 @@ mod tests {
                 outcomes: vec![],
                 cur_idx: 0,
                 max_idx: 0,
-                outfile: "".into()
+                outfile: "".into(),
             },
             market::TestLogger {},
             "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
             H256::from_uint(&U256::from_dec_str("7").unwrap_or(U256::one())),
             vec!["ap-south-1".into()],
-            1).await;
+            1,
+        )
+        .await;
     }
 
     #[tokio::test]
     async fn test_8() {
         market::JobsService::job_manager(
             market::TestAws {
-                outcomes: vec!['U','D'],
+                outcomes: vec!['U', 'D'],
                 cur_idx: 0,
                 max_idx: 2,
-                outfile: "".into()
+                outfile: "".into(),
             },
             market::TestLogger {},
             "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
             H256::from_uint(&U256::from_dec_str("8").unwrap_or(U256::one())),
             vec!["ap-south-1".into()],
-            1).await;
+            1,
+        )
+        .await;
     }
 
     #[tokio::test]
     async fn test_9() {
         market::JobsService::job_manager(
             market::TestAws {
-                outcomes: vec!['U','D'],
+                outcomes: vec!['U', 'D'],
                 cur_idx: 0,
                 max_idx: 2,
-                outfile: "".into()
+                outfile: "".into(),
             },
             market::TestLogger {},
             "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
             H256::from_uint(&U256::from_dec_str("9").unwrap_or(U256::one())),
             vec!["ap-south-1".into()],
-            1).await;
+            1,
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -803,13 +861,15 @@ mod tests {
                 outcomes: vec![],
                 cur_idx: 0,
                 max_idx: 0,
-                outfile: "".into()
+                outfile: "".into(),
             },
             market::TestLogger {},
             "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
             H256::from_uint(&U256::from_dec_str("10").unwrap_or(U256::one())),
             vec!["ap-south-1".into()],
-            1).await;
+            1,
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -819,13 +879,15 @@ mod tests {
                 outcomes: vec![],
                 cur_idx: 0,
                 max_idx: 0,
-                outfile: "".into()
+                outfile: "".into(),
             },
             market::TestLogger {},
             "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
             H256::from_uint(&U256::from_dec_str("11").unwrap_or(U256::one())),
             vec!["ap-south-1".into()],
-            1).await;
+            1,
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -835,13 +897,15 @@ mod tests {
                 outcomes: vec![],
                 cur_idx: 0,
                 max_idx: 0,
-                outfile: "".into()
+                outfile: "".into(),
             },
             market::TestLogger {},
             "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
             H256::from_uint(&U256::from_dec_str("12").unwrap_or(U256::one())),
             vec!["ap-south-1".into()],
-            1).await;
+            1,
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -851,45 +915,50 @@ mod tests {
                 outcomes: vec![],
                 cur_idx: 0,
                 max_idx: 0,
-                outfile: "".into()
+                outfile: "".into(),
             },
             market::TestLogger {},
             "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
             H256::from_uint(&U256::from_dec_str("13").unwrap_or(U256::one())),
             vec!["ap-south-1".into()],
-            1).await;
+            1,
+        )
+        .await;
     }
 
     #[tokio::test]
     async fn test_14() {
         market::JobsService::job_manager(
             market::TestAws {
-                outcomes: vec!['U','D'],
+                outcomes: vec!['U', 'D'],
                 cur_idx: 0,
                 max_idx: 2,
-                outfile: "".into()
+                outfile: "".into(),
             },
             market::TestLogger {},
             "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
             H256::from_uint(&U256::from_dec_str("14").unwrap_or(U256::one())),
             vec!["ap-south-1".into()],
-            1).await;
+            1,
+        )
+        .await;
     }
 
     #[tokio::test]
     async fn test_15() {
         market::JobsService::job_manager(
             market::TestAws {
-                outcomes: vec!['U','D','U','D'],
+                outcomes: vec!['U', 'D', 'U', 'D'],
                 cur_idx: 0,
                 max_idx: 4,
-                outfile: "".into()
+                outfile: "".into(),
             },
             market::TestLogger {},
             "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
             H256::from_uint(&U256::from_dec_str("15").unwrap_or(U256::one())),
             vec!["ap-south-1".into()],
-            1).await;
+            1,
+        )
+        .await;
     }
 }
-

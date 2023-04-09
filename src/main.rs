@@ -3,9 +3,8 @@ mod market;
 mod server;
 mod test;
 
-use std::error::Error;
 use clap::Parser;
-
+use std::error::Error;
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
@@ -38,7 +37,6 @@ struct Cli {
     /// Whitelist location
     #[clap(long, value_parser)]
     white: String,
-
 }
 
 #[tokio::main]
@@ -46,17 +44,21 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
 
     let regions: Vec<String> = cli.regions.split(",").map(|r| (r.into())).collect();
-    println!("Supported regions: {:?}", regions);   
+    println!("Supported regions: {:?}", regions);
 
     let aws = aws::Aws::new(cli.profile, cli.key_name, cli.white, cli.black).await;
 
-    aws.generate_key_pair().await?; 
+    aws.generate_key_pair().await?;
 
     for region in regions.clone() {
         aws.key_setup(region.into()).await?;
     }
 
-    let _ = tokio::spawn(server::serve(aws.clone(), regions.clone(), cli.rates.clone()));
+    let _ = tokio::spawn(server::serve(
+        aws.clone(),
+        regions.clone(),
+        cli.rates.clone(),
+    ));
 
     market::JobsService::run(aws, market::RealLogger {}, cli.rpc, regions, cli.rates).await;
 

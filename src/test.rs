@@ -1,27 +1,27 @@
+use ethers::abi::AbiEncode;
 use ethers::prelude::*;
 use ethers::types::Log;
 use ethers::utils::keccak256;
 use std::str::FromStr;
-use ethers::abi::AbiEncode;
 use std::time::SystemTime;
 
 enum Actions {
-    Open, // metadata(region, url, instance), rate, balance, timestamp
-    Close, // 
-    Settle, // amount, timestamp
-    Deposit, // amount
-    Withdraw, // amount
+    Open,       // metadata(region, url, instance), rate, balance, timestamp
+    Close,      //
+    Settle,     // amount, timestamp
+    Deposit,    // amount
+    Withdraw,   // amount
     LockCreate, // new_rate, 0
-    LockDelete, // 
-    ReviseRate //
+    LockDelete, //
+    ReviseRate, //
 }
-
 
 fn get_logs_data() -> Vec<(Actions, Bytes, U256)> {
     let mut idx: i128 = 0;
     let time = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap().as_secs();
+        .unwrap()
+        .as_secs();
     let input = vec![
         // test : 1 -> job open and close
         (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\"}".to_string(),2,1001,time+1).encode()),
@@ -62,7 +62,7 @@ fn get_logs_data() -> Vec<(Actions, Bytes, U256)> {
         // test : 8 -> region not provided
         (Actions::Open, ("{\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\"}".to_string(),2,1001,time+23).encode()),
         (Actions::Close, [].into()),
-        
+
         // test : 9 -> instance type not provided
         (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\"}".to_string(),2,1001,time+25).encode()),
         (Actions::Close, [].into()),
@@ -103,10 +103,8 @@ fn get_logs_data() -> Vec<(Actions, Bytes, U256)> {
         match v.0 {
             Actions::Open => {
                 idx += 1;
-            },
-            _ => {
-
             }
+            _ => {}
         }
         res.push(get_data_tuple(v.0, v.1, idx));
     }
@@ -115,12 +113,14 @@ fn get_logs_data() -> Vec<(Actions, Bytes, U256)> {
 }
 
 fn get_data_tuple(action: Actions, data: Vec<u8>, job: i128) -> (Actions, Bytes, U256) {
-    (action, Bytes::from(data), U256::from_dec_str(&job.to_string()).unwrap_or(U256::one()))
+    (
+        action,
+        Bytes::from(data),
+        U256::from_dec_str(&job.to_string()).unwrap_or(U256::one()),
+    )
 }
 
 pub fn test_logs() -> Vec<Log> {
-    
-
     let data_logs = get_logs_data();
     let mut logs: Vec<Log> = Vec::new();
 
@@ -132,56 +132,60 @@ pub fn test_logs() -> Vec<Log> {
     return logs.into();
 }
 
-
 fn get_log(topic: Actions, data: Bytes, idx: H256) -> Log {
-
     let mut log = Log::default();
     log.address = H160::from_str("0x3FA4718a2fd55297CD866E5a0dE6Bc75E2b777d1").unwrap();
     log.removed = Some(false);
     log.data = data;
     match topic {
         Actions::Open => {
-            log.topics = vec![H256::from(keccak256(
-                "JobOpened(bytes32,string,address,address,uint256,uint256,uint256)",
-            )), idx];
-        },
+            log.topics = vec![
+                H256::from(keccak256(
+                    "JobOpened(bytes32,string,address,address,uint256,uint256,uint256)",
+                )),
+                idx,
+            ];
+        }
         Actions::Close => {
-            log.topics = vec![H256::from(keccak256(
-                "JobClosed(bytes32)",
-            )), idx];
-        },
+            log.topics = vec![H256::from(keccak256("JobClosed(bytes32)")), idx];
+        }
         Actions::Settle => {
-            log.topics = vec![H256::from(keccak256(
-                "JobSettled(bytes32,uint256,uint256)",
-            )), idx];
-        },
+            log.topics = vec![
+                H256::from(keccak256("JobSettled(bytes32,uint256,uint256)")),
+                idx,
+            ];
+        }
         Actions::Deposit => {
-            log.topics = vec![H256::from(keccak256(
-                "JobDeposited(bytes32,address,uint256)",
-            )), idx];
-        },
+            log.topics = vec![
+                H256::from(keccak256("JobDeposited(bytes32,address,uint256)")),
+                idx,
+            ];
+        }
         Actions::Withdraw => {
-            log.topics = vec![H256::from(keccak256(
-                "JobWithdrew(bytes32,address,uint256)",
-            )), idx];
-        },
+            log.topics = vec![
+                H256::from(keccak256("JobWithdrew(bytes32,address,uint256)")),
+                idx,
+            ];
+        }
         Actions::LockCreate => {
-            log.topics = vec![H256::from(keccak256(
-                "LockCreated(bytes32,bytes32,uint256,uint256)",
-            )), idx];
-        },
+            log.topics = vec![
+                H256::from(keccak256("LockCreated(bytes32,bytes32,uint256,uint256)")),
+                idx,
+            ];
+        }
         Actions::LockDelete => {
-            log.topics = vec![H256::from(keccak256(
-                "LockDeleted(bytes32,bytes32,uint256)",
-            )), idx];
-        },
+            log.topics = vec![
+                H256::from(keccak256("LockDeleted(bytes32,bytes32,uint256)")),
+                idx,
+            ];
+        }
         Actions::ReviseRate => {
-            log.topics = vec![H256::from(keccak256(
-                "JobRevisedRate(bytes32,uint256)",
-            )), idx];
+            log.topics = vec![
+                H256::from(keccak256("JobRevisedRate(bytes32,uint256)")),
+                idx,
+            ];
         }
     }
-    
+
     log
 }
-

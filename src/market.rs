@@ -40,7 +40,7 @@ pub trait AwsManager {
 
     async fn get_job_instance(
         &mut self,
-        job: String,
+        job: &str,
         region: String,
     ) -> Result<(bool, String), Box<dyn Error + Send + Sync>>;
 
@@ -318,7 +318,7 @@ impl JobsService {
                     }
                     // aws delayed spin up check
                     () = sleep(aws_delay_timeout) => {
-                        let (exist, instance) = aws_manager_impl.get_job_instance(job.to_string(), region.clone()).await.unwrap_or((false, "".to_string()));
+                        let (exist, instance) = aws_manager_impl.get_job_instance(&job.to_string(), region.clone()).await.unwrap_or((false, "".to_string()));
                         if exist {
                             instance_id = instance;
                             println!("job {}: Found, instance id: {}", job, instance_id);
@@ -658,7 +658,7 @@ impl AwsManager for TestAws {
 
     async fn get_job_instance(
         &mut self,
-        job: String,
+        job: &str,
         region: String,
     ) -> Result<(bool, String), Box<dyn Error + Send + Sync>> {
         println!("TEST: get_job_instance | job: {}, region: {}", job, region);

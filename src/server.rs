@@ -27,7 +27,7 @@ async fn handle_read(
     client: &Aws,
     mut stream: &TcpStream,
     regions: Vec<String>,
-    rates_path: String,
+    rates_path: &str,
 ) -> String {
     let mut buf = [0u8; 4096];
     match stream.read(&mut buf) {
@@ -77,7 +77,7 @@ async fn handle_read(
                 if id.as_str() == "" || region.as_str() == "" {
                     return String::from("HTTP/1.1 400 Bad Request\r\n");
                 }
-                let ip = get_ip(client, id, region).await;
+                let ip = get_ip(client, &id, region).await;
                 if let Err(err) = ip {
                     println!("Server: {}", err);
                     String::from("HTTP/1.1 404 Not Found\r\n")
@@ -90,8 +90,7 @@ async fn handle_read(
                         + "\r\n\r\n" + res.as_str();
                 }
             } else if route.starts_with("spec") {
-                let file_path = rates_path.clone();
-                let contents = fs::read_to_string(file_path);
+                let contents = fs::read_to_string(rates_path);
 
                 if let Err(err) = contents {
                     println!("Server : Error reading rates file : {}", err);
@@ -121,25 +120,25 @@ async fn handle_read(
     }
 }
 
-async fn handle_write(mut stream: TcpStream, response: String) {
+async fn handle_write(mut stream: TcpStream, response: &str) {
     match stream.write(response.as_bytes()) {
         Ok(_) => println!("Server: Response sent"),
         Err(e) => println!("Server: Failed sending response: {}", e),
     }
 }
 
-async fn get_ip(client: &Aws, id: String, region: String) -> Result<String> {
+async fn get_ip(client: &Aws, id: &str, region: String) -> Result<String> {
     let instance = client.get_job_instance_id(id, region.clone()).await?;
 
-    let ip = client.get_instance_ip(instance, region).await?;
+    let ip = client.get_instance_ip(&instance, region).await?;
 
     Ok(ip)
 }
 
-async fn handle_client(client: &Aws, stream: TcpStream, regions: Vec<String>, rates_path: String) {
+async fn handle_client(client: &Aws, stream: TcpStream, regions: Vec<String>, rates_path: &str) {
     let response = handle_read(client, &stream, regions, rates_path).await;
 
-    handle_write(stream, response).await;
+    handle_write(stream, &response).await;
 }
 
 pub async fn serve(client: Aws, regions: Vec<String>, rates_path: String) {
@@ -149,7 +148,7 @@ pub async fn serve(client: Aws, regions: Vec<String>, rates_path: String) {
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                handle_client(&client, stream, regions.clone(), rates_path.clone()).await;
+                handle_client(&client, stream, regions.clone(), &rates_path).await;
             }
             Err(e) => {
                 println!("Server: Unable to connect: {}", e);

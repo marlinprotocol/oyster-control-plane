@@ -146,7 +146,7 @@ impl Aws {
 
     /* SSH UTILITY */
 
-    pub async fn ssh_connect(&self, ip_address: String) -> Result<Session> {
+    pub async fn ssh_connect(&self, ip_address: &str) -> Result<Session> {
         let tcp = TcpStream::connect(ip_address)?;
 
         let mut sess = Session::new()?;
@@ -326,7 +326,7 @@ impl Aws {
 
     /* AWS EC2 UTILITY */
 
-    pub async fn get_instance_ip(&self, instance_id: String, region: String) -> Result<String> {
+    pub async fn get_instance_ip(&self, instance_id: &str, region: String) -> Result<String> {
         Ok(self
             .client(region)
             .await
@@ -358,7 +358,7 @@ impl Aws {
         job: String,
         instance_type: aws_sdk_ec2::model::InstanceType,
         image_url: &str,
-        architecture: String,
+        architecture: &str,
         region: String,
     ) -> Result<String> {
         let mut size: i64 = 0;
@@ -400,7 +400,7 @@ impl Aws {
             sdd = size + 10;
         }
 
-        let instance_ami = self.get_amis(region.clone(), &architecture).await?;
+        let instance_ami = self.get_amis(region.clone(), architecture).await?;
 
         let enclave_options = aws_sdk_ec2::model::EnclaveOptionsRequest::builder()
             .set_enabled(Some(true))
@@ -551,7 +551,7 @@ impl Aws {
             .to_string())
     }
 
-    pub async fn get_job_instance_id(&self, job: String, region: String) -> Result<String> {
+    pub async fn get_job_instance_id(&self, job: &str, region: String) -> Result<String> {
         Ok(self
             .client(region)
             .await
@@ -609,8 +609,7 @@ impl Aws {
     }
 
     async fn allocate_ip_addr(&self, job: String, region: String) -> Result<(String, String)> {
-        let (exist, alloc_id, public_ip) =
-            self.get_job_elastic_ip(job.clone(), region.clone()).await?;
+        let (exist, alloc_id, public_ip) = self.get_job_elastic_ip(&job, region.clone()).await?;
 
         if exist {
             println!("Elastic Ip already exists");
@@ -657,7 +656,7 @@ impl Aws {
 
     async fn get_job_elastic_ip(
         &self,
-        job: String,
+        job: &str,
         region: String,
     ) -> Result<(bool, String, String)> {
         let filter_a = aws_sdk_ec2::model::Filter::builder()
@@ -667,7 +666,7 @@ impl Aws {
 
         let filter_b = aws_sdk_ec2::model::Filter::builder()
             .name("tag:jobId")
-            .values(job.clone())
+            .values(job)
             .build();
 
         Ok(
@@ -702,8 +701,8 @@ impl Aws {
 
     async fn associate_address(
         &self,
-        instance_id: String,
-        alloc_id: String,
+        instance_id: &str,
+        alloc_id: &str,
         region: String,
     ) -> Result<()> {
         self.client(region)
@@ -789,7 +788,7 @@ impl Aws {
                 job.clone(),
                 instance_type,
                 image_url,
-                architecture,
+                &architecture,
                 region.clone(),
             )
             .await;
@@ -802,14 +801,14 @@ impl Aws {
         let (alloc_id, ip) = self.allocate_ip_addr(job, region.clone()).await?;
         println!("Elastic Ip allocated: {}", ip);
 
-        self.associate_address(instance.clone(), alloc_id, region.clone())
+        self.associate_address(&instance, &alloc_id, region.clone())
             .await?;
-        let mut public_ip_address = self.get_instance_ip(instance.to_string(), region).await?;
+        let mut public_ip_address = self.get_instance_ip(&instance, region).await?;
         if public_ip_address.is_empty() {
             return Err(anyhow!("error fetching instance ip address"));
         }
         public_ip_address.push_str(":22");
-        let sess = self.ssh_connect(public_ip_address).await;
+        let sess = self.ssh_connect(&public_ip_address).await;
         match sess {
             Ok(r) => {
                 let res = self.run_enclave(&r, image_url, v_cpus, mem).await;
@@ -856,7 +855,7 @@ impl AwsManager for Aws {
 
     async fn get_job_instance(
         &mut self,
-        job: String,
+        job: &str,
         region: String,
     ) -> Result<(bool, String), Box<dyn Error + Send + Sync>> {
         let instance = self.get_job_instance_id(job, region).await?;

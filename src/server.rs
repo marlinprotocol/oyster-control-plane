@@ -43,7 +43,7 @@ async fn handle_read(
             if body.is_none() {
                 return String::from("HTTP/1.1 400 Bad Request\r\n");
             }
-            let mut body = body.unwrap().split("/");
+            let mut body = body.unwrap().split('/');
             let route = body.nth(1);
             if route.is_none() {
                 return String::from("HTTP/1.1 400 Bad Request\r\n");
@@ -80,7 +80,7 @@ async fn handle_read(
                 let ip = get_ip(client, id, region).await;
                 if let Err(err) = ip {
                     println!("Server: {}", err);
-                    return String::from("HTTP/1.1 404 Not Found\r\n");
+                    String::from("HTTP/1.1 404 Not Found\r\n")
                 } else {
                     let res = "{\"id\": \"".to_owned() + ip.unwrap().as_str() + "\"}";
                     let len = res.len();
@@ -99,7 +99,7 @@ async fn handle_read(
                     let contents = contents.unwrap();
                     let data: Vec<RegionalRates> =
                         serde_json::from_str(&contents).unwrap_or_default();
-                    if data.len() != 0 {
+                    if !data.is_empty() {
                         let res = Spec {
                             allowed_regions: regions,
                             min_rates: data,
@@ -116,7 +116,7 @@ async fn handle_read(
         }
         Err(e) => {
             println!("Server: Unable to read stream: {}", e);
-            return String::from("HTTP/1.1 500 Internal Server Error\r\n");
+            String::from("HTTP/1.1 500 Internal Server Error\r\n")
         }
     }
 }

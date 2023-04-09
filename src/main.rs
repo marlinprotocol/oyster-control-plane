@@ -56,7 +56,7 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
         aws.key_setup(region.into()).await?;
     }
 
-    let _ = tokio::spawn(server::serve(aws.clone()));
+    let _ = tokio::spawn(server::serve(aws.clone(), regions.clone(), cli.rates.clone()));
 
     market::JobsService::run(aws, market::RealLogger {}, cli.rpc, regions, cli.rates).await;
 

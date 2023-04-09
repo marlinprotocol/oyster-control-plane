@@ -8,13 +8,13 @@ use tokio::time::sleep;
 use tokio::time::{Duration, Instant};
 use tokio_stream::Stream;
 use std::fs;
-use std::str::FromStr;
 use async_trait::async_trait;
 
 use tokio_stream::StreamExt;
 use ethers::types::Log;
 
 use crate::test;
+use crate::server;
 
 // Basic architecture:
 // One future listening to new jobs
@@ -398,15 +398,19 @@ impl JobsService {
                                 if let Err(err) = contents {
                                     println!("job {}: Error reading rates file : {}", job, err);
                                 } else {
-                                    let contents = contents.unwrap().to_string();
-
-                                    let lines = contents.lines();
+                                    let contents = contents.unwrap();
+                                    let data : Vec<server::RegionalRates> = serde_json::from_str(&contents).unwrap_or_default();
                                     let mut supported = false;
-                                    for line in lines {
-                                        if line.contains(&instance_type) {
-                                            let rate_card: Vec<String> = line.split(":").map(String::from).collect();
-                                            min_rate = U256::from_str(rate_card[1].as_str()).unwrap_or(min_rate);
-                                            supported = true;
+                                    for entry in data {
+                                        if entry.region == region {
+                                            for card in entry.rate_cards {
+                                                if card.instance == instance_type {
+                                                    min_rate = U256::from(card.min_rate);
+                                                    supported = true;
+                                                    break;
+                                                }
+                                            }
+                                            break;
                                         }
                                     }
                                     if !supported {

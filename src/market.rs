@@ -34,19 +34,19 @@ pub trait AwsManager {
 
     async fn spin_down(
         &mut self,
-        instance_id: &String,
+        instance_id: &str,
         region: String,
     ) -> Result<bool, Box<dyn Error + Send + Sync>>;
 
     async fn get_job_instance(
         &mut self,
-        job: String,
+        job: &str,
         region: String,
     ) -> Result<(bool, String), Box<dyn Error + Send + Sync>>;
 
     async fn check_instance_running(
         &mut self,
-        instance_id: &String,
+        instance_id: &str,
         region: String,
     ) -> Result<bool, Box<dyn Error + Send + Sync>>;
 }
@@ -74,8 +74,7 @@ impl Logger for RealLogger {
         &'a self,
         client: &'a Provider<Ws>,
     ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>, Box<dyn Error + Send + Sync + 'a>> {
-        let res = JobsService::new_jobs(client).await;
-        res
+        JobsService::new_jobs(client).await
     }
 
     async fn job_logs<'a>(
@@ -83,8 +82,7 @@ impl Logger for RealLogger {
         client: &'a Provider<Ws>,
         job: H256,
     ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>, Box<dyn Error + Send + Sync + 'a>> {
-        let res = JobsService::job_logs(client, job).await;
-        res
+        JobsService::job_logs(client, job).await
     }
 }
 
@@ -292,15 +290,13 @@ impl JobsService {
                                 }
                             } else {
                                 let running = running.unwrap();
-                                if !running {
-                                    if rate >= min_rate {
-                                        let res = aws_manager_impl.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str(), region.clone()).await;
-                                        if let Err(err) = res {
-                                            println!("job {}: Instance launch failed, {}", job, err);
-                                            break 'event;
-                                        }
-                                        instance_id = res.unwrap();
+                                if !running && rate >= min_rate {
+                                    let res = aws_manager_impl.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str(), region.clone()).await;
+                                    if let Err(err) = res {
+                                        println!("job {}: Instance launch failed, {}", job, err);
+                                        break 'event;
                                     }
+                                    instance_id = res.unwrap();
                                 }
                             }
                         }
@@ -322,7 +318,7 @@ impl JobsService {
                     }
                     // aws delayed spin up check
                     () = sleep(aws_delay_timeout) => {
-                        let (exist, instance) = aws_manager_impl.get_job_instance(job.to_string(), region.clone()).await.unwrap_or((false, "".to_string()));
+                        let (exist, instance) = aws_manager_impl.get_job_instance(&job.to_string(), region.clone()).await.unwrap_or((false, "".to_string()));
                         if exist {
                             instance_id = instance;
                             println!("job {}: Found, instance id: {}", job, instance_id);
@@ -335,17 +331,15 @@ impl JobsService {
                                 }
                                 instance_id = String::new();
                             }
-                        } else {
-                            if rate >= min_rate {
-                                let res = aws_manager_impl.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str(), region.clone()).await;
-                                if let Err(err) = res {
-                                    println!("job {}: Instance launch failed, {}", job, err);
-                                    break 'event;
-                                }
-                                instance_id = res.unwrap();
-                            } else {
-                                println!("job {}: Rate below minimum, aborting launch.", job);
+                        } else if rate >= min_rate {
+                            let res = aws_manager_impl.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str(), region.clone()).await;
+                            if let Err(err) = res {
+                                println!("job {}: Instance launch failed, {}", job, err);
+                                break 'event;
                             }
+                            instance_id = res.unwrap();
+                        } else {
+                            println!("job {}: Rate below minimum, aborting launch.", job);
                         }
                         aws_launch_scheduled = false;
                     }
@@ -517,9 +511,9 @@ impl JobsService {
                             }
                         } else if log.topics[0] == LOCK_DELETED {
                             // update solvency metrics
-                            rate = rate + original_rate;
+                            rate += original_rate;
                             original_rate = rate - original_rate;
-                            rate = rate - original_rate;
+                            rate -= original_rate;
                             println!("job {}: LOCK_DELETED: rate: {}, balance: {}, timestamp: {}", job, rate, balance, last_settled.as_secs());
                         } else {
                             println!("job {}: Unknown event: {}", job, log.topics[0]);
@@ -629,20 +623,17 @@ impl AwsManager for TestAws {
             "TEST: spin_up | job: {}, region: {}, instance_type: {}, eif_url: {}",
             job, region, instance_type, eif_url
         );
-        if self.cur_idx >= self.max_idx {
-            println!("TEST FAIL!\nTEST FAIL!\nTEST FAIL!\n");
-            return Err("fail".into());
-        } else if self.outcomes[self.cur_idx as usize] != 'U' {
+        if self.cur_idx >= self.max_idx || self.outcomes[self.cur_idx as usize] != 'U' {
             println!("TEST FAIL!\nTEST FAIL!\nTEST FAIL!\n");
             return Err("fail".into());
         }
-        self.cur_idx = self.cur_idx + 1;
+        self.cur_idx += 1;
         Ok("12345".to_string())
     }
 
     async fn spin_down(
         &mut self,
-        instance_id: &String,
+        instance_id: &str,
         region: String,
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
         if self.outfile.as_str() != "" {
@@ -657,20 +648,17 @@ impl AwsManager for TestAws {
             "TEST: spin_down | instance_id: {}, region: {}",
             instance_id, region
         );
-        if self.cur_idx >= self.max_idx {
-            println!("TEST FAIL!\nTEST FAIL!\nTEST FAIL!\n");
-            return Err("fail".into());
-        } else if self.outcomes[self.cur_idx as usize] != 'D' {
+        if self.cur_idx >= self.max_idx || self.outcomes[self.cur_idx as usize] != 'D' {
             println!("TEST FAIL!\nTEST FAIL!\nTEST FAIL!\n");
             return Err("fail".into());
         }
-        self.cur_idx = self.cur_idx + 1;
+        self.cur_idx += 1;
         Ok(true)
     }
 
     async fn get_job_instance(
         &mut self,
-        job: String,
+        job: &str,
         region: String,
     ) -> Result<(bool, String), Box<dyn Error + Send + Sync>> {
         println!("TEST: get_job_instance | job: {}, region: {}", job, region);
@@ -679,7 +667,7 @@ impl AwsManager for TestAws {
 
     async fn check_instance_running(
         &mut self,
-        _instance_id: &String,
+        _instance_id: &str,
         _region: String,
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
         // println!("TEST: check_instance_running | instance_id: {}, region: {}", instance_id, region);

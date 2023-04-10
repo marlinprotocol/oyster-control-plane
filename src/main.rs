@@ -43,7 +43,7 @@ struct Cli {
 pub async fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
 
-    let regions: Vec<String> = cli.regions.split(",").map(|r| (r.into())).collect();
+    let regions: Vec<String> = cli.regions.split(',').map(|r| (r.into())).collect();
     println!("Supported regions: {:?}", regions);
 
     let aws = aws::Aws::new(cli.profile, cli.key_name, cli.white, cli.black).await;
@@ -51,10 +51,10 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
     aws.generate_key_pair().await?;
 
     for region in regions.clone() {
-        aws.key_setup(region.into()).await?;
+        aws.key_setup(region).await?;
     }
 
-    let _ = tokio::spawn(server::serve(
+    tokio::spawn(server::serve(
         aws.clone(),
         regions.clone(),
         cli.rates.clone(),

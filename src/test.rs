@@ -100,11 +100,8 @@ fn get_logs_data() -> Vec<(Actions, Bytes, U256)> {
     ];
     let mut res: Vec<(Actions, Bytes, U256)> = Vec::new();
     for v in input {
-        match v.0 {
-            Actions::Open => {
-                idx += 1;
-            }
-            _ => {}
+        if let Actions::Open = v.0 {
+            idx += 1;
         }
         res.push(get_data_tuple(v.0, v.1, idx));
     }
@@ -129,14 +126,16 @@ pub fn test_logs() -> Vec<Log> {
         logs.push(log);
     }
 
-    return logs.into();
+    logs
 }
 
 fn get_log(topic: Actions, data: Bytes, idx: H256) -> Log {
-    let mut log = Log::default();
-    log.address = H160::from_str("0x3FA4718a2fd55297CD866E5a0dE6Bc75E2b777d1").unwrap();
-    log.removed = Some(false);
-    log.data = data;
+    let mut log = Log {
+        address: H160::from_str("0x3FA4718a2fd55297CD866E5a0dE6Bc75E2b777d1").unwrap(),
+        removed: Some(false),
+        data,
+        ..Default::default()
+    };
     match topic {
         Actions::Open => {
             log.topics = vec![

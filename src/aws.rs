@@ -207,21 +207,14 @@ impl Aws {
 
         if self.whitelist.as_str() != "" || self.blacklist.as_str() != "" {
             channel = sess.channel_session()?;
-            channel.exec("sudo apt-get install -y hashrat")?;
-
-            let _ = channel.read_to_string(&mut s);
-            let _ = channel.wait_close();
-
-            channel = sess.channel_session()?;
             s = String::new();
-            channel.exec("hashrat -sha256 /home/ubuntu/enclave.eif")?;
+            channel.exec("sha256sum /home/ubuntu/enclave.eif")?;
             let _ = channel.read_to_string(&mut s);
             let _ = channel.wait_close();
             println!("{}", s);
 
             if let Some(line) = s.split_whitespace().next() {
-                let substr = &line[13..];
-                println!("Hash : {}", substr);
+                println!("Hash : {}", line);
                 if self.whitelist.as_str() != "" {
                     println!("Checking whitelist...");
                     let file_path = self.whitelist.as_str();
@@ -229,13 +222,15 @@ impl Aws {
 
                     if let Err(err) = contents {
                         println!("Error reading whitelist file : {}", err);
+                        return  Err(anyhow!("Error reading whitelist file"));
                     } else {
                         let contents = contents.unwrap();
-                        let lines = contents.lines();
+                        let entries = contents.lines();
                         let mut allowed = false;
-                        for line in lines {
-                            if line.contains(substr) {
+                        for entry in entries {
+                            if line.contains(line) {
                                 allowed = true;
+                                break;
                             }
                         }
                         if allowed {
@@ -252,14 +247,16 @@ impl Aws {
                     let contents = fs::read_to_string(file_path);
 
                     if let Err(err) = contents {
-                        println!("Error reading whitelist file : {}", err);
+                        println!("Error reading blacklist file : {}", err);
+                        return Err(anyhow!("Error reading blacklist file"));
                     } else {
                         let contents = contents.unwrap();
-                        let lines = contents.lines();
+                        let entries = contents.lines();
                         let mut allowed = true;
-                        for line in lines {
-                            if line.contains(substr) {
+                        for entry in entries {
+                            if entry.contains(line) {
                                 allowed = false;
+                                break;
                             }
                         }
                         if allowed {

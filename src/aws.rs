@@ -228,7 +228,7 @@ impl Aws {
                         let entries = contents.lines();
                         let mut allowed = false;
                         for entry in entries {
-                            if line.contains(line) {
+                            if entry.contains(line) {
                                 allowed = true;
                                 break;
                             }

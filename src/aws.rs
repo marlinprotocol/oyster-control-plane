@@ -533,7 +533,7 @@ impl Aws {
     }
 
     pub async fn get_job_instance_id(&self, job: &str, region: String) -> Result<String> {
-        Ok(self
+        let res = self
             .client(region)
             .await
             .describe_instances()
@@ -544,8 +544,9 @@ impl Aws {
                     .build(),
             )
             .send()
-            .await?
+            .await?;
             // response parsing from here
+        let instance = res
             .reservations()
             .ok_or(anyhow!("could not parse reservations"))?
             .first()
@@ -553,10 +554,21 @@ impl Aws {
             .instances()
             .ok_or(anyhow!("could not parse instances"))?
             .first()
-            .ok_or(anyhow!("no instances for the given job"))?
-            .instance_id()
-            .ok_or(anyhow!("could not parse ip address"))?
-            .to_string())
+            .ok_or(anyhow!("no instances for the given job"))?;
+        
+        let state = instance.state()
+                        .ok_or(anyhow!("could not parse instance state"))?
+                        .name()
+                        .ok_or(anyhow!("could not parse instance state name"))?
+                        .as_str();
+        if state == "running" || state == "pending" {
+            Ok(instance
+                .instance_id()
+                .ok_or(anyhow!("could not parse ip address"))?
+                .to_string())
+        } else {
+            Err(anyhow!("no running instance found"))
+        }   
     }
 
     pub async fn get_instance_state(&self, instance_id: &str, region: String) -> Result<String> {

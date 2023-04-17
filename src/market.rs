@@ -373,6 +373,7 @@ impl JobsService {
                                     }
                                     None => {
                                         println!("job {}: Instance type not set, using default", job);
+                                        break 'main;
                                     }
                                 }
 
@@ -384,6 +385,7 @@ impl JobsService {
                                     }
                                     None => {
                                         println!("job {}: Job region not set, using default", job);
+                                        break 'main;
                                     }
                                 }
 
@@ -404,6 +406,7 @@ impl JobsService {
 
                                 if let Err(err) = contents {
                                     println!("job {}: Error reading rates file : {}", job, err);
+                                    break 'main;
                                 } else {
                                     let contents = contents.unwrap();
                                     let data : Vec<server::RegionalRates> = serde_json::from_str(&contents).unwrap_or_default();

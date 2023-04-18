@@ -148,7 +148,7 @@ impl JobsService {
         // TODO: Filter by contract and provider address
         let event_filter = Filter::new()
             .address(ValueOrArray::Value(
-                "0x3FA4718a2fd55297CD866E5a0dE6Bc75E2b777d1".parse::<Address>()?,
+                "0x0F5F91BA30a00bD43Bd19466f020B3E5fc7a49ec".parse::<Address>()?,
             ))
             .select(0..)
             .topic0(ValueOrArray::Array(vec![H256::from(keccak256(
@@ -495,10 +495,6 @@ impl JobsService {
                                         instance_id = String::new();
                                     }
                                     println!("job {}: Revised job rate below min rate, shut down", job);
-                                } else if rate >= min_rate && !aws_launch_scheduled && instance_id.as_str() == "" {
-                                    aws_launch_scheduled = true;
-                                    aws_launch_time = Instant::now().checked_add(Duration::from_secs(aws_delay_duration)).unwrap();
-                                    println!("job {}: Instance scheduled", job);
                                 }
                                 println!("job {}: JOB_REVISE_RATE_INTIATED: original_rate: {}, rate: {}, balance: {}, timestamp: {}", job, original_rate, rate, balance, last_settled.as_secs());
                             } else {
@@ -517,6 +513,11 @@ impl JobsService {
                                 if rate != new_rate {
                                     println!("Job {}: Something went wrong, finalized rate not same as initiated rate", job);
                                     break 'main;
+                                }
+                                if rate >= min_rate && !aws_launch_scheduled && instance_id.as_str() == "" {
+                                    aws_launch_scheduled = true;
+                                    aws_launch_time = Instant::now().checked_add(Duration::from_secs(aws_delay_duration)).unwrap();
+                                    println!("job {}: Instance scheduled", job);
                                 }
                                 println!("job {}: JOB_REVISE_RATE_FINALIZED: original_rate: {}, rate: {}, balance: {}, timestamp: {}", job, original_rate, rate, balance, last_settled.as_secs());
                                 original_rate = new_rate;
@@ -542,7 +543,7 @@ impl JobsService {
         let event_filter = Filter::new()
             .select(0..)
             .address(ValueOrArray::Value(
-                "0x3FA4718a2fd55297CD866E5a0dE6Bc75E2b777d1".parse::<Address>()?,
+                "0x0F5F91BA30a00bD43Bd19466f020B3E5fc7a49ec".parse::<Address>()?,
             ))
             .topic0(ValueOrArray::Array(vec![
                 H256::from(keccak256(

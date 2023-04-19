@@ -31,11 +31,11 @@ struct Cli {
     rates: String,
 
     /// Blacklist location
-    #[clap(long, value_parser)]
+    #[clap(default_value_t=String::new(),long, value_parser)]
     black: String,
 
     /// Whitelist location
-    #[clap(long, value_parser)]
+    #[clap(default_value_t=String::new(),long, value_parser)]
     white: String,
 }
 

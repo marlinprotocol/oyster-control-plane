@@ -84,7 +84,7 @@ async fn handle_read(
                 } else {
                     let res = "{\"id\": \"".to_owned() + ip.unwrap().as_str() + "\"}";
                     let len = res.len();
-                    return "HTTP/1.1 200 OK\r\nContent-Type: application/json;\r\nContent-Length: "
+                    return "HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: *\r\nContent-Type: application/json;\r\nContent-Length: "
                         .to_owned()
                         + &len.to_string()
                         + "\r\n\r\n" + res.as_str();
@@ -105,7 +105,7 @@ async fn handle_read(
                         };
                         let res = serde_json::to_string(&res).unwrap();
                         let len = res.len();
-                        return "HTTP/1.1 200 OK\r\nContent-Type: application/json;\r\nContent-Length: ".to_owned() + &len.to_string() +"\r\n\r\n" + res.as_str();
+                        return "HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: *\r\nContent-Type: application/json;\r\nContent-Length: ".to_owned() + &len.to_string() +"\r\n\r\n" + res.as_str();
                     }
                 }
                 return String::from("HTTP/1.1 500 Internal Server Error\r\n");

@@ -228,7 +228,7 @@ impl Aws {
                         let entries = contents.lines();
                         let mut allowed = false;
                         for entry in entries {
-                            if line.contains(line) {
+                            if entry.contains(line) {
                                 allowed = true;
                                 break;
                             }
@@ -358,36 +358,20 @@ impl Aws {
         architecture: &str,
         region: String,
     ) -> Result<String> {
-        let mut size: i64 = 0;
+        let size: i64;
         let req_client = reqwest::Client::builder().no_gzip().build();
         match req_client {
             Ok(req_client) => {
                 let res = req_client.head(image_url).send().await;
                 match res {
                     Ok(res) => {
-                        let content_len = res.headers()["content-length"].to_str().unwrap_or_else(|e| {
-                            println!("ERROR: failed to fetch eif file header, setting default 15 GBs, {}", e);
-                            "0"
-                        });
-                        size = content_len.parse::<i64>().unwrap_or_else(|e| {
-                            println!("ERROR: failed to fetch eif file header, setting default 15 GBs, {}", e);
-                            0
-                        }) / 1000000;
+                        let content_len = res.headers()["content-length"].to_str()?;
+                        size = content_len.parse::<i64>()? / 1000000;
                     }
-                    Err(e) => {
-                        println!(
-                            "ERROR: failed to fetch eif file header, setting default 15 GBs, {}",
-                            e
-                        );
-                    }
+                    Err(e) => return Err(anyhow!("failed to fetch eif file header, {}", e))
                 }
             }
-            Err(e) => {
-                println!(
-                    "ERROR: failed to fetch eif file header, setting default 15 GBs, {}",
-                    e
-                );
-            }
+            Err(e) => return Err(anyhow!("failed to fetch eif file header, {}", e))
         }
 
         println!("eif size: {} MB", size);
@@ -549,7 +533,7 @@ impl Aws {
     }
 
     pub async fn get_job_instance_id(&self, job: &str, region: String) -> Result<String> {
-        Ok(self
+        let res = self
             .client(region)
             .await
             .describe_instances()
@@ -560,8 +544,9 @@ impl Aws {
                     .build(),
             )
             .send()
-            .await?
+            .await?;
             // response parsing from here
+        let instance = res
             .reservations()
             .ok_or(anyhow!("could not parse reservations"))?
             .first()
@@ -569,10 +554,21 @@ impl Aws {
             .instances()
             .ok_or(anyhow!("could not parse instances"))?
             .first()
-            .ok_or(anyhow!("no instances for the given job"))?
-            .instance_id()
-            .ok_or(anyhow!("could not parse ip address"))?
-            .to_string())
+            .ok_or(anyhow!("no instances for the given job"))?;
+        
+        let state = instance.state()
+                        .ok_or(anyhow!("could not parse instance state"))?
+                        .name()
+                        .ok_or(anyhow!("could not parse instance state name"))?
+                        .as_str();
+        if state == "running" || state == "pending" {
+            Ok(instance
+                .instance_id()
+                .ok_or(anyhow!("could not parse ip address"))?
+                .to_string())
+        } else {
+            Err(anyhow!("no running instance found"))
+        }   
     }
 
     pub async fn get_instance_state(&self, instance_id: &str, region: String) -> Result<String> {
@@ -720,66 +716,42 @@ impl Aws {
         region: String,
     ) -> Result<String> {
         let ec2_type =
-            aws_sdk_ec2::model::InstanceType::from_str(instance_type).unwrap_or_else(|e| {
-                println!("ERROR: parsing instance_type, setting default, {}", e);
-                aws_sdk_ec2::model::InstanceType::C6aXlarge
-            });
+            aws_sdk_ec2::model::InstanceType::from_str(instance_type)?;
         let resp = self
             .client(region.clone())
             .await
             .describe_instance_types()
             .instance_types(ec2_type)
             .send()
-            .await;
+            .await?;
         let mut architecture = "x86_64".to_string();
         let mut v_cpus: i32 = 4;
         let mut mem: i64 = 8192;
-        match resp {
-            Ok(resp) => {
-                let instance_types = resp.instance_types();
-                if instance_types.is_none() {
-                    println!("ERROR: fetching instance info setting default");
-                } else {
-                    for instance in instance_types.unwrap() {
-                        let processor_info = instance.processor_info();
-                        if processor_info.is_some() {
-                            let supported_architectures =
-                                processor_info.unwrap().supported_architectures();
-                            if supported_architectures.is_some() {
-                                if let Some(arch) = supported_architectures.unwrap().iter().next() {
-                                    architecture = arch.as_str().to_string();
-                                    println!("architecture: {}", arch.as_str());
-                                }
-                            }
-                        }
-                        let v_cpu_info = instance.v_cpu_info();
-                        if v_cpu_info.is_some() {
-                            let default_v_cpus = v_cpu_info.unwrap().default_v_cpus();
-                            if default_v_cpus.is_some() {
-                                v_cpus = default_v_cpus.unwrap();
-                            }
-                        }
-                        println!("v_cpus: {}", v_cpus);
-                        let mem_info = instance.memory_info();
-                        if mem_info.is_some() {
-                            let in_mib = mem_info.unwrap().size_in_mi_b();
-                            if in_mib.is_some() {
-                                mem = in_mib.unwrap();
-                            }
-                        }
-                        println!("memory: {}", mem);
-                    }
-                }
+
+        let instance_types = resp.instance_types()
+                                .ok_or(anyhow!("error fetching instance info"))?;
+        for instance in instance_types {
+            let supported_architectures = instance.processor_info()
+                                            .ok_or(anyhow!("error fetching instance processor info"))?
+                                            .supported_architectures()
+                                            .ok_or(anyhow!("error fetching instance architecture info"))?;
+            if let Some(arch) = supported_architectures.iter().next() {
+                architecture = arch.as_str().to_string();
+                println!("architecture: {}", arch.as_str());
             }
-            Err(e) => {
-                println!("ERROR: {}", e);
-            }
+            v_cpus = instance.v_cpu_info()
+                                .ok_or(anyhow!("error fetching instance v_cpu info"))?
+                                .default_v_cpus()
+                                .ok_or(anyhow!("error fetching instance v_cpu info"))?;
+            println!("v_cpus: {}", v_cpus);
+            mem = instance.memory_info()
+                                .ok_or(anyhow!("error fetching instance memory info"))?
+                                .size_in_mi_b()
+                                .ok_or(anyhow!("error fetching instance v_cpu info"))?;
+            println!("memory: {}", mem);
         }
-        let instance_type = aws_sdk_ec2::model::InstanceType::from_str(instance_type)
-            .unwrap_or_else(|e| {
-                println!("ERROR: parsing instance_type, setting default, {}", e);
-                aws_sdk_ec2::model::InstanceType::C6aXlarge
-            });
+        
+        let instance_type = aws_sdk_ec2::model::InstanceType::from_str(instance_type)?;
         let instance = self
             .launch_instance(
                 job.clone(),
@@ -788,20 +760,31 @@ impl Aws {
                 &architecture,
                 region.clone(),
             )
-            .await;
-        if let Err(err) = instance {
-            println!("ERROR: error launching instance, {}", err);
-            return Err(anyhow!("error launching instance"));
-        }
-        let instance = instance.unwrap();
+            .await?;
         sleep(Duration::from_secs(100)).await;
-        let (alloc_id, ip) = self.allocate_ip_addr(job, region.clone()).await?;
+        let res = self.allocate_ip_addr(job, region.clone())
+                    .await;
+        if let Err(err) = res {
+            self.spin_down_instance(&instance, region.clone()).await?;
+            return Err(anyhow!("error launching instance, {}", err));
+        }
+        let (alloc_id, ip) = res.unwrap();
         println!("Elastic Ip allocated: {}", ip);
 
-        self.associate_address(&instance, &alloc_id, region.clone())
-            .await?;
-        let mut public_ip_address = self.get_instance_ip(&instance, region).await?;
+        let res = self.associate_address(&instance, &alloc_id, region.clone())
+            .await;
+        if let Err(err) = res {
+            self.spin_down_instance(&instance, region.clone()).await?;
+            return Err(anyhow!("error launching instance, {}", err));
+        }
+        let res = self.get_instance_ip(&instance, region.clone()).await;
+        if let Err(err) = res {
+            self.spin_down_instance(&instance, region.clone()).await?;
+            return Err(anyhow!("error launching instance, {}", err));
+        }
+        let mut public_ip_address = res.unwrap();
         if public_ip_address.is_empty() {
+            self.spin_down_instance(&instance, region.clone()).await?;
             return Err(anyhow!("error fetching instance ip address"));
         }
         public_ip_address.push_str(":22");
@@ -811,10 +794,16 @@ impl Aws {
                 let res = self.run_enclave(&r, image_url, v_cpus, mem).await;
                 match res {
                     Ok(_) => Ok(instance),
-                    Err(_) => Err(anyhow!("error running enclave")),
+                    Err(_) => {
+                        self.spin_down_instance(&instance, region.clone()).await?;
+                        Err(anyhow!("error running enclave, terminating launched instance"))
+                    }
                 }
             }
-            Err(_) => Err(anyhow!("error establishing ssh connection")),
+            Err(_) => {
+                self.spin_down_instance(&instance, region.clone()).await?;
+                Err(anyhow!("error establishing ssh connection"))
+            }
         }
     }
 

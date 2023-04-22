@@ -148,7 +148,7 @@ impl JobsService {
         // TODO: Filter by contract and provider address
         let event_filter = Filter::new()
             .address(ValueOrArray::Value(
-                "0x3FA4718a2fd55297CD866E5a0dE6Bc75E2b777d1".parse::<Address>()?,
+                "0x0F5F91BA30a00bD43Bd19466f020B3E5fc7a49ec".parse::<Address>()?,
             ))
             .select(0..)
             .topic0(ValueOrArray::Array(vec![H256::from(keccak256(
@@ -217,12 +217,12 @@ impl JobsService {
             #[allow(non_snake_case)]
             let JOB_WITHDREW = H256::from(keccak256("JobWithdrew(bytes32,address,uint256)"));
             #[allow(non_snake_case)]
-            let JOB_REVISED_RATE = H256::from(keccak256("JobRevisedRate(bytes32,uint256)"));
+            let JOB_REVISE_RATE_INITIATED = H256::from(keccak256("JobReviseRateInitiated(bytes32,uint256)"));
             #[allow(non_snake_case)]
-            let LOCK_CREATED =
-                H256::from(keccak256("LockCreated(bytes32,bytes32,uint256,uint256)"));
+            let JOB_REVISE_RATE_CANCELLED =
+                H256::from(keccak256("JobReviseRateCancelled(bytes32)"));
             #[allow(non_snake_case)]
-            let LOCK_DELETED = H256::from(keccak256("LockDeleted(bytes32,bytes32,uint256)"));
+            let JOB_REVISE_RATE_FINALIZED = H256::from(keccak256("JobReviseRateFinalized(bytes32, uint256)"));
 
             // solvency metrics
             // default of 60s
@@ -373,6 +373,7 @@ impl JobsService {
                                     }
                                     None => {
                                         println!("job {}: Instance type not set, using default", job);
+                                        break 'main;
                                     }
                                 }
 
@@ -384,6 +385,7 @@ impl JobsService {
                                     }
                                     None => {
                                         println!("job {}: Job region not set, using default", job);
+                                        break 'main;
                                     }
                                 }
 
@@ -404,6 +406,7 @@ impl JobsService {
 
                                 if let Err(err) = contents {
                                     println!("job {}: Error reading rates file : {}", job, err);
+                                    break 'main;
                                 } else {
                                     let contents = contents.unwrap();
                                     let data : Vec<server::RegionalRates> = serde_json::from_str(&contents).unwrap_or_default();
@@ -475,20 +478,8 @@ impl JobsService {
                             } else {
                                 println!("job {}: WITHDREW: Decode failure: {}", job, log.data);
                             }
-                        } else if log.topics[0] == JOB_REVISED_RATE {
-                            // update solvency metrics
-
-                            rate = original_rate;
-                            if rate >= min_rate {
-                                aws_launch_scheduled = true;
-                                aws_launch_time = Instant::now().checked_add(Duration::from_secs(aws_delay_duration)).unwrap();
-                                println!("job {}: Instance scheduled", job);
-                            }
-                            println!("job {}: REVISED_RATE: rate: {}, balance: {}, timestamp: {}", job, rate, balance, last_settled.as_secs());
-                        } else if log.topics[0] == LOCK_CREATED {
-                            // decode
-                            if let Ok((new_rate, _)) = <(U256, U256)>::decode(&log.data) {
-                                // update solvency metrics
+                        } else if log.topics[0] == JOB_REVISE_RATE_INITIATED {
+                            if let Ok(new_rate) = U256::decode(&log.data) {
                                 original_rate = rate;
                                 rate = new_rate;
                                 if rate < min_rate {
@@ -505,16 +496,34 @@ impl JobsService {
                                     }
                                     println!("job {}: Revised job rate below min rate, shut down", job);
                                 }
-                                println!("job {}: LOCK_CREATED: original_rate: {}, rate: {}, balance: {}, timestamp: {}", job, original_rate, rate, balance, last_settled.as_secs());
+                                println!("job {}: JOB_REVISE_RATE_INTIATED: original_rate: {}, rate: {}, balance: {}, timestamp: {}", job, original_rate, rate, balance, last_settled.as_secs());
                             } else {
-                                println!("job {}: LOCK_CREATED: Decode failure: {}", job, log.data);
+                                println!("job {}: JOB_REVISE_RATE_INITIATED: Decode failure: {}", job, log.data);
                             }
-                        } else if log.topics[0] == LOCK_DELETED {
-                            // update solvency metrics
-                            rate += original_rate;
-                            original_rate = rate - original_rate;
-                            rate -= original_rate;
-                            println!("job {}: LOCK_DELETED: rate: {}, balance: {}, timestamp: {}", job, rate, balance, last_settled.as_secs());
+                        } else if log.topics[0] == JOB_REVISE_RATE_CANCELLED {
+                            rate = original_rate;
+                            if rate >= min_rate && !aws_launch_scheduled && instance_id.as_str() == ""{
+                                aws_launch_scheduled = true;
+                                aws_launch_time = Instant::now().checked_add(Duration::from_secs(aws_delay_duration)).unwrap();
+                                println!("job {}: Instance scheduled", job);
+                            }
+                            println!("job {}: JOB_REVISED_RATE_CANCELLED: rate: {}, balance: {}, timestamp: {}", job, rate, balance, last_settled.as_secs());
+                        } else if log.topics[0] == JOB_REVISE_RATE_FINALIZED {
+                            if let Ok(new_rate) = U256::decode(&log.data) {
+                                if rate != new_rate {
+                                    println!("Job {}: Something went wrong, finalized rate not same as initiated rate", job);
+                                    break 'main;
+                                }
+                                if rate >= min_rate && !aws_launch_scheduled && instance_id.as_str() == "" {
+                                    aws_launch_scheduled = true;
+                                    aws_launch_time = Instant::now().checked_add(Duration::from_secs(aws_delay_duration)).unwrap();
+                                    println!("job {}: Instance scheduled", job);
+                                }
+                                println!("job {}: JOB_REVISE_RATE_FINALIZED: original_rate: {}, rate: {}, balance: {}, timestamp: {}", job, original_rate, rate, balance, last_settled.as_secs());
+                                original_rate = new_rate;
+                            } else {
+                                println!("job {}: JOB_REVISE_RATE_FINALIZED: Decode failure: {}", job, log.data);
+                            }
                         } else {
                             println!("job {}: Unknown event: {}", job, log.topics[0]);
                         }
@@ -534,7 +543,7 @@ impl JobsService {
         let event_filter = Filter::new()
             .select(0..)
             .address(ValueOrArray::Value(
-                "0x3FA4718a2fd55297CD866E5a0dE6Bc75E2b777d1".parse::<Address>()?,
+                "0x0F5F91BA30a00bD43Bd19466f020B3E5fc7a49ec".parse::<Address>()?,
             ))
             .topic0(ValueOrArray::Array(vec![
                 H256::from(keccak256(
@@ -544,9 +553,9 @@ impl JobsService {
                 H256::from(keccak256("JobClosed(bytes32)")),
                 H256::from(keccak256("JobDeposited(bytes32,address,uint256)")),
                 H256::from(keccak256("JobWithdrew(bytes32,address,uint256)")),
-                H256::from(keccak256("JobRevisedRate(bytes32,uint256)")),
-                H256::from(keccak256("LockCreated(bytes32,bytes32,uint256,uint256)")),
-                H256::from(keccak256("LockDeleted(bytes32,bytes32,uint256)")),
+                H256::from(keccak256("JobReviseRateInitiated(bytes32,uint256)")),
+                H256::from(keccak256("JobReviseRateCancelled(bytes32)")),
+                H256::from(keccak256("JobReviseRateFinalized(bytes32,uint256)")),
             ]))
             .topic1(ValueOrArray::Value(job));
 

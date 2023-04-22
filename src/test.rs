@@ -131,7 +131,7 @@ pub fn test_logs() -> Vec<Log> {
 
 fn get_log(topic: Actions, data: Bytes, idx: H256) -> Log {
     let mut log = Log {
-        address: H160::from_str("0x3FA4718a2fd55297CD866E5a0dE6Bc75E2b777d1").unwrap(),
+        address: H160::from_str("0x0F5F91BA30a00bD43Bd19466f020B3E5fc7a49ec").unwrap(),
         removed: Some(false),
         data,
         ..Default::default()

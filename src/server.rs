@@ -49,47 +49,56 @@ async fn handle_read(
                 return String::from("HTTP/1.1 400 Bad Request\r\n");
             }
             let route = route.unwrap();
-            if route.starts_with("ip") {
-                let query_params: Vec<(String, String)>;
-                if let Some(i) = route.find('?') {
-                    query_params = route[i + 1..]
-                        .split('&')
-                        .map(|s| {
-                            let mut parts = s.split('=');
-                            (
-                                parts.next().unwrap().to_owned(),
-                                parts.next().unwrap().to_owned(),
-                            )
-                        })
-                        .collect();
-                } else {
+            if body.next().is_some() {
+                return String::from("HTTP/1.1 400 Bad Request\r\n");
+            }
+            let i = route.find('?');
+            if i.is_some() {
+                if &route[0..i.unwrap()] != "ip" {
                     return String::from("HTTP/1.1 400 Bad Request\r\n");
-                }
-                let mut id = String::new();
-                let mut region = String::new();
-                for (key, value) in query_params {
-                    if key == "id" {
-                        id = value;
-                    } else if key == "region" {
-                        region = value;
+                } else {
+                    let query_params: Vec<(String, String)>;
+                    if let Some(i) = route.find('?') {
+                        query_params = route[i + 1..]
+                            .split('&')
+                            .map(|s| {
+                                let mut parts = s.split('=');
+                                (
+                                    parts.next().unwrap_or_default().to_owned(),
+                                    parts.next().unwrap_or_default().to_owned(),
+                                )
+                            })
+                            .collect();
+                    } else {
+                        return String::from("HTTP/1.1 400 Bad Request\r\n");
+                    }
+                    let mut id = String::new();
+                    let mut region = String::new();
+                    for (key, value) in query_params {
+                        if key == "id" {
+                            id = value;
+                        } else if key == "region" {
+                            region = value;
+                        }
+                    }
+                    if id.as_str() == "" || region.as_str() == "" {
+                        return String::from("HTTP/1.1 400 Bad Request\r\n");
+                    }
+                    let ip = get_ip(client, &id, region).await;
+                    if let Err(err) = ip {
+                        println!("Server: {}", err);
+                        String::from("HTTP/1.1 404 Not Found\r\n")
+                    } else {
+                        let res = "{\"id\": \"".to_owned() + ip.unwrap().as_str() + "\"}";
+                        let len = res.len();
+                        return "HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Headers: Content-Type, User-Agent \
+                        \r\nAccess-Control-Allow-Methods: GET, OPTIONS, POST\r\nContent-Type: application/json;\r\nContent-Length: "
+                            .to_owned()
+                            + &len.to_string()
+                            + "\r\n\r\n" + res.as_str();
                     }
                 }
-                if id.as_str() == "" || region.as_str() == "" {
-                    return String::from("HTTP/1.1 400 Bad Request\r\n");
-                }
-                let ip = get_ip(client, &id, region).await;
-                if let Err(err) = ip {
-                    println!("Server: {}", err);
-                    String::from("HTTP/1.1 404 Not Found\r\n")
-                } else {
-                    let res = "{\"id\": \"".to_owned() + ip.unwrap().as_str() + "\"}";
-                    let len = res.len();
-                    return "HTTP/1.1 200 OK\r\nContent-Type: application/json;\r\nContent-Length: "
-                        .to_owned()
-                        + &len.to_string()
-                        + "\r\n\r\n" + res.as_str();
-                }
-            } else if route.starts_with("spec") {
+            } else if route == "spec" {
                 let contents = fs::read_to_string(rates_path);
 
                 if let Err(err) = contents {
@@ -105,7 +114,8 @@ async fn handle_read(
                         };
                         let res = serde_json::to_string(&res).unwrap();
                         let len = res.len();
-                        return "HTTP/1.1 200 OK\r\nContent-Type: application/json;\r\nContent-Length: ".to_owned() + &len.to_string() +"\r\n\r\n" + res.as_str();
+                        return "HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Headers: Content-Type, User-Agent \
+                        \r\nAccess-Control-Allow-Methods: GET, OPTIONS, POST\r\nContent-Type: application/json;\r\nContent-Length: ".to_owned() + &len.to_string() +"\r\n\r\n" + res.as_str();
                     }
                 }
                 return String::from("HTTP/1.1 500 Internal Server Error\r\n");

@@ -55,7 +55,7 @@ async fn handle_read(
             let i = route.find('?');
             if i.is_some() {
                 if &route[0..i.unwrap()] != "ip" {
-                    return String::from("HTTP/1.1 400 Bad Request\r\n");
+                    String::from("HTTP/1.1 400 Bad Request\r\n")
                 } else {
                     let query_params: Vec<(String, String)>;
                     if let Some(i) = route.find('?') {
@@ -86,7 +86,7 @@ async fn handle_read(
                     }
                     let ip = get_ip(client, &id, region).await;
                     if let Err(err) = ip {
-                        println!("Server: {}", err);
+                        println!("Server: {err}");
                         String::from("HTTP/1.1 404 Not Found\r\n")
                     } else {
                         let res = "{\"id\": \"".to_owned() + ip.unwrap().as_str() + "\"}";
@@ -102,7 +102,7 @@ async fn handle_read(
                 let contents = fs::read_to_string(rates_path);
 
                 if let Err(err) = contents {
-                    println!("Server : Error reading rates file : {}", err);
+                    println!("Server : Error reading rates file : {err}");
                 } else {
                     let contents = contents.unwrap();
                     let data: Vec<RegionalRates> =
@@ -124,7 +124,7 @@ async fn handle_read(
             }
         }
         Err(e) => {
-            println!("Server: Unable to read stream: {}", e);
+            println!("Server: Unable to read stream: {e}");
             String::from("HTTP/1.1 500 Internal Server Error\r\n")
         }
     }
@@ -133,7 +133,7 @@ async fn handle_read(
 async fn handle_write(mut stream: TcpStream, response: &str) {
     match stream.write(response.as_bytes()) {
         Ok(_) => println!("Server: Response sent"),
-        Err(e) => println!("Server: Failed sending response: {}", e),
+        Err(e) => println!("Server: Failed sending response: {e}"),
     }
 }
 
@@ -161,7 +161,7 @@ pub async fn serve(client: Aws, regions: Vec<String>, rates_path: String) {
                 handle_client(&client, stream, regions.clone(), &rates_path).await;
             }
             Err(e) => {
-                println!("Server: Unable to connect: {}", e);
+                println!("Server: Unable to connect: {e}");
             }
         }
     }

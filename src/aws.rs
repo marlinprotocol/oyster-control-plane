@@ -189,7 +189,7 @@ impl Aws {
         channel.exec("sudo systemctl restart nitro-enclaves-allocator.service")?;
 
         let _ = channel.read_to_string(&mut s);
-        println!("{}", s);
+        println!("{s}");
         let _ = channel.wait_close();
 
         println!(
@@ -203,7 +203,7 @@ impl Aws {
         channel.exec(&("wget -O enclave.eif ".to_owned() + url))?;
         let _ = channel.read_to_string(&mut s);
         let _ = channel.wait_close();
-        println!("{}", s);
+        println!("{s}");
 
         if self.whitelist.as_str() != "" || self.blacklist.as_str() != "" {
             channel = sess.channel_session()?;
@@ -211,17 +211,17 @@ impl Aws {
             channel.exec("sha256sum /home/ubuntu/enclave.eif")?;
             let _ = channel.read_to_string(&mut s);
             let _ = channel.wait_close();
-            println!("{}", s);
+            println!("{s}");
 
             if let Some(line) = s.split_whitespace().next() {
-                println!("Hash : {}", line);
+                println!("Hash : {line}");
                 if self.whitelist.as_str() != "" {
                     println!("Checking whitelist...");
                     let file_path = self.whitelist.as_str();
                     let contents = fs::read_to_string(file_path);
 
                     if let Err(err) = contents {
-                        println!("Error reading whitelist file : {}", err);
+                        println!("Error reading whitelist file : {err}");
                         return  Err(anyhow!("Error reading whitelist file"));
                     } else {
                         let contents = contents.unwrap();
@@ -247,7 +247,7 @@ impl Aws {
                     let contents = fs::read_to_string(file_path);
 
                     if let Err(err) = contents {
-                        println!("Error reading blacklist file : {}", err);
+                        println!("Error reading blacklist file : {err}");
                         return Err(anyhow!("Error reading blacklist file"));
                     } else {
                         let contents = contents.unwrap();
@@ -278,7 +278,7 @@ impl Aws {
             )?;
 
         let _ = channel.read_to_string(&mut s);
-        println!("{}", s);
+        println!("{s}");
         let _ = channel.wait_close();
 
         channel = sess.channel_session()?;
@@ -289,7 +289,7 @@ impl Aws {
             )?;
 
         let _ = channel.read_to_string(&mut s);
-        println!("{}", s);
+        println!("{s}");
         let _ = channel.wait_close();
 
         channel = sess.channel_session()?;
@@ -300,7 +300,7 @@ impl Aws {
             )?;
 
         let _ = channel.read_to_string(&mut s);
-        println!("{}", s);
+        println!("{s}");
         let _ = channel.wait_close();
 
         channel = sess.channel_session()?;
@@ -314,7 +314,7 @@ impl Aws {
         )?;
 
         let _ = channel.read_to_string(&mut s);
-        println!("{}", s);
+        println!("{s}");
         let _ = channel.wait_close();
 
         println!("Enclave running");
@@ -368,13 +368,13 @@ impl Aws {
                         let content_len = res.headers()["content-length"].to_str()?;
                         size = content_len.parse::<i64>()? / 1000000;
                     }
-                    Err(e) => return Err(anyhow!("failed to fetch eif file header, {}", e))
+                    Err(e) => return Err(anyhow!("failed to fetch eif file header, {e}"))
                 }
             }
-            Err(e) => return Err(anyhow!("failed to fetch eif file header, {}", e))
+            Err(e) => return Err(anyhow!("failed to fetch eif file header, {e}"))
         }
 
-        println!("eif size: {} MB", size);
+        println!("eif size: {size} MB");
         let size = size / 1000;
         let mut sdd = 15;
         if size > sdd {
@@ -743,12 +743,12 @@ impl Aws {
                                 .ok_or(anyhow!("error fetching instance v_cpu info"))?
                                 .default_v_cpus()
                                 .ok_or(anyhow!("error fetching instance v_cpu info"))?;
-            println!("v_cpus: {}", v_cpus);
+            println!("v_cpus: {v_cpus}");
             mem = instance.memory_info()
                                 .ok_or(anyhow!("error fetching instance memory info"))?
                                 .size_in_mi_b()
                                 .ok_or(anyhow!("error fetching instance v_cpu info"))?;
-            println!("memory: {}", mem);
+            println!("memory: {mem}");
         }
         
         let instance_type = aws_sdk_ec2::model::InstanceType::from_str(instance_type)?;
@@ -766,21 +766,21 @@ impl Aws {
                     .await;
         if let Err(err) = res {
             self.spin_down_instance(&instance, region.clone()).await?;
-            return Err(anyhow!("error launching instance, {}", err));
+            return Err(anyhow!("error launching instance, {err}"));
         }
         let (alloc_id, ip) = res.unwrap();
-        println!("Elastic Ip allocated: {}", ip);
+        println!("Elastic Ip allocated: {ip}");
 
         let res = self.associate_address(&instance, &alloc_id, region.clone())
             .await;
         if let Err(err) = res {
             self.spin_down_instance(&instance, region.clone()).await?;
-            return Err(anyhow!("error launching instance, {}", err));
+            return Err(anyhow!("error launching instance, {err}"));
         }
         let res = self.get_instance_ip(&instance, region.clone()).await;
         if let Err(err) = res {
             self.spin_down_instance(&instance, region.clone()).await?;
-            return Err(anyhow!("error launching instance, {}", err));
+            return Err(anyhow!("error launching instance, {err}"));
         }
         let mut public_ip_address = res.unwrap();
         if public_ip_address.is_empty() {

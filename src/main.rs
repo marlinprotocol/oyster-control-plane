@@ -44,7 +44,7 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
 
     let regions: Vec<String> = cli.regions.split(',').map(|r| (r.into())).collect();
-    println!("Supported regions: {:?}", regions);
+    println!("Supported regions: {regions:?}");
 
     let aws = aws::Aws::new(cli.profile, cli.key_name, cli.white, cli.black).await;
 

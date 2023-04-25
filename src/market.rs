@@ -217,12 +217,14 @@ impl JobsService {
             #[allow(non_snake_case)]
             let JOB_WITHDREW = H256::from(keccak256("JobWithdrew(bytes32,address,uint256)"));
             #[allow(non_snake_case)]
-            let JOB_REVISE_RATE_INITIATED = H256::from(keccak256("JobReviseRateInitiated(bytes32,uint256)"));
+            let JOB_REVISE_RATE_INITIATED =
+                H256::from(keccak256("JobReviseRateInitiated(bytes32,uint256)"));
             #[allow(non_snake_case)]
             let JOB_REVISE_RATE_CANCELLED =
                 H256::from(keccak256("JobReviseRateCancelled(bytes32)"));
             #[allow(non_snake_case)]
-            let JOB_REVISE_RATE_FINALIZED = H256::from(keccak256("JobReviseRateFinalized(bytes32, uint256)"));
+            let JOB_REVISE_RATE_FINALIZED =
+                H256::from(keccak256("JobReviseRateFinalized(bytes32, uint256)"));
 
             // solvency metrics
             // default of 60s

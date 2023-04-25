@@ -464,7 +464,7 @@ impl Aws {
             .build();
         let name_filter = aws_sdk_ec2::model::Filter::builder()
             .name("name")
-            .values("MarlinLauncher".to_owned() + architecture)
+            .values("oyster_".to_owned() + architecture)
             .build();
 
         Ok(self
@@ -724,7 +724,7 @@ impl Aws {
             .instance_types(ec2_type)
             .send()
             .await?;
-        let mut architecture = "x86_64".to_string();
+        let mut architecture = "amd64".to_string();
         let mut v_cpus: i32 = 4;
         let mut mem: i64 = 8192;
 

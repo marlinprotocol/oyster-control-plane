@@ -89,7 +89,7 @@ async fn handle_read(
                         println!("Server: {err}");
                         String::from("HTTP/1.1 404 Not Found\r\n")
                     } else {
-                        let res = "{\"id\": \"".to_owned() + ip.unwrap().as_str() + "\"}";
+                        let res = "{\"ip\": \"".to_owned() + ip.unwrap().as_str() + "\"}";
                         let len = res.len();
                         return "HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Headers: Content-Type, User-Agent \
                         \r\nAccess-Control-Allow-Methods: GET, OPTIONS, POST\r\nContent-Type: application/json;\r\nContent-Length: "

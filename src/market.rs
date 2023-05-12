@@ -148,7 +148,7 @@ impl JobsService {
         // TODO: Filter by contract and provider address
         let event_filter = Filter::new()
             .address(ValueOrArray::Value(
-                "0x0F5F91BA30a00bD43Bd19466f020B3E5fc7a49ec".parse::<Address>()?,
+                "0x9d95D61eA056721E358BC49fE995caBF3B86A34B".parse::<Address>()?,
             ))
             .select(0..)
             .topic0(ValueOrArray::Array(vec![H256::from(keccak256(
@@ -545,7 +545,7 @@ impl JobsService {
         let event_filter = Filter::new()
             .select(0..)
             .address(ValueOrArray::Value(
-                "0x0F5F91BA30a00bD43Bd19466f020B3E5fc7a49ec".parse::<Address>()?,
+                "0x9d95D61eA056721E358BC49fE995caBF3B86A34B".parse::<Address>()?,
             ))
             .topic0(ValueOrArray::Array(vec![
                 H256::from(keccak256(

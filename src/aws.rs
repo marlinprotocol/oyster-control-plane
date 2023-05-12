@@ -738,7 +738,11 @@ impl Aws {
                 .supported_architectures()
                 .ok_or(anyhow!("error fetching instance architecture info"))?;
             if let Some(arch) = supported_architectures.iter().next() {
-                architecture = arch.as_str().to_string();
+                if arch.as_str() == "x86_64" {
+                    architecture = "amd64".to_owned();
+                } else {
+                    architecture = "arm64".to_owned();
+                }
                 println!("architecture: {}", arch.as_str());
             }
             v_cpus = instance

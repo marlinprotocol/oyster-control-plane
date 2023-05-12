@@ -375,7 +375,7 @@ impl JobsService {
                                     }
                                     None => {
                                         println!("job {}: Instance type not set, using default", job);
-                                        break 'main;
+                                        // break 'main;
                                     }
                                 }
 

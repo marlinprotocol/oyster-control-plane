@@ -387,7 +387,7 @@ impl JobsService {
                                     }
                                     None => {
                                         println!("job {}: Job region not set, using default", job);
-                                        break 'main;
+                                        // break 'main;
                                     }
                                 }
 

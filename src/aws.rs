@@ -32,7 +32,7 @@ impl Aws {
         whitelist: String,
         blacklist: String,
     ) -> Aws {
-        let key_location = "/home/".to_owned() + &username() + "/.ssh/" + &key_name;
+        let key_location = "/home/".to_owned() + &username() + "/.ssh/" + &key_name + ".pem";
         let pub_key_location = "/home/".to_owned() + &username() + "/.ssh/" + &key_name + ".pub";
 
         Aws {

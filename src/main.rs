@@ -11,11 +11,11 @@ use std::error::Error;
 /// Control plane for Oyster
 struct Cli {
     /// AWS profile
-    #[clap(short, long, value_parser)]
+    #[clap(long, value_parser)]
     profile: String,
 
     /// AWS keypair name
-    #[clap(short, long, value_parser)]
+    #[clap(long, value_parser)]
     key_name: String,
 
     /// AWS regions
@@ -31,12 +31,12 @@ struct Cli {
     rates: String,
 
     /// Blacklist location
-    #[clap(default_value_t=String::new(),long, value_parser)]
-    black: String,
+    #[clap(long, value_parser)]
+    blacklist: Option<String>,
 
     /// Whitelist location
-    #[clap(default_value_t=String::new(),long, value_parser)]
-    white: String,
+    #[clap(long, value_parser)]
+    whitelist: Option<String>,
 }
 
 #[tokio::main]
@@ -46,7 +46,7 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
     let regions: Vec<String> = cli.regions.split(',').map(|r| (r.into())).collect();
     println!("Supported regions: {regions:?}");
 
-    let aws = aws::Aws::new(cli.profile, cli.key_name, cli.white, cli.black).await;
+    let aws = aws::Aws::new(cli.profile, cli.key_name, cli.whitelist.unwrap_or("".to_owned()), cli.blacklist.unwrap_or("".to_owned())).await;
 
     aws.generate_key_pair().await?;
 

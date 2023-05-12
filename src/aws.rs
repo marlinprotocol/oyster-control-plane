@@ -464,7 +464,7 @@ impl Aws {
             .build();
         let name_filter = aws_sdk_ec2::model::Filter::builder()
             .name("name")
-            .values("MarlinLauncher".to_owned() + architecture)
+            .values("oyster_".to_owned() + architecture)
             .build();
 
         Ok(self
@@ -545,7 +545,7 @@ impl Aws {
             )
             .send()
             .await?;
-            // response parsing from here
+        // response parsing from here
         let instance = res
             .reservations()
             .ok_or(anyhow!("could not parse reservations"))?
@@ -555,12 +555,13 @@ impl Aws {
             .ok_or(anyhow!("could not parse instances"))?
             .first()
             .ok_or(anyhow!("no instances for the given job"))?;
-        
-        let state = instance.state()
-                        .ok_or(anyhow!("could not parse instance state"))?
-                        .name()
-                        .ok_or(anyhow!("could not parse instance state name"))?
-                        .as_str();
+
+        let state = instance
+            .state()
+            .ok_or(anyhow!("could not parse instance state"))?
+            .name()
+            .ok_or(anyhow!("could not parse instance state name"))?
+            .as_str();
         if state == "running" || state == "pending" {
             Ok(instance
                 .instance_id()
@@ -568,7 +569,7 @@ impl Aws {
                 .to_string())
         } else {
             Err(anyhow!("no running instance found"))
-        }   
+        }
     }
 
     pub async fn get_instance_state(&self, instance_id: &str, region: String) -> Result<String> {
@@ -715,8 +716,7 @@ impl Aws {
         instance_type: &str,
         region: String,
     ) -> Result<String> {
-        let ec2_type =
-            aws_sdk_ec2::model::InstanceType::from_str(instance_type)?;
+        let ec2_type = aws_sdk_ec2::model::InstanceType::from_str(instance_type)?;
         let resp = self
             .client(region.clone())
             .await
@@ -724,17 +724,19 @@ impl Aws {
             .instance_types(ec2_type)
             .send()
             .await?;
-        let mut architecture = "x86_64".to_string();
+        let mut architecture = "amd64".to_string();
         let mut v_cpus: i32 = 4;
         let mut mem: i64 = 8192;
 
-        let instance_types = resp.instance_types()
-                                .ok_or(anyhow!("error fetching instance info"))?;
+        let instance_types = resp
+            .instance_types()
+            .ok_or(anyhow!("error fetching instance info"))?;
         for instance in instance_types {
-            let supported_architectures = instance.processor_info()
-                                            .ok_or(anyhow!("error fetching instance processor info"))?
-                                            .supported_architectures()
-                                            .ok_or(anyhow!("error fetching instance architecture info"))?;
+            let supported_architectures = instance
+                .processor_info()
+                .ok_or(anyhow!("error fetching instance processor info"))?
+                .supported_architectures()
+                .ok_or(anyhow!("error fetching instance architecture info"))?;
             if let Some(arch) = supported_architectures.iter().next() {
                 architecture = arch.as_str().to_string();
                 println!("architecture: {}", arch.as_str());
@@ -750,7 +752,7 @@ impl Aws {
                                 .ok_or(anyhow!("error fetching instance v_cpu info"))?;
             println!("memory: {mem}");
         }
-        
+
         let instance_type = aws_sdk_ec2::model::InstanceType::from_str(instance_type)?;
         let instance = self
             .launch_instance(
@@ -762,8 +764,7 @@ impl Aws {
             )
             .await?;
         sleep(Duration::from_secs(100)).await;
-        let res = self.allocate_ip_addr(job, region.clone())
-                    .await;
+        let res = self.allocate_ip_addr(job, region.clone()).await;
         if let Err(err) = res {
             self.spin_down_instance(&instance, region.clone()).await?;
             return Err(anyhow!("error launching instance, {err}"));
@@ -771,7 +772,8 @@ impl Aws {
         let (alloc_id, ip) = res.unwrap();
         println!("Elastic Ip allocated: {ip}");
 
-        let res = self.associate_address(&instance, &alloc_id, region.clone())
+        let res = self
+            .associate_address(&instance, &alloc_id, region.clone())
             .await;
         if let Err(err) = res {
             self.spin_down_instance(&instance, region.clone()).await?;
@@ -796,7 +798,9 @@ impl Aws {
                     Ok(_) => Ok(instance),
                     Err(_) => {
                         self.spin_down_instance(&instance, region.clone()).await?;
-                        Err(anyhow!("error running enclave, terminating launched instance"))
+                        Err(anyhow!(
+                            "error running enclave, terminating launched instance"
+                        ))
                     }
                 }
             }

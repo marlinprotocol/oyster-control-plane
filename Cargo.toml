@@ -20,6 +20,7 @@ async-trait = "0.1.51"
 aws-types = "0.54.1"
 anyhow = "1.0.69"
 serde = "1.0.159"
+openssl-sys = { features = ["vendored"] }
 
 [profile.release]
 lto = true

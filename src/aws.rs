@@ -168,29 +168,32 @@ impl Aws {
                 + &((v_cpus - 2).to_string())
                 + "' >> /home/ubuntu/allocator_new.yaml"),
         )?;
-
-        let _ = channel.read_to_string(&mut s);
+        let _ = channel.stderr().read_to_string(&mut s);
         let _ = channel.wait_close();
 
         channel = sess.channel_session()?;
         channel.exec("sudo apt-get update -y")?;
-        let _ = channel.read_to_string(&mut s);
+        let _ = channel.stderr().read_to_string(&mut s);
         let _ = channel.wait_close();
 
         channel = sess.channel_session()?;
         channel
             .exec("sudo cp /home/ubuntu/allocator_new.yaml /etc/nitro_enclaves/allocator.yaml")?;
 
-        let _ = channel.read_to_string(&mut s);
+        let _ = channel.stderr().read_to_string(&mut s);
         let _ = channel.wait_close();
+
+        s.clear();
 
         channel = sess.channel_session()?;
-        s = String::new();
         channel.exec("sudo systemctl restart nitro-enclaves-allocator.service")?;
-
-        let _ = channel.read_to_string(&mut s);
-        println!("{s}");
+        let _ = channel.stderr().read_to_string(&mut s);
         let _ = channel.wait_close();
+        if !s.is_empty() {
+            println!("{s}");
+            return Err(anyhow!("Error starting nitro-anclaves-allocator service"));
+        }
+        s.clear();
 
         println!(
             "Nitro Enclave Service set up with cpus: {} and memory: {}",
@@ -199,19 +202,25 @@ impl Aws {
         );
 
         channel = sess.channel_session()?;
-        s = String::new();
         channel.exec(&("wget -O enclave.eif ".to_owned() + url))?;
-        let _ = channel.read_to_string(&mut s);
+        let _ = channel.stderr().read_to_string(&mut s);
         let _ = channel.wait_close();
-        println!("{s}");
+        if !s.is_empty() {
+            println!("{s}");
+            return Err(anyhow!("Error downloading enclave image file"));
+        }
+        s.clear();
 
         if self.whitelist.as_str() != "" || self.blacklist.as_str() != "" {
             channel = sess.channel_session()?;
-            s = String::new();
             channel.exec("sha256sum /home/ubuntu/enclave.eif")?;
-            let _ = channel.read_to_string(&mut s);
+            let _ = channel.stderr().read_to_string(&mut s);
             let _ = channel.wait_close();
-            println!("{s}");
+            if !s.is_empty() {
+                println!("{s}");
+                return Err(anyhow!("Error calculating hash of enclave image"));
+            }
+            s.clear();
 
             if let Some(line) = s.split_whitespace().next() {
                 println!("Hash : {line}");
@@ -271,40 +280,39 @@ impl Aws {
         }
 
         channel = sess.channel_session()?;
-        s = String::new();
         channel
             .exec(
                 "sudo iptables -A PREROUTING -t nat -p tcp --dport 80 -i ens5 -j REDIRECT --to-port 1200",
             )?;
 
-        let _ = channel.read_to_string(&mut s);
-        println!("{s}");
+        let _ = channel.stderr().read_to_string(&mut s);
         let _ = channel.wait_close();
 
         channel = sess.channel_session()?;
-        s = String::new();
         channel
             .exec(
                 "sudo iptables -A PREROUTING -t nat -p tcp --dport 443 -i ens5 -j REDIRECT --to-port 1200",
             )?;
 
         let _ = channel.read_to_string(&mut s);
-        println!("{s}");
         let _ = channel.wait_close();
 
         channel = sess.channel_session()?;
-        s = String::new();
         channel
             .exec(
                 "sudo iptables -A PREROUTING -t nat -p tcp --dport 1025:65535 -i ens5 -j REDIRECT --to-port 1200",
             )?;
 
         let _ = channel.read_to_string(&mut s);
-        println!("{s}");
         let _ = channel.wait_close();
 
+        if !s.is_empty() {
+            println!("{s}");
+            return Err(anyhow!("Error setting up proxies"));
+        }
+        s.clear();
+
         channel = sess.channel_session()?;
-        s = String::new();
         channel.exec(
             &("nitro-cli run-enclave --cpu-count ".to_owned()
                 + &((v_cpus - 2).to_string())
@@ -313,9 +321,12 @@ impl Aws {
                 + " --eif-path enclave.eif --enclave-cid 88"),
         )?;
 
-        let _ = channel.read_to_string(&mut s);
-        println!("{s}");
+        let _ = channel.stderr().read_to_string(&mut s);
         let _ = channel.wait_close();
+        if !s.is_empty() {
+            println!("{s}");
+            return Err(anyhow!("Error running enclave image"));
+        }
 
         println!("Enclave running");
         Ok(())

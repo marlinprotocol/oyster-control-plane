@@ -205,10 +205,6 @@ impl Aws {
         channel.exec(&("wget -O enclave.eif ".to_owned() + url))?;
         let _ = channel.stderr().read_to_string(&mut s);
         let _ = channel.wait_close();
-        if !s.is_empty() {
-            println!("{s}");
-            return Err(anyhow!("Error downloading enclave image file"));
-        }
         s.clear();
 
         if self.whitelist.as_str() != "" || self.blacklist.as_str() != "" {
@@ -703,6 +699,45 @@ impl Aws {
             },
         )
     }
+    
+    async fn get_instance_elastic_ip(
+        &self,
+        instance: &str,
+        region: String,
+    ) -> Result<(bool, String, String)> {
+        let filter_a = aws_sdk_ec2::model::Filter::builder()
+            .name("instance-id")
+            .values(instance)
+            .build();
+
+        Ok(
+            match self
+                .client(region)
+                .await
+                .describe_addresses()
+                .filters(filter_a)
+                .send()
+                .await?
+                // response parsing starts here
+                .addresses()
+                .ok_or(anyhow!("could not parse addresses"))?
+                .first()
+            {
+                None => (false, String::new(), String::new()),
+                Some(addrs) => (
+                    true,
+                    addrs
+                        .allocation_id()
+                        .ok_or(anyhow!("could not parse allocation id"))?
+                        .to_string(),
+                    addrs
+                        .association_id()
+                        .ok_or(anyhow!("could not parse public ip"))?
+                        .to_string(),
+                ),
+            },
+        )
+    }
 
     async fn associate_address(
         &self,
@@ -715,6 +750,34 @@ impl Aws {
             .associate_address()
             .allocation_id(alloc_id)
             .instance_id(instance_id)
+            .send()
+            .await?;
+        Ok(())
+    }
+
+    async fn disassociate_address(
+        &self,
+        association_id: &str,
+        region: String,
+    ) -> Result<()> {
+        self.client(region)
+            .await
+            .disassociate_address()
+            .association_id(association_id)
+            .send()
+            .await?;
+        Ok(())
+    }
+
+    async fn release_address(
+        &self,
+        alloc_id: &str,
+        region: String,
+    ) -> Result<()> {
+        self.client(region)
+            .await
+            .release_address()
+            .allocation_id(alloc_id)
             .send()
             .await?;
         Ok(())
@@ -812,8 +875,9 @@ impl Aws {
                 let res = self.run_enclave(&r, image_url, req_vcpu, req_mem).await;
                 match res {
                     Ok(_) => Ok(instance),
-                    Err(_) => {
+                    Err(e) => {
                         self.spin_down_instance(&instance, region.clone()).await?;
+                        println!("Error running enclave: {e}");
                         Err(anyhow!(
                             "error running enclave, terminating launched instance"
                         ))
@@ -828,6 +892,13 @@ impl Aws {
     }
 
     pub async fn spin_down_instance(&self, instance_id: &str, region: String) -> Result<()> {
+        let (exist, alloc_id, association_id) = self.get_instance_elastic_ip(instance_id, region.clone()).await?;
+        if exist {
+            self.disassociate_address(association_id.as_str(), region.clone()).await?;
+            self.release_address(alloc_id.as_str(), region.clone()).await?;
+            println!("Elastic IP released");
+        }
+        
         self.terminate_instance(instance_id, region).await?;
         Ok(())
     }

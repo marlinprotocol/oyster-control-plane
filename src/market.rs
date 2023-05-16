@@ -400,10 +400,10 @@ impl JobsService {
                                     break 'main;
                                 }
 
-                                let r = v["memory"].as_str();
+                                let r = v["memory"].as_i64();
                                 match r {
                                     Some(t) => {
-                                        req_mem = t.parse::<i64>().unwrap_or(req_mem);
+                                        req_mem = t;
                                         println!("job {job}: Required memory: {req_mem}");
                                     }
                                     None => {
@@ -412,10 +412,10 @@ impl JobsService {
                                     }
                                 }
 
-                                let r = v["vcpu"].as_str();
+                                let r = v["vcpu"].as_i64();
                                 match r {
                                     Some(t) => {
-                                        req_vcpus = t.parse::<i32>().unwrap_or(req_vcpus);
+                                        req_vcpus = t.try_into().unwrap_or(2);
                                         println!("job {job}: Required vcpu: {req_vcpus}");
                                     }
                                     None => {

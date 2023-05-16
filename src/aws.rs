@@ -163,9 +163,9 @@ impl Aws {
         let mut s = String::new();
         channel.exec(
             &("echo -e '---\\nmemory_mib: ".to_owned()
-                + &((mem - 2048).to_string())
+                + &((mem).to_string())
                 + "\\ncpu_count: "
-                + &((v_cpus - 2).to_string())
+                + &((v_cpus).to_string())
                 + "' >> /home/ubuntu/allocator_new.yaml"),
         )?;
         let _ = channel.stderr().read_to_string(&mut s);
@@ -726,6 +726,8 @@ impl Aws {
         job: String,
         instance_type: &str,
         region: String,
+        req_mem: i64,
+        req_vcpu: i32
     ) -> Result<String> {
         let ec2_type = aws_sdk_ec2::model::InstanceType::from_str(instance_type)?;
         let resp = self
@@ -764,6 +766,9 @@ impl Aws {
             println!("memory: {mem}");
         }
 
+        if req_mem >= mem || req_vcpu >= v_cpus {
+            return Err(anyhow!("Required memory or vcpus are more than available"));
+        }
         let instance_type = aws_sdk_ec2::model::InstanceType::from_str(instance_type)?;
         let instance = self
             .launch_instance(
@@ -804,7 +809,7 @@ impl Aws {
         let sess = self.ssh_connect(&public_ip_address).await;
         match sess {
             Ok(r) => {
-                let res = self.run_enclave(&r, image_url, v_cpus, mem).await;
+                let res = self.run_enclave(&r, image_url, req_vcpu, req_mem).await;
                 match res {
                     Ok(_) => Ok(instance),
                     Err(_) => {
@@ -838,9 +843,11 @@ impl AwsManager for Aws {
         job: String,
         instance_type: &str,
         region: String,
+        req_mem: i64,
+        req_vcpu: i32
     ) -> Result<String, Box<dyn Error + Send + Sync>> {
         let instance = self
-            .spin_up_instance(eif_url, job, instance_type, region)
+            .spin_up_instance(eif_url, job, instance_type, region, req_mem, req_vcpu)
             .await?;
         Ok(instance)
     }

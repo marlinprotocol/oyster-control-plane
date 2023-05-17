@@ -30,6 +30,8 @@ pub trait AwsManager {
         job: String,
         instance_type: &str,
         region: String,
+        req_mem: i64,
+        req_vcpu: i32
     ) -> Result<String, Box<dyn Error + Send + Sync>>;
 
     async fn spin_down(
@@ -242,6 +244,8 @@ impl JobsService {
             let mut region = "ap-south-1".to_string();
             let mut aws_launch_time = Instant::now();
             let mut aws_launch_scheduled = false;
+            let mut req_vcpus: i32 = 2;
+            let mut req_mem: i64 = 4096;
             'event: loop {
                 // compute time to insolvency
                 let now_ts = SystemTime::now()
@@ -283,7 +287,7 @@ impl JobsService {
                             if let Err(err) = running {
                                 println!("job {job}: failed to retrieve instance state, {err}");
                                 if rate >= min_rate {
-                                    let res = aws_manager_impl.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str(), region.clone()).await;
+                                    let res = aws_manager_impl.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str(), region.clone(), req_mem, req_vcpus).await;
                                     if let Err(err) = res {
                                         println!("job {job}: Instance launch failed, {err}");
                                         break 'event;
@@ -293,7 +297,7 @@ impl JobsService {
                             } else {
                                 let running = running.unwrap();
                                 if !running && rate >= min_rate {
-                                    let res = aws_manager_impl.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str(), region.clone()).await;
+                                    let res = aws_manager_impl.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str(), region.clone(), req_mem, req_vcpus).await;
                                     if let Err(err) = res {
                                         println!("job {job}: Instance launch failed, {err}");
                                         break 'event;
@@ -334,7 +338,7 @@ impl JobsService {
                                 instance_id = String::new();
                             }
                         } else if rate >= min_rate {
-                            let res = aws_manager_impl.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str(), region.clone()).await;
+                            let res = aws_manager_impl.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str(), region.clone(), req_mem, req_vcpus).await;
                             if let Err(err) = res {
                                 println!("job {job}: Instance launch failed, {err}");
                                 break 'event;
@@ -374,7 +378,7 @@ impl JobsService {
                                         println!("job {job}: Instance type set: {instance_type}");
                                     }
                                     None => {
-                                        println!("job {job}: Instance type not set, using default");
+                                        println!("job {job}: Instance type not set");
                                         break 'main;
                                     }
                                 }
@@ -386,7 +390,7 @@ impl JobsService {
                                         println!("job {job}: Job region set: {region}");
                                     }
                                     None => {
-                                        println!("job {job}: Job region not set, using default");
+                                        println!("job {job}: Job region not set");
                                         break 'main;
                                     }
                                 }
@@ -394,6 +398,30 @@ impl JobsService {
                                 if !allowed_regions.contains(&region) {
                                     println!("job {job}: region : {region} not suppported, exiting job");
                                     break 'main;
+                                }
+
+                                let r = v["memory"].as_i64();
+                                match r {
+                                    Some(t) => {
+                                        req_mem = t;
+                                        println!("job {job}: Required memory: {req_mem}");
+                                    }
+                                    None => {
+                                        println!("job {job}: memory not set");
+                                        break 'main;
+                                    }
+                                }
+
+                                let r = v["vcpu"].as_i64();
+                                match r {
+                                    Some(t) => {
+                                        req_vcpus = t.try_into().unwrap_or(2);
+                                        println!("job {job}: Required vcpu: {req_vcpus}");
+                                    }
+                                    None => {
+                                        println!("job {job}: vcpu not set");
+                                        break 'main;
+                                    }
                                 }
 
                                 let url = v["url"].as_str();
@@ -622,6 +650,8 @@ impl AwsManager for TestAws {
         job: String,
         instance_type: &str,
         region: String,
+        req_mem: i64,
+        req_vcpu: i32
     ) -> Result<String, Box<dyn Error + Send + Sync>> {
         if self.outfile.as_str() != "" {
             let mut file = OpenOptions::new()
@@ -631,7 +661,7 @@ impl AwsManager for TestAws {
             file.write_all("SpinUp\n".as_bytes()).expect("write failed");
         }
         println!(
-            "TEST: spin_up | job: {job}, region: {region}, instance_type: {instance_type}, eif_url: {eif_url}"
+            "TEST: spin_up | job: {job}, region: {region}, instance_type: {instance_type}, eif_url: {eif_url}, mem: {req_mem}, vcpu: {req_vcpu}"
         );
         if self.cur_idx >= self.max_idx || self.outcomes[self.cur_idx as usize] != 'U' {
             println!("TEST FAIL!\nTEST FAIL!\nTEST FAIL!\n");

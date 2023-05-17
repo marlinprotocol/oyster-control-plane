@@ -30,6 +30,8 @@ pub trait AwsManager {
         job: String,
         instance_type: &str,
         region: String,
+        req_mem: i64,
+        req_vcpu: i32,
     ) -> Result<String, Box<dyn Error + Send + Sync>>;
 
     async fn spin_down(
@@ -105,7 +107,7 @@ impl JobsService {
             let res = Provider::<Ws>::connect(url.clone()).await;
             if let Err(err) = res {
                 // exponential backoff on connection errors
-                println!("main: Connection error: {}", err);
+                println!("main: Connection error: {err}");
                 sleep(Duration::from_secs(backoff)).await;
                 backoff *= 2;
                 if backoff > 128 {
@@ -119,14 +121,14 @@ impl JobsService {
             let client = res.unwrap();
             let res = logger_impl.new_jobs(&client).await;
             if let Err(err) = res {
-                println!("main: Subscribe error: {}", err);
+                println!("main: Subscribe error: {err}");
                 sleep(Duration::from_secs(1)).await;
                 continue;
             }
 
             let mut job_stream = Box::into_pin(res.unwrap());
             while let Some((job, removed)) = job_stream.next().await {
-                println!("main: New job: {}, {}", job, removed);
+                println!("main: New job: {job}, {removed}");
                 tokio::spawn(Self::job_manager(
                     aws_manager_impl.clone(),
                     logger_impl.clone(),
@@ -180,11 +182,11 @@ impl JobsService {
         // trying to implicitly resume connections or event streams can cause issues
         // since subscriptions are stateful
         'main: loop {
-            println!("job {}: Connecting to RPC endpoint...", job);
+            println!("job {job}: Connecting to RPC endpoint...");
             let res = Provider::<Ws>::connect(url.clone()).await;
             if let Err(err) = res {
                 // exponential backoff on connection errors
-                println!("job {}: Connection error: {}", job, err);
+                println!("job {job}: Connection error: {err}");
                 sleep(Duration::from_secs(backoff)).await;
                 backoff *= 2;
                 if backoff > 128 {
@@ -193,12 +195,12 @@ impl JobsService {
                 continue;
             }
             backoff = 1;
-            println!("job {}: Connected to RPC endpoint", job);
+            println!("job {job}: Connected to RPC endpoint");
 
             let client = res.unwrap();
             let res = logger_impl.job_logs(&client, job).await;
             if let Err(err) = res {
-                println!("job {}: Subscribe error: {}", job, err);
+                println!("job {job}: Subscribe error: {err}");
                 sleep(Duration::from_secs(1)).await;
                 continue;
             }
@@ -242,6 +244,8 @@ impl JobsService {
             let mut region = "ap-south-1".to_string();
             let mut aws_launch_time = Instant::now();
             let mut aws_launch_scheduled = false;
+            let mut req_vcpus: i32 = 2;
+            let mut req_mem: i64 = 4096;
             'event: loop {
                 // compute time to insolvency
                 let now_ts = SystemTime::now()
@@ -281,11 +285,11 @@ impl JobsService {
                         if instance_id.as_str() != "" {
                             let running = aws_manager_impl.check_instance_running(&instance_id, region.clone()).await;
                             if let Err(err) = running {
-                                println!("job {}: failed to retrieve instance state, {}", job, err);
+                                println!("job {job}: failed to retrieve instance state, {err}");
                                 if rate >= min_rate {
-                                    let res = aws_manager_impl.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str(), region.clone()).await;
+                                    let res = aws_manager_impl.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str(), region.clone(), req_mem, req_vcpus).await;
                                     if let Err(err) = res {
-                                        println!("job {}: Instance launch failed, {}", job, err);
+                                        println!("job {job}: Instance launch failed, {err}");
                                         break 'event;
                                     }
                                     instance_id = res.unwrap();
@@ -293,9 +297,9 @@ impl JobsService {
                             } else {
                                 let running = running.unwrap();
                                 if !running && rate >= min_rate {
-                                    let res = aws_manager_impl.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str(), region.clone()).await;
+                                    let res = aws_manager_impl.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str(), region.clone(), req_mem, req_vcpus).await;
                                     if let Err(err) = res {
-                                        println!("job {}: Instance launch failed, {}", job, err);
+                                        println!("job {job}: Instance launch failed, {err}");
                                         break 'event;
                                     }
                                     instance_id = res.unwrap();
@@ -309,11 +313,11 @@ impl JobsService {
                         if instance_id.as_str() != "" {
                             let res = aws_manager_impl.spin_down(&instance_id, region.clone()).await;
                             if let Err(err) = res {
-                                println!("job {}: ERROR failed to terminate instance, {}", job, err);
+                                println!("job {job}: ERROR failed to terminate instance, {err}");
                                 break 'event;
                             }
                         }
-                        println!("job {}: INSOLVENCY: Spinning down instance", job);
+                        println!("job {job}: INSOLVENCY: Spinning down instance");
 
                         // exit fully
                         break 'main;
@@ -323,25 +327,25 @@ impl JobsService {
                         let (exist, instance) = aws_manager_impl.get_job_instance(&job.to_string(), region.clone()).await.unwrap_or((false, "".to_string()));
                         if exist {
                             instance_id = instance;
-                            println!("job {}: Found, instance id: {}", job, instance_id);
+                            println!("job {job}: Found, instance id: {instance_id}");
                             if rate < min_rate {
-                                println!("job {}: Rate below minimum, shutting down instance", job);
+                                println!("job {job}: Rate below minimum, shutting down instance");
                                 let res = aws_manager_impl.spin_down(&instance_id, region.clone()).await;
                                 if let Err(err) = res {
-                                    println!("job {}: ERROR failed to terminate instance, {}", job, err);
+                                    println!("job {job}: ERROR failed to terminate instance, {err}");
                                     break 'event;
                                 }
                                 instance_id = String::new();
                             }
                         } else if rate >= min_rate {
-                            let res = aws_manager_impl.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str(), region.clone()).await;
+                            let res = aws_manager_impl.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str(), region.clone(), req_mem, req_vcpus).await;
                             if let Err(err) = res {
-                                println!("job {}: Instance launch failed, {}", job, err);
+                                println!("job {job}: Instance launch failed, {err}");
                                 break 'event;
                             }
                             instance_id = res.unwrap();
                         } else {
-                            println!("job {}: Rate below minimum, aborting launch.", job);
+                            println!("job {job}: Rate below minimum, aborting launch.");
                         }
                         aws_launch_scheduled = false;
                     }
@@ -361,7 +365,7 @@ impl JobsService {
                                 println!("job {}: OPENED: metadata: {}, rate: {}, balance: {}, timestamp: {}", job, metadata, rate, balance, last_settled.as_secs());
                                 let v = serde_json::from_str(&metadata);
                                 if let Err(err) = v {
-                                    println!("job {}: Error reading metadata: {}", job, err);
+                                    println!("job {job}: Error reading metadata: {err}");
                                     break 'main;
                                 }
 
@@ -371,11 +375,11 @@ impl JobsService {
                                 match r {
                                     Some(t) => {
                                         instance_type = t.to_string();
-                                        println!("job {}: Instance type set: {}", job, instance_type);
+                                        println!("job {job}: Instance type set: {instance_type}");
                                     }
                                     None => {
-                                        println!("job {}: Instance type not set, using default", job);
-                                        // break 'main;
+                                        println!("job {job}: Instance type not set");
+                                        break 'main;
                                     }
                                 }
 
@@ -383,22 +387,46 @@ impl JobsService {
                                 match r {
                                     Some(t) => {
                                         region = t.to_string();
-                                        println!("job {}: Job region set: {}", job, region);
+                                        println!("job {job}: Job region set: {region}");
                                     }
                                     None => {
-                                        println!("job {}: Job region not set, using default", job);
-                                        // break 'main;
+                                        println!("job {job}: Job region not set");
+                                        break 'main;
                                     }
                                 }
 
                                 if !allowed_regions.contains(&region) {
-                                    println!("job {}: region : {} not suppported, exiting job", job, region);
+                                    println!("job {job}: region : {region} not suppported, exiting job");
                                     break 'main;
+                                }
+
+                                let r = v["memory"].as_i64();
+                                match r {
+                                    Some(t) => {
+                                        req_mem = t;
+                                        println!("job {job}: Required memory: {req_mem}");
+                                    }
+                                    None => {
+                                        println!("job {job}: memory not set");
+                                        break 'main;
+                                    }
+                                }
+
+                                let r = v["vcpu"].as_i64();
+                                match r {
+                                    Some(t) => {
+                                        req_vcpus = t.try_into().unwrap_or(2);
+                                        println!("job {job}: Required vcpu: {req_vcpus}");
+                                    }
+                                    None => {
+                                        println!("job {job}: vcpu not set");
+                                        break 'main;
+                                    }
                                 }
 
                                 let url = v["url"].as_str();
                                 if url.is_none() {
-                                    println!("job {}: eif url not found! Exiting job", job);
+                                    println!("job {job}: eif url not found! Exiting job");
                                     break 'main;
                                 }
                                 eif_url = url.unwrap().to_string();
@@ -407,7 +435,7 @@ impl JobsService {
                                 let contents = fs::read_to_string(file_path);
 
                                 if let Err(err) = contents {
-                                    println!("job {}: Error reading rates file : {}", job, err);
+                                    println!("job {job}: Error reading rates file : {err}");
                                     break 'main;
                                 } else {
                                     let contents = contents.unwrap();
@@ -426,15 +454,15 @@ impl JobsService {
                                         }
                                     }
                                     if !supported {
-                                        println!("job {}: instance type {}, not supported", job, instance_type);
+                                        println!("job {job}: instance type {instance_type}, not supported");
                                         break 'main;
                                     }
                                 }
-                                println!("job {}: MIN RATE for {} instance is {}", job, instance_type, min_rate);
+                                println!("job {job}: MIN RATE for {instance_type} instance is {min_rate}");
 
                                 aws_launch_time = Instant::now().checked_add(Duration::from_secs(aws_delay_duration)).unwrap();
                                 aws_launch_scheduled = true;
-                                println!("job {}: Instance scheduled", job);
+                                println!("job {job}: Instance scheduled");
                             } else {
                                 println!("job {}: OPENED: Decode failure: {}", job, log.data);
                             }
@@ -452,15 +480,15 @@ impl JobsService {
                             if !aws_launch_scheduled && instance_id.as_str() != "" {
                                 let res = aws_manager_impl.spin_down(&instance_id, region.clone()).await;
                                 if let Err(err) = res {
-                                    println!("job {}: ERROR failed to terminate instance, {}", job, err);
+                                    println!("job {job}: ERROR failed to terminate instance, {err}");
                                     break 'event;
                                 }
-                                println!("job {}: CLOSED: Spinning down instance", job);
+                                println!("job {job}: CLOSED: Spinning down instance");
                             } else {
-                                println!("job {}: Cancelled scheduled instance", job);
+                                println!("job {job}: Cancelled scheduled instance");
                             }
                             // exit fully
-                            println!("job {}: CLOSED", job);
+                            println!("job {job}: CLOSED");
                             break 'main;
                         } else if log.topics[0] == JOB_DEPOSITED {
                             // decode
@@ -487,16 +515,16 @@ impl JobsService {
                                 if rate < min_rate {
                                     if aws_launch_scheduled {
                                         aws_launch_scheduled = false;
-                                        println!("job {}: Canelled scheduled instance", job);
+                                        println!("job {job}: Canelled scheduled instance");
                                     } else if instance_id.as_str() != ""{
                                         let res = aws_manager_impl.spin_down(&instance_id, region.clone()).await;
                                         if let Err(err) = res {
-                                            println!("job {}: ERROR failed to terminate instance, {}", job, err);
+                                            println!("job {job}: ERROR failed to terminate instance, {err}");
                                             break 'event;
                                         }
                                         instance_id = String::new();
                                     }
-                                    println!("job {}: Revised job rate below min rate, shut down", job);
+                                    println!("job {job}: Revised job rate below min rate, shut down");
                                 }
                                 println!("job {}: JOB_REVISE_RATE_INTIATED: original_rate: {}, rate: {}, balance: {}, timestamp: {}", job, original_rate, rate, balance, last_settled.as_secs());
                             } else {
@@ -507,19 +535,19 @@ impl JobsService {
                             if rate >= min_rate && !aws_launch_scheduled && instance_id.as_str() == ""{
                                 aws_launch_scheduled = true;
                                 aws_launch_time = Instant::now().checked_add(Duration::from_secs(aws_delay_duration)).unwrap();
-                                println!("job {}: Instance scheduled", job);
+                                println!("job {job}: Instance scheduled");
                             }
                             println!("job {}: JOB_REVISED_RATE_CANCELLED: rate: {}, balance: {}, timestamp: {}", job, rate, balance, last_settled.as_secs());
                         } else if log.topics[0] == JOB_REVISE_RATE_FINALIZED {
                             if let Ok(new_rate) = U256::decode(&log.data) {
                                 if rate != new_rate {
-                                    println!("Job {}: Something went wrong, finalized rate not same as initiated rate", job);
+                                    println!("Job {job}: Something went wrong, finalized rate not same as initiated rate");
                                     break 'main;
                                 }
                                 if rate >= min_rate && !aws_launch_scheduled && instance_id.as_str() == "" {
                                     aws_launch_scheduled = true;
                                     aws_launch_time = Instant::now().checked_add(Duration::from_secs(aws_delay_duration)).unwrap();
-                                    println!("job {}: Instance scheduled", job);
+                                    println!("job {job}: Instance scheduled");
                                 }
                                 println!("job {}: JOB_REVISE_RATE_FINALIZED: original_rate: {}, rate: {}, balance: {}, timestamp: {}", job, original_rate, rate, balance, last_settled.as_secs());
                                 original_rate = new_rate;
@@ -533,7 +561,7 @@ impl JobsService {
                 }
             }
 
-            println!("job {}: Job stream ended", job);
+            println!("job {job}: Job stream ended");
         }
     }
 
@@ -622,6 +650,8 @@ impl AwsManager for TestAws {
         job: String,
         instance_type: &str,
         region: String,
+        req_mem: i64,
+        req_vcpu: i32,
     ) -> Result<String, Box<dyn Error + Send + Sync>> {
         if self.outfile.as_str() != "" {
             let mut file = OpenOptions::new()
@@ -631,8 +661,7 @@ impl AwsManager for TestAws {
             file.write_all("SpinUp\n".as_bytes()).expect("write failed");
         }
         println!(
-            "TEST: spin_up | job: {}, region: {}, instance_type: {}, eif_url: {}",
-            job, region, instance_type, eif_url
+            "TEST: spin_up | job: {job}, region: {region}, instance_type: {instance_type}, eif_url: {eif_url}, mem: {req_mem}, vcpu: {req_vcpu}"
         );
         if self.cur_idx >= self.max_idx || self.outcomes[self.cur_idx as usize] != 'U' {
             println!("TEST FAIL!\nTEST FAIL!\nTEST FAIL!\n");
@@ -655,10 +684,7 @@ impl AwsManager for TestAws {
             file.write_all("SpinDown\n".as_bytes())
                 .expect("write failed");
         }
-        println!(
-            "TEST: spin_down | instance_id: {}, region: {}",
-            instance_id, region
-        );
+        println!("TEST: spin_down | instance_id: {instance_id}, region: {region}");
         if self.cur_idx >= self.max_idx || self.outcomes[self.cur_idx as usize] != 'D' {
             println!("TEST FAIL!\nTEST FAIL!\nTEST FAIL!\n");
             return Err("fail".into());
@@ -672,7 +698,7 @@ impl AwsManager for TestAws {
         job: &str,
         region: String,
     ) -> Result<(bool, String), Box<dyn Error + Send + Sync>> {
-        println!("TEST: get_job_instance | job: {}, region: {}", job, region);
+        println!("TEST: get_job_instance | job: {job}, region: {region}");
         Ok((false, "".to_string()))
     }
 
@@ -690,6 +716,7 @@ impl AwsManager for TestAws {
 mod tests {
     use crate::market;
     use ethers::prelude::*;
+    use whoami::username;
 
     #[tokio::test]
     async fn test_1() {
@@ -705,6 +732,7 @@ mod tests {
             H256::from_uint(&U256::from_dec_str("1").unwrap_or(U256::one())),
             vec!["ap-south-1".into()],
             1,
+            "/home/".to_owned() + &username() + "/.marlin/rates.json",
         )
         .await;
     }
@@ -723,6 +751,7 @@ mod tests {
             H256::from_uint(&U256::from_dec_str("2").unwrap_or(U256::one())),
             vec!["ap-south-1".into()],
             1,
+            "/home/".to_owned() + &username() + "/.marlin/rates.json",
         )
         .await;
     }
@@ -741,6 +770,7 @@ mod tests {
             H256::from_uint(&U256::from_dec_str("3").unwrap_or(U256::one())),
             vec!["ap-south-1".into()],
             1,
+            "/home/".to_owned() + &username() + "/.marlin/rates.json",
         )
         .await;
     }
@@ -759,6 +789,7 @@ mod tests {
             H256::from_uint(&U256::from_dec_str("4").unwrap_or(U256::one())),
             vec!["ap-south-1".into()],
             1,
+            "/home/".to_owned() + &username() + "/.marlin/rates.json",
         )
         .await;
     }
@@ -777,6 +808,7 @@ mod tests {
             H256::from_uint(&U256::from_dec_str("5").unwrap_or(U256::one())),
             vec!["ap-south-1".into()],
             1,
+            "/home/".to_owned() + &username() + "/.marlin/rates.json",
         )
         .await;
     }
@@ -795,6 +827,7 @@ mod tests {
             H256::from_uint(&U256::from_dec_str("6").unwrap_or(U256::one())),
             vec!["ap-south-1".into()],
             1,
+            "/home/".to_owned() + &username() + "/.marlin/rates.json",
         )
         .await;
     }
@@ -813,6 +846,7 @@ mod tests {
             H256::from_uint(&U256::from_dec_str("7").unwrap_or(U256::one())),
             vec!["ap-south-1".into()],
             1,
+            "/home/".to_owned() + &username() + "/.marlin/rates.json",
         )
         .await;
     }
@@ -831,6 +865,7 @@ mod tests {
             H256::from_uint(&U256::from_dec_str("8").unwrap_or(U256::one())),
             vec!["ap-south-1".into()],
             1,
+            "/home/".to_owned() + &username() + "/.marlin/rates.json",
         )
         .await;
     }
@@ -849,6 +884,7 @@ mod tests {
             H256::from_uint(&U256::from_dec_str("9").unwrap_or(U256::one())),
             vec!["ap-south-1".into()],
             1,
+            "/home/".to_owned() + &username() + "/.marlin/rates.json",
         )
         .await;
     }
@@ -867,6 +903,7 @@ mod tests {
             H256::from_uint(&U256::from_dec_str("10").unwrap_or(U256::one())),
             vec!["ap-south-1".into()],
             1,
+            "/home/".to_owned() + &username() + "/.marlin/rates.json",
         )
         .await;
     }
@@ -885,6 +922,7 @@ mod tests {
             H256::from_uint(&U256::from_dec_str("11").unwrap_or(U256::one())),
             vec!["ap-south-1".into()],
             1,
+            "/home/".to_owned() + &username() + "/.marlin/rates.json",
         )
         .await;
     }
@@ -903,6 +941,7 @@ mod tests {
             H256::from_uint(&U256::from_dec_str("12").unwrap_or(U256::one())),
             vec!["ap-south-1".into()],
             1,
+            "/home/".to_owned() + &username() + "/.marlin/rates.json",
         )
         .await;
     }
@@ -921,6 +960,7 @@ mod tests {
             H256::from_uint(&U256::from_dec_str("13").unwrap_or(U256::one())),
             vec!["ap-south-1".into()],
             1,
+            "/home/".to_owned() + &username() + "/.marlin/rates.json",
         )
         .await;
     }
@@ -939,6 +979,7 @@ mod tests {
             H256::from_uint(&U256::from_dec_str("14").unwrap_or(U256::one())),
             vec!["ap-south-1".into()],
             1,
+            "/home/".to_owned() + &username() + "/.marlin/rates.json",
         )
         .await;
     }
@@ -957,6 +998,7 @@ mod tests {
             H256::from_uint(&U256::from_dec_str("15").unwrap_or(U256::one())),
             vec!["ap-south-1".into()],
             1,
+            "/home/".to_owned() + &username() + "/.marlin/rates.json",
         )
         .await;
     }

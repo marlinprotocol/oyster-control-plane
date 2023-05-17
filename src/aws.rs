@@ -163,34 +163,37 @@ impl Aws {
         let mut s = String::new();
         channel.exec(
             &("echo -e '---\\nmemory_mib: ".to_owned()
-                + &((mem - 2048).to_string())
+                + &((mem).to_string())
                 + "\\ncpu_count: "
-                + &((v_cpus - 2).to_string())
+                + &((v_cpus).to_string())
                 + "' >> /home/ubuntu/allocator_new.yaml"),
         )?;
-
-        let _ = channel.read_to_string(&mut s);
+        let _ = channel.stderr().read_to_string(&mut s);
         let _ = channel.wait_close();
 
         channel = sess.channel_session()?;
         channel.exec("sudo apt-get update -y")?;
-        let _ = channel.read_to_string(&mut s);
+        let _ = channel.stderr().read_to_string(&mut s);
         let _ = channel.wait_close();
 
         channel = sess.channel_session()?;
         channel
             .exec("sudo cp /home/ubuntu/allocator_new.yaml /etc/nitro_enclaves/allocator.yaml")?;
 
-        let _ = channel.read_to_string(&mut s);
+        let _ = channel.stderr().read_to_string(&mut s);
         let _ = channel.wait_close();
+
+        s.clear();
 
         channel = sess.channel_session()?;
-        s = String::new();
         channel.exec("sudo systemctl restart nitro-enclaves-allocator.service")?;
-
-        let _ = channel.read_to_string(&mut s);
-        println!("{}", s);
+        let _ = channel.stderr().read_to_string(&mut s);
         let _ = channel.wait_close();
+        if !s.is_empty() {
+            println!("{s}");
+            return Err(anyhow!("Error starting nitro-anclaves-allocator service"));
+        }
+        s.clear();
 
         println!(
             "Nitro Enclave Service set up with cpus: {} and memory: {}",
@@ -199,30 +202,32 @@ impl Aws {
         );
 
         channel = sess.channel_session()?;
-        s = String::new();
         channel.exec(&("wget -O enclave.eif ".to_owned() + url))?;
-        let _ = channel.read_to_string(&mut s);
+        let _ = channel.stderr().read_to_string(&mut s);
         let _ = channel.wait_close();
-        println!("{}", s);
+        s.clear();
 
         if self.whitelist.as_str() != "" || self.blacklist.as_str() != "" {
             channel = sess.channel_session()?;
-            s = String::new();
             channel.exec("sha256sum /home/ubuntu/enclave.eif")?;
-            let _ = channel.read_to_string(&mut s);
+            let _ = channel.stderr().read_to_string(&mut s);
             let _ = channel.wait_close();
-            println!("{}", s);
+            if !s.is_empty() {
+                println!("{s}");
+                return Err(anyhow!("Error calculating hash of enclave image"));
+            }
+            s.clear();
 
             if let Some(line) = s.split_whitespace().next() {
-                println!("Hash : {}", line);
+                println!("Hash : {line}");
                 if self.whitelist.as_str() != "" {
                     println!("Checking whitelist...");
                     let file_path = self.whitelist.as_str();
                     let contents = fs::read_to_string(file_path);
 
                     if let Err(err) = contents {
-                        println!("Error reading whitelist file : {}", err);
-                        return Err(anyhow!("Error reading whitelist file"));
+                        println!("Error reading whitelist file : {err}");
+                        return  Err(anyhow!("Error reading whitelist file"));
                     } else {
                         let contents = contents.unwrap();
                         let entries = contents.lines();
@@ -247,7 +252,7 @@ impl Aws {
                     let contents = fs::read_to_string(file_path);
 
                     if let Err(err) = contents {
-                        println!("Error reading blacklist file : {}", err);
+                        println!("Error reading blacklist file : {err}");
                         return Err(anyhow!("Error reading blacklist file"));
                     } else {
                         let contents = contents.unwrap();
@@ -271,40 +276,39 @@ impl Aws {
         }
 
         channel = sess.channel_session()?;
-        s = String::new();
         channel
             .exec(
                 "sudo iptables -A PREROUTING -t nat -p tcp --dport 80 -i ens5 -j REDIRECT --to-port 1200",
             )?;
 
-        let _ = channel.read_to_string(&mut s);
-        println!("{}", s);
+        let _ = channel.stderr().read_to_string(&mut s);
         let _ = channel.wait_close();
 
         channel = sess.channel_session()?;
-        s = String::new();
         channel
             .exec(
                 "sudo iptables -A PREROUTING -t nat -p tcp --dport 443 -i ens5 -j REDIRECT --to-port 1200",
             )?;
 
         let _ = channel.read_to_string(&mut s);
-        println!("{}", s);
         let _ = channel.wait_close();
 
         channel = sess.channel_session()?;
-        s = String::new();
         channel
             .exec(
                 "sudo iptables -A PREROUTING -t nat -p tcp --dport 1025:65535 -i ens5 -j REDIRECT --to-port 1200",
             )?;
 
         let _ = channel.read_to_string(&mut s);
-        println!("{}", s);
         let _ = channel.wait_close();
 
+        if !s.is_empty() {
+            println!("{s}");
+            return Err(anyhow!("Error setting up proxies"));
+        }
+        s.clear();
+
         channel = sess.channel_session()?;
-        s = String::new();
         channel.exec(
             &("nitro-cli run-enclave --cpu-count ".to_owned()
                 + &((v_cpus - 2).to_string())
@@ -313,9 +317,12 @@ impl Aws {
                 + " --eif-path enclave.eif --enclave-cid 88"),
         )?;
 
-        let _ = channel.read_to_string(&mut s);
-        println!("{}", s);
+        let _ = channel.stderr().read_to_string(&mut s);
         let _ = channel.wait_close();
+        if !s.is_empty() {
+            println!("{s}");
+            return Err(anyhow!("Error running enclave image"));
+        }
 
         println!("Enclave running");
         Ok(())
@@ -368,13 +375,13 @@ impl Aws {
                         let content_len = res.headers()["content-length"].to_str()?;
                         size = content_len.parse::<i64>()? / 1000000;
                     }
-                    Err(e) => return Err(anyhow!("failed to fetch eif file header, {}", e)),
+                    Err(e) => return Err(anyhow!("failed to fetch eif file header, {e}"))
                 }
             }
-            Err(e) => return Err(anyhow!("failed to fetch eif file header, {}", e)),
+            Err(e) => return Err(anyhow!("failed to fetch eif file header, {e}"))
         }
 
-        println!("eif size: {} MB", size);
+        println!("eif size: {size} MB");
         let size = size / 1000;
         let mut sdd = 15;
         if size > sdd {
@@ -692,6 +699,45 @@ impl Aws {
             },
         )
     }
+    
+    async fn get_instance_elastic_ip(
+        &self,
+        instance: &str,
+        region: String,
+    ) -> Result<(bool, String, String)> {
+        let filter_a = aws_sdk_ec2::model::Filter::builder()
+            .name("instance-id")
+            .values(instance)
+            .build();
+
+        Ok(
+            match self
+                .client(region)
+                .await
+                .describe_addresses()
+                .filters(filter_a)
+                .send()
+                .await?
+                // response parsing starts here
+                .addresses()
+                .ok_or(anyhow!("could not parse addresses"))?
+                .first()
+            {
+                None => (false, String::new(), String::new()),
+                Some(addrs) => (
+                    true,
+                    addrs
+                        .allocation_id()
+                        .ok_or(anyhow!("could not parse allocation id"))?
+                        .to_string(),
+                    addrs
+                        .association_id()
+                        .ok_or(anyhow!("could not parse public ip"))?
+                        .to_string(),
+                ),
+            },
+        )
+    }
 
     async fn associate_address(
         &self,
@@ -709,12 +755,42 @@ impl Aws {
         Ok(())
     }
 
+    async fn disassociate_address(
+        &self,
+        association_id: &str,
+        region: String,
+    ) -> Result<()> {
+        self.client(region)
+            .await
+            .disassociate_address()
+            .association_id(association_id)
+            .send()
+            .await?;
+        Ok(())
+    }
+
+    async fn release_address(
+        &self,
+        alloc_id: &str,
+        region: String,
+    ) -> Result<()> {
+        self.client(region)
+            .await
+            .release_address()
+            .allocation_id(alloc_id)
+            .send()
+            .await?;
+        Ok(())
+    }
+
     pub async fn spin_up_instance(
         &self,
         image_url: &str,
         job: String,
         instance_type: &str,
         region: String,
+        req_mem: i64,
+        req_vcpu: i32
     ) -> Result<String> {
         let ec2_type = aws_sdk_ec2::model::InstanceType::from_str(instance_type)?;
         let resp = self
@@ -745,20 +821,21 @@ impl Aws {
                 }
                 println!("architecture: {}", arch.as_str());
             }
-            v_cpus = instance
-                .v_cpu_info()
-                .ok_or(anyhow!("error fetching instance v_cpu info"))?
-                .default_v_cpus()
-                .ok_or(anyhow!("error fetching instance v_cpu info"))?;
-            println!("v_cpus: {}", v_cpus);
-            mem = instance
-                .memory_info()
-                .ok_or(anyhow!("error fetching instance memory info"))?
-                .size_in_mi_b()
-                .ok_or(anyhow!("error fetching instance v_cpu info"))?;
-            println!("memory: {}", mem);
+            v_cpus = instance.v_cpu_info()
+                                .ok_or(anyhow!("error fetching instance v_cpu info"))?
+                                .default_v_cpus()
+                                .ok_or(anyhow!("error fetching instance v_cpu info"))?;
+            println!("v_cpus: {v_cpus}");
+            mem = instance.memory_info()
+                                .ok_or(anyhow!("error fetching instance memory info"))?
+                                .size_in_mi_b()
+                                .ok_or(anyhow!("error fetching instance v_cpu info"))?;
+            println!("memory: {mem}");
         }
 
+        if req_mem >= mem || req_vcpu >= v_cpus {
+            return Err(anyhow!("Required memory or vcpus are more than available"));
+        }
         let instance_type = aws_sdk_ec2::model::InstanceType::from_str(instance_type)?;
         let instance = self
             .launch_instance(
@@ -773,22 +850,22 @@ impl Aws {
         let res = self.allocate_ip_addr(job, region.clone()).await;
         if let Err(err) = res {
             self.spin_down_instance(&instance, region.clone()).await?;
-            return Err(anyhow!("error launching instance, {}", err));
+            return Err(anyhow!("error launching instance, {err}"));
         }
         let (alloc_id, ip) = res.unwrap();
-        println!("Elastic Ip allocated: {}", ip);
+        println!("Elastic Ip allocated: {ip}");
 
         let res = self
             .associate_address(&instance, &alloc_id, region.clone())
             .await;
         if let Err(err) = res {
             self.spin_down_instance(&instance, region.clone()).await?;
-            return Err(anyhow!("error launching instance, {}", err));
+            return Err(anyhow!("error launching instance, {err}"));
         }
         let res = self.get_instance_ip(&instance, region.clone()).await;
         if let Err(err) = res {
             self.spin_down_instance(&instance, region.clone()).await?;
-            return Err(anyhow!("error launching instance, {}", err));
+            return Err(anyhow!("error launching instance, {err}"));
         }
         let mut public_ip_address = res.unwrap();
         if public_ip_address.is_empty() {
@@ -799,11 +876,12 @@ impl Aws {
         let sess = self.ssh_connect(&public_ip_address).await;
         match sess {
             Ok(r) => {
-                let res = self.run_enclave(&r, image_url, v_cpus, mem).await;
+                let res = self.run_enclave(&r, image_url, req_vcpu, req_mem).await;
                 match res {
                     Ok(_) => Ok(instance),
-                    Err(_) => {
+                    Err(e) => {
                         self.spin_down_instance(&instance, region.clone()).await?;
+                        println!("Error running enclave: {e}");
                         Err(anyhow!(
                             "error running enclave, terminating launched instance"
                         ))
@@ -818,6 +896,13 @@ impl Aws {
     }
 
     pub async fn spin_down_instance(&self, instance_id: &str, region: String) -> Result<()> {
+        let (exist, alloc_id, association_id) = self.get_instance_elastic_ip(instance_id, region.clone()).await?;
+        if exist {
+            self.disassociate_address(association_id.as_str(), region.clone()).await?;
+            self.release_address(alloc_id.as_str(), region.clone()).await?;
+            println!("Elastic IP released");
+        }
+        
         self.terminate_instance(instance_id, region).await?;
         Ok(())
     }
@@ -833,9 +918,11 @@ impl AwsManager for Aws {
         job: String,
         instance_type: &str,
         region: String,
+        req_mem: i64,
+        req_vcpu: i32
     ) -> Result<String, Box<dyn Error + Send + Sync>> {
         let instance = self
-            .spin_up_instance(eif_url, job, instance_type, region)
+            .spin_up_instance(eif_url, job, instance_type, region, req_mem, req_vcpu)
             .await?;
         Ok(instance)
     }

@@ -196,9 +196,7 @@ impl Aws {
         s.clear();
 
         println!(
-            "Nitro Enclave Service set up with cpus: {} and memory: {}",
-            v_cpus - 2,
-            mem - 2048
+            "Nitro Enclave Service set up with cpus: {v_cpus} and memory: {mem}"
         );
 
         channel = sess.channel_session()?;
@@ -311,9 +309,9 @@ impl Aws {
         channel = sess.channel_session()?;
         channel.exec(
             &("nitro-cli run-enclave --cpu-count ".to_owned()
-                + &((v_cpus - 2).to_string())
+                + &((v_cpus).to_string())
                 + " --memory "
-                + &((mem - 2200).to_string())
+                + &((mem).to_string())
                 + " --eif-path enclave.eif --enclave-cid 88"),
         )?;
 
@@ -321,7 +319,9 @@ impl Aws {
         let _ = channel.wait_close();
         if !s.is_empty() {
             println!("{s}");
-            return Err(anyhow!("Error running enclave image"));
+            if !s.contains("Started enclave with enclave-cid") {
+                return Err(anyhow!("Error running enclave image"));
+            }
         }
 
         println!("Enclave running");

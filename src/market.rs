@@ -126,22 +126,41 @@ impl JobsService {
                 continue;
             }
 
-            let mut job_stream = Box::into_pin(res.unwrap());
-            while let Some((job, removed)) = job_stream.next().await {
-                println!("main: New job: {job}, {removed}");
-                tokio::spawn(Self::job_manager(
-                    aws_manager_impl.clone(),
-                    logger_impl.clone(),
-                    url.clone(),
-                    job,
-                    regions.clone(),
-                    3,
-                    rates_path.clone(),
-                ));
-            }
-
-            println!("main: Job stream ended");
+            let job_stream = Box::into_pin(res.unwrap());
+            JobsService::run_once(
+                job_stream,
+                aws_manager_impl.clone(),
+                logger_impl.clone(),
+                url.clone(),
+                regions.clone(),
+                rates_path.clone(),
+            )
+            .await;
         }
+    }
+
+    async fn run_once(
+        mut job_stream: impl Stream<Item = (H256, bool)> + Unpin,
+        aws_manager_impl: impl AwsManager + Send + Sync + Clone + 'static,
+        logger_impl: impl Logger + Send + Sync + Clone + 'static,
+        url: String,
+        regions: Vec<String>,
+        rates_path: String,
+    ) {
+        while let Some((job, removed)) = job_stream.next().await {
+            println!("main: New job: {job}, {removed}");
+            tokio::spawn(Self::job_manager(
+                aws_manager_impl.clone(),
+                logger_impl.clone(),
+                url.clone(),
+                job,
+                regions.clone(),
+                3,
+                rates_path.clone(),
+            ));
+        }
+
+        println!("main: Job stream ended");
     }
 
     async fn new_jobs(

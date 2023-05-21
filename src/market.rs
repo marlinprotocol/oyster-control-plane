@@ -149,13 +149,11 @@ impl JobsService {
     ) -> Result<Box<dyn Stream<Item = (H256, bool)> + '_>, Box<dyn Error + Send + Sync + '_>> {
         // TODO: Filter by contract and provider address
         let event_filter = Filter::new()
-            .address(ValueOrArray::Value(
-                "0x9d95D61eA056721E358BC49fE995caBF3B86A34B".parse::<Address>()?,
-            ))
+            .address("0x9d95D61eA056721E358BC49fE995caBF3B86A34B".parse::<Address>()?)
             .select(0..)
-            .topic0(ValueOrArray::Array(vec![H256::from(keccak256(
+            .topic0(vec![keccak256(
                 "JobOpened(bytes32,string,address,address,uint256,uint256,uint256)",
-            ))]));
+            )]);
 
         // register subscription
         let stream = client.subscribe_logs(&event_filter).await?;
@@ -207,26 +205,25 @@ impl JobsService {
 
             // events
             #[allow(non_snake_case)]
-            let JOB_OPENED = H256::from(keccak256(
-                "JobOpened(bytes32,string,address,address,uint256,uint256,uint256)",
-            ));
+            let JOB_OPENED =
+                keccak256("JobOpened(bytes32,string,address,address,uint256,uint256,uint256)")
+                    .into();
             #[allow(non_snake_case)]
-            let JOB_SETTLED = H256::from(keccak256("JobSettled(bytes32,uint256,uint256)"));
+            let JOB_SETTLED = keccak256("JobSettled(bytes32,uint256,uint256)").into();
             #[allow(non_snake_case)]
-            let JOB_CLOSED = H256::from(keccak256("JobClosed(bytes32)"));
+            let JOB_CLOSED = keccak256("JobClosed(bytes32)").into();
             #[allow(non_snake_case)]
-            let JOB_DEPOSITED = H256::from(keccak256("JobDeposited(bytes32,address,uint256)"));
+            let JOB_DEPOSITED = keccak256("JobDeposited(bytes32,address,uint256)").into();
             #[allow(non_snake_case)]
-            let JOB_WITHDREW = H256::from(keccak256("JobWithdrew(bytes32,address,uint256)"));
+            let JOB_WITHDREW = keccak256("JobWithdrew(bytes32,address,uint256)").into();
             #[allow(non_snake_case)]
             let JOB_REVISE_RATE_INITIATED =
-                H256::from(keccak256("JobReviseRateInitiated(bytes32,uint256)"));
+                keccak256("JobReviseRateInitiated(bytes32,uint256)").into();
             #[allow(non_snake_case)]
-            let JOB_REVISE_RATE_CANCELLED =
-                H256::from(keccak256("JobReviseRateCancelled(bytes32)"));
+            let JOB_REVISE_RATE_CANCELLED = keccak256("JobReviseRateCancelled(bytes32)").into();
             #[allow(non_snake_case)]
             let JOB_REVISE_RATE_FINALIZED =
-                H256::from(keccak256("JobReviseRateFinalized(bytes32, uint256)"));
+                keccak256("JobReviseRateFinalized(bytes32, uint256)").into();
 
             // solvency metrics
             // default of 60s
@@ -572,22 +569,18 @@ impl JobsService {
         // TODO: Filter by contract and job
         let event_filter = Filter::new()
             .select(0..)
-            .address(ValueOrArray::Value(
-                "0x9d95D61eA056721E358BC49fE995caBF3B86A34B".parse::<Address>()?,
-            ))
-            .topic0(ValueOrArray::Array(vec![
-                H256::from(keccak256(
-                    "JobOpened(bytes32,string,address,address,uint256,uint256,uint256)",
-                )),
-                H256::from(keccak256("JobSettled(bytes32,uint256,uint256)")),
-                H256::from(keccak256("JobClosed(bytes32)")),
-                H256::from(keccak256("JobDeposited(bytes32,address,uint256)")),
-                H256::from(keccak256("JobWithdrew(bytes32,address,uint256)")),
-                H256::from(keccak256("JobReviseRateInitiated(bytes32,uint256)")),
-                H256::from(keccak256("JobReviseRateCancelled(bytes32)")),
-                H256::from(keccak256("JobReviseRateFinalized(bytes32,uint256)")),
-            ]))
-            .topic1(ValueOrArray::Value(job));
+            .address("0x9d95D61eA056721E358BC49fE995caBF3B86A34B".parse::<Address>()?)
+            .topic0(vec![
+                keccak256("JobOpened(bytes32,string,address,address,uint256,uint256,uint256)"),
+                keccak256("JobSettled(bytes32,uint256,uint256)"),
+                keccak256("JobClosed(bytes32)"),
+                keccak256("JobDeposited(bytes32,address,uint256)"),
+                keccak256("JobWithdrew(bytes32,address,uint256)"),
+                keccak256("JobReviseRateInitiated(bytes32,uint256)"),
+                keccak256("JobReviseRateCancelled(bytes32)"),
+                keccak256("JobReviseRateFinalized(bytes32,uint256)"),
+            ])
+            .topic1(job);
 
         // register subscription
         let stream = client.subscribe_logs(&event_filter).await?;
@@ -729,7 +722,7 @@ mod tests {
             },
             market::TestLogger {},
             "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-            H256::from_uint(&U256::from_dec_str("1").unwrap_or(U256::one())),
+            H256::from_low_u64_be(1),
             vec!["ap-south-1".into()],
             1,
             "/home/".to_owned() + &username() + "/.marlin/rates.json",
@@ -748,7 +741,7 @@ mod tests {
             },
             market::TestLogger {},
             "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-            H256::from_uint(&U256::from_dec_str("2").unwrap_or(U256::one())),
+            H256::from_low_u64_be(2),
             vec!["ap-south-1".into()],
             1,
             "/home/".to_owned() + &username() + "/.marlin/rates.json",
@@ -767,7 +760,7 @@ mod tests {
             },
             market::TestLogger {},
             "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-            H256::from_uint(&U256::from_dec_str("3").unwrap_or(U256::one())),
+            H256::from_low_u64_be(3),
             vec!["ap-south-1".into()],
             1,
             "/home/".to_owned() + &username() + "/.marlin/rates.json",
@@ -786,7 +779,7 @@ mod tests {
             },
             market::TestLogger {},
             "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-            H256::from_uint(&U256::from_dec_str("4").unwrap_or(U256::one())),
+            H256::from_low_u64_be(4),
             vec!["ap-south-1".into()],
             1,
             "/home/".to_owned() + &username() + "/.marlin/rates.json",
@@ -805,7 +798,7 @@ mod tests {
             },
             market::TestLogger {},
             "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-            H256::from_uint(&U256::from_dec_str("5").unwrap_or(U256::one())),
+            H256::from_low_u64_be(5),
             vec!["ap-south-1".into()],
             1,
             "/home/".to_owned() + &username() + "/.marlin/rates.json",
@@ -824,7 +817,7 @@ mod tests {
             },
             market::TestLogger {},
             "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-            H256::from_uint(&U256::from_dec_str("6").unwrap_or(U256::one())),
+            H256::from_low_u64_be(6),
             vec!["ap-south-1".into()],
             1,
             "/home/".to_owned() + &username() + "/.marlin/rates.json",
@@ -843,7 +836,7 @@ mod tests {
             },
             market::TestLogger {},
             "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-            H256::from_uint(&U256::from_dec_str("7").unwrap_or(U256::one())),
+            H256::from_low_u64_be(7),
             vec!["ap-south-1".into()],
             1,
             "/home/".to_owned() + &username() + "/.marlin/rates.json",
@@ -862,7 +855,7 @@ mod tests {
             },
             market::TestLogger {},
             "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-            H256::from_uint(&U256::from_dec_str("8").unwrap_or(U256::one())),
+            H256::from_low_u64_be(8),
             vec!["ap-south-1".into()],
             1,
             "/home/".to_owned() + &username() + "/.marlin/rates.json",
@@ -881,7 +874,7 @@ mod tests {
             },
             market::TestLogger {},
             "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-            H256::from_uint(&U256::from_dec_str("9").unwrap_or(U256::one())),
+            H256::from_low_u64_be(9),
             vec!["ap-south-1".into()],
             1,
             "/home/".to_owned() + &username() + "/.marlin/rates.json",
@@ -900,7 +893,7 @@ mod tests {
             },
             market::TestLogger {},
             "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-            H256::from_uint(&U256::from_dec_str("10").unwrap_or(U256::one())),
+            H256::from_low_u64_be(10),
             vec!["ap-south-1".into()],
             1,
             "/home/".to_owned() + &username() + "/.marlin/rates.json",
@@ -919,7 +912,7 @@ mod tests {
             },
             market::TestLogger {},
             "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-            H256::from_uint(&U256::from_dec_str("11").unwrap_or(U256::one())),
+            H256::from_low_u64_be(11),
             vec!["ap-south-1".into()],
             1,
             "/home/".to_owned() + &username() + "/.marlin/rates.json",
@@ -938,7 +931,7 @@ mod tests {
             },
             market::TestLogger {},
             "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-            H256::from_uint(&U256::from_dec_str("12").unwrap_or(U256::one())),
+            H256::from_low_u64_be(12),
             vec!["ap-south-1".into()],
             1,
             "/home/".to_owned() + &username() + "/.marlin/rates.json",
@@ -957,7 +950,7 @@ mod tests {
             },
             market::TestLogger {},
             "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-            H256::from_uint(&U256::from_dec_str("13").unwrap_or(U256::one())),
+            H256::from_low_u64_be(13),
             vec!["ap-south-1".into()],
             1,
             "/home/".to_owned() + &username() + "/.marlin/rates.json",
@@ -976,7 +969,7 @@ mod tests {
             },
             market::TestLogger {},
             "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-            H256::from_uint(&U256::from_dec_str("14").unwrap_or(U256::one())),
+            H256::from_low_u64_be(14),
             vec!["ap-south-1".into()],
             1,
             "/home/".to_owned() + &username() + "/.marlin/rates.json",
@@ -995,7 +988,7 @@ mod tests {
             },
             market::TestLogger {},
             "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-            H256::from_uint(&U256::from_dec_str("15").unwrap_or(U256::one())),
+            H256::from_low_u64_be(15),
             vec!["ap-south-1".into()],
             1,
             "/home/".to_owned() + &username() + "/.marlin/rates.json",

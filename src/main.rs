@@ -46,7 +46,13 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
     let regions: Vec<String> = cli.regions.split(',').map(|r| (r.into())).collect();
     println!("Supported regions: {regions:?}");
 
-    let aws = aws::Aws::new(cli.profile, cli.key_name, cli.whitelist.unwrap_or("".to_owned()), cli.blacklist.unwrap_or("".to_owned())).await;
+    let aws = aws::Aws::new(
+        cli.profile,
+        cli.key_name,
+        cli.whitelist.unwrap_or("".to_owned()),
+        cli.blacklist.unwrap_or("".to_owned()),
+    )
+    .await;
 
     aws.generate_key_pair().await?;
 

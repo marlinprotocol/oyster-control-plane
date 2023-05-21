@@ -195,9 +195,7 @@ impl Aws {
         }
         s.clear();
 
-        println!(
-            "Nitro Enclave Service set up with cpus: {v_cpus} and memory: {mem}"
-        );
+        println!("Nitro Enclave Service set up with cpus: {v_cpus} and memory: {mem}");
 
         channel = sess.channel_session()?;
         channel.exec(&("wget -O enclave.eif ".to_owned() + url))?;
@@ -225,7 +223,7 @@ impl Aws {
 
                     if let Err(err) = contents {
                         println!("Error reading whitelist file : {err}");
-                        return  Err(anyhow!("Error reading whitelist file"));
+                        return Err(anyhow!("Error reading whitelist file"));
                     } else {
                         let contents = contents.unwrap();
                         let entries = contents.lines();
@@ -375,10 +373,10 @@ impl Aws {
                         let content_len = res.headers()["content-length"].to_str()?;
                         size = content_len.parse::<i64>()? / 1000000;
                     }
-                    Err(e) => return Err(anyhow!("failed to fetch eif file header, {e}"))
+                    Err(e) => return Err(anyhow!("failed to fetch eif file header, {e}")),
                 }
             }
-            Err(e) => return Err(anyhow!("failed to fetch eif file header, {e}"))
+            Err(e) => return Err(anyhow!("failed to fetch eif file header, {e}")),
         }
 
         println!("eif size: {size} MB");
@@ -699,7 +697,7 @@ impl Aws {
             },
         )
     }
-    
+
     async fn get_instance_elastic_ip(
         &self,
         instance: &str,
@@ -755,11 +753,7 @@ impl Aws {
         Ok(())
     }
 
-    async fn disassociate_address(
-        &self,
-        association_id: &str,
-        region: String,
-    ) -> Result<()> {
+    async fn disassociate_address(&self, association_id: &str, region: String) -> Result<()> {
         self.client(region)
             .await
             .disassociate_address()
@@ -769,11 +763,7 @@ impl Aws {
         Ok(())
     }
 
-    async fn release_address(
-        &self,
-        alloc_id: &str,
-        region: String,
-    ) -> Result<()> {
+    async fn release_address(&self, alloc_id: &str, region: String) -> Result<()> {
         self.client(region)
             .await
             .release_address()
@@ -790,7 +780,7 @@ impl Aws {
         instance_type: &str,
         region: String,
         req_mem: i64,
-        req_vcpu: i32
+        req_vcpu: i32,
     ) -> Result<String> {
         let ec2_type = aws_sdk_ec2::model::InstanceType::from_str(instance_type)?;
         let resp = self
@@ -821,15 +811,17 @@ impl Aws {
                 }
                 println!("architecture: {}", arch.as_str());
             }
-            v_cpus = instance.v_cpu_info()
-                                .ok_or(anyhow!("error fetching instance v_cpu info"))?
-                                .default_v_cpus()
-                                .ok_or(anyhow!("error fetching instance v_cpu info"))?;
+            v_cpus = instance
+                .v_cpu_info()
+                .ok_or(anyhow!("error fetching instance v_cpu info"))?
+                .default_v_cpus()
+                .ok_or(anyhow!("error fetching instance v_cpu info"))?;
             println!("v_cpus: {v_cpus}");
-            mem = instance.memory_info()
-                                .ok_or(anyhow!("error fetching instance memory info"))?
-                                .size_in_mi_b()
-                                .ok_or(anyhow!("error fetching instance v_cpu info"))?;
+            mem = instance
+                .memory_info()
+                .ok_or(anyhow!("error fetching instance memory info"))?
+                .size_in_mi_b()
+                .ok_or(anyhow!("error fetching instance v_cpu info"))?;
             println!("memory: {mem}");
         }
 
@@ -896,13 +888,17 @@ impl Aws {
     }
 
     pub async fn spin_down_instance(&self, instance_id: &str, region: String) -> Result<()> {
-        let (exist, alloc_id, association_id) = self.get_instance_elastic_ip(instance_id, region.clone()).await?;
+        let (exist, alloc_id, association_id) = self
+            .get_instance_elastic_ip(instance_id, region.clone())
+            .await?;
         if exist {
-            self.disassociate_address(association_id.as_str(), region.clone()).await?;
-            self.release_address(alloc_id.as_str(), region.clone()).await?;
+            self.disassociate_address(association_id.as_str(), region.clone())
+                .await?;
+            self.release_address(alloc_id.as_str(), region.clone())
+                .await?;
             println!("Elastic IP released");
         }
-        
+
         self.terminate_instance(instance_id, region).await?;
         Ok(())
     }
@@ -919,7 +915,7 @@ impl AwsManager for Aws {
         instance_type: &str,
         region: String,
         req_mem: i64,
-        req_vcpu: i32
+        req_vcpu: i32,
     ) -> Result<String, Box<dyn Error + Send + Sync>> {
         let instance = self
             .spin_up_instance(eif_url, job, instance_type, region, req_mem, req_vcpu)

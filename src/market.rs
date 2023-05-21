@@ -58,13 +58,13 @@ pub trait Logger {
     async fn new_jobs<'a>(
         &'a self,
         client: &'a Provider<Ws>,
-    ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>, Box<dyn Error + Send + Sync + 'a>>;
+    ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>, Box<dyn Error + Send + Sync>>;
 
     async fn job_logs<'a>(
         &'a self,
         client: &'a Provider<Ws>,
         job: H256,
-    ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>, Box<dyn Error + Send + Sync + 'a>>;
+    ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>, Box<dyn Error + Send + Sync>>;
 }
 
 #[derive(Clone)]
@@ -75,7 +75,7 @@ impl Logger for RealLogger {
     async fn new_jobs<'a>(
         &'a self,
         client: &'a Provider<Ws>,
-    ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>, Box<dyn Error + Send + Sync + 'a>> {
+    ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>, Box<dyn Error + Send + Sync>> {
         JobsService::new_jobs(client).await
     }
 
@@ -83,7 +83,7 @@ impl Logger for RealLogger {
         &'a self,
         client: &'a Provider<Ws>,
         job: H256,
-    ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>, Box<dyn Error + Send + Sync + 'a>> {
+    ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>, Box<dyn Error + Send + Sync>> {
         JobsService::job_logs(client, job).await
     }
 }
@@ -146,7 +146,7 @@ impl JobsService {
 
     async fn new_jobs(
         client: &Provider<Ws>,
-    ) -> Result<Box<dyn Stream<Item = (H256, bool)> + '_>, Box<dyn Error + Send + Sync + '_>> {
+    ) -> Result<Box<dyn Stream<Item = (H256, bool)> + '_>, Box<dyn Error + Send + Sync>> {
         // TODO: Filter by contract and provider address
         let event_filter = Filter::new()
             .address("0x9d95D61eA056721E358BC49fE995caBF3B86A34B".parse::<Address>()?)
@@ -565,7 +565,7 @@ impl JobsService {
     async fn job_logs(
         client: &Provider<Ws>,
         job: H256,
-    ) -> Result<Box<dyn Stream<Item = Log> + Send + '_>, Box<dyn Error + Send + Sync + '_>> {
+    ) -> Result<Box<dyn Stream<Item = Log> + Send + '_>, Box<dyn Error + Send + Sync>> {
         // TODO: Filter by contract and job
         let event_filter = Filter::new()
             .select(0..)
@@ -597,7 +597,7 @@ impl Logger for TestLogger {
     async fn new_jobs<'a>(
         &'a self,
         _client: &'a Provider<Ws>,
-    ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>, Box<dyn Error + Send + Sync + 'a>> {
+    ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>, Box<dyn Error + Send + Sync>> {
         let logs: Vec<Log> = test::test_logs();
         Ok(Box::new(
             tokio_stream::iter(
@@ -613,7 +613,7 @@ impl Logger for TestLogger {
         &'a self,
         _client: &'a Provider<Ws>,
         job: H256,
-    ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>, Box<dyn Error + Send + Sync + 'a>> {
+    ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>, Box<dyn Error + Send + Sync>> {
         let logs: Vec<Log> = test::test_logs()
             .into_iter()
             .filter(|log| log.topics[1] == job)

@@ -267,7 +267,7 @@ async fn job_manager_once(
 
     // solvency metrics
     // default of 60s
-    let mut balance = U256::from(60);
+    let mut balance = U256::from(360);
     let mut last_settled = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap();
@@ -296,11 +296,11 @@ async fn job_manager_once(
             }
         }
 
-        // NOTE: should add margin for node to spin down?
         let insolvency_duration = if rate == U256::zero() {
             Duration::from_secs(0)
         } else {
-            Duration::from_secs(sat_convert(balance / rate))
+            // solvent for balance / rate seconds from last_settled with 300s as margin
+            Duration::from_secs(sat_convert(balance / rate).saturating_sub(300))
                 .saturating_sub(now_ts.saturating_sub(last_settled))
         };
         println!(

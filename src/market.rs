@@ -300,11 +300,7 @@ async fn job_manager_once(
             insolvency_duration.as_secs()
         );
 
-        let aws_delay_timeout = if aws_launch_scheduled {
-            aws_launch_time.saturating_duration_since(Instant::now())
-        } else {
-            insolvency_duration + Duration::from_secs(100)
-        };
+        let aws_delay_timeout = aws_launch_time.saturating_duration_since(Instant::now());
 
         tokio::select! {
             // running instance heartbeat check
@@ -350,7 +346,8 @@ async fn job_manager_once(
                 break 'event -1;
             }
             // aws delayed spin up check
-            () = sleep(aws_delay_timeout) => {
+            // should only happen if scheduled
+            () = sleep(aws_delay_timeout), if aws_launch_scheduled => {
                 let (exist, instance) = infra_provider.get_job_instance(&job.to_string(), region.clone()).await.unwrap_or((false, "".to_string()));
                 if exist {
                     instance_id = instance;

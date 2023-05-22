@@ -284,17 +284,8 @@ async fn job_manager_once(
     let mut req_mem: i64 = 4096;
     let res = 'event: loop {
         // compute time to insolvency
-        let now_ts = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap();
-        fn sat_convert(n: U256) -> u64 {
-            let lowu64 = n.low_u64();
-            if n == lowu64.into() {
-                lowu64
-            } else {
-                u64::MAX
-            }
-        }
+        let now_ts = SystemTime::UNIX_EPOCH.elapsed().unwrap();
+        let sat_convert = |n: U256| n.clamp(U256::zero(), u64::MAX.into()).low_u64();
 
         let insolvency_duration = if rate == U256::zero() {
             Duration::from_secs(0)

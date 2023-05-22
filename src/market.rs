@@ -21,7 +21,7 @@ use crate::test;
 // Each job has its own future managing its lifetime
 
 #[async_trait]
-pub trait AwsManager {
+pub trait InfraProvider {
     async fn spin_up(
         &mut self,
         eif_url: &str,
@@ -52,7 +52,7 @@ pub trait AwsManager {
 }
 
 #[async_trait]
-pub trait Logger {
+pub trait LogsProvider {
     async fn new_jobs<'a>(
         &'a self,
         client: &'a Provider<Ws>,
@@ -66,10 +66,10 @@ pub trait Logger {
 }
 
 #[derive(Clone)]
-pub struct RealLogger {}
+pub struct EthersProvider {}
 
 #[async_trait]
-impl Logger for RealLogger {
+impl LogsProvider for EthersProvider {
     async fn new_jobs<'a>(
         &'a self,
         client: &'a Provider<Ws>,
@@ -87,8 +87,8 @@ impl Logger for RealLogger {
 }
 
 pub async fn run(
-    aws_manager_impl: impl AwsManager + Send + Sync + Clone + 'static,
-    logger_impl: impl Logger + Send + Sync + Clone + 'static,
+    infra_provider: impl InfraProvider + Send + Sync + Clone + 'static,
+    logs_provider: impl LogsProvider + Send + Sync + Clone + 'static,
     url: String,
     regions: Vec<String>,
     rates_path: String,
@@ -116,7 +116,7 @@ pub async fn run(
         println!("main: Connected to RPC endpoint");
 
         let client = res.unwrap();
-        let res = logger_impl.new_jobs(&client).await;
+        let res = logs_provider.new_jobs(&client).await;
         if let Err(err) = res {
             println!("main: Subscribe error: {err}");
             sleep(Duration::from_secs(1)).await;
@@ -126,8 +126,8 @@ pub async fn run(
         let job_stream = Box::into_pin(res.unwrap());
         run_once(
             job_stream,
-            aws_manager_impl.clone(),
-            logger_impl.clone(),
+            infra_provider.clone(),
+            logs_provider.clone(),
             url.clone(),
             regions.clone(),
             rates_path.clone(),
@@ -138,8 +138,8 @@ pub async fn run(
 
 async fn run_once(
     mut job_stream: impl Stream<Item = (H256, bool)> + Unpin,
-    aws_manager_impl: impl AwsManager + Send + Sync + Clone + 'static,
-    logger_impl: impl Logger + Send + Sync + Clone + 'static,
+    infra_provider: impl InfraProvider + Send + Sync + Clone + 'static,
+    logs_provider: impl LogsProvider + Send + Sync + Clone + 'static,
     url: String,
     regions: Vec<String>,
     rates_path: String,
@@ -147,8 +147,8 @@ async fn run_once(
     while let Some((job, removed)) = job_stream.next().await {
         println!("main: New job: {job}, {removed}");
         tokio::spawn(job_manager(
-            aws_manager_impl.clone(),
-            logger_impl.clone(),
+            infra_provider.clone(),
+            logs_provider.clone(),
             url.clone(),
             job,
             regions.clone(),
@@ -181,8 +181,8 @@ async fn new_jobs(
 
 // manage the complete lifecycle of a job
 async fn job_manager(
-    aws_manager_impl: impl AwsManager + Send + Sync + Clone,
-    logger_impl: impl Logger + Send + Sync + Send + Clone,
+    infra_provider: impl InfraProvider + Send + Sync + Clone,
+    logs_provider: impl LogsProvider + Send + Sync + Send + Clone,
     url: String,
     job: H256,
     allowed_regions: Vec<String>,
@@ -212,7 +212,7 @@ async fn job_manager(
         println!("job {job}: Connected to RPC endpoint");
 
         let client = res.unwrap();
-        let res = logger_impl.job_logs(&client, job).await;
+        let res = logs_provider.job_logs(&client, job).await;
         if let Err(err) = res {
             println!("job {job}: Subscribe error: {err}");
             sleep(Duration::from_secs(1)).await;
@@ -222,7 +222,7 @@ async fn job_manager(
         let job_stream = Box::into_pin(res.unwrap());
         let res = job_manager_once(
             job_stream,
-            aws_manager_impl.clone(),
+            infra_provider.clone(),
             job,
             allowed_regions.clone(),
             aws_delay_duration,
@@ -240,7 +240,7 @@ async fn job_manager(
 // manage the complete lifecycle of a job
 async fn job_manager_once(
     mut job_stream: impl Stream<Item = Log> + Unpin,
-    mut aws_manager_impl: impl AwsManager + Send + Sync + Clone,
+    mut infra_provider: impl InfraProvider + Send + Sync + Clone,
     job: H256,
     allowed_regions: Vec<String>,
     aws_delay_duration: u64,
@@ -310,11 +310,11 @@ async fn job_manager_once(
             // running instance heartbeat check
             () = sleep(Duration::from_secs(5)) => {
                 if instance_id.as_str() != "" {
-                    let running = aws_manager_impl.check_instance_running(&instance_id, region.clone()).await;
+                    let running = infra_provider.check_instance_running(&instance_id, region.clone()).await;
                     if let Err(err) = running {
                         println!("job {job}: failed to retrieve instance state, {err}");
                         if rate >= min_rate {
-                            let res = aws_manager_impl.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str(), region.clone(), req_mem, req_vcpus).await;
+                            let res = infra_provider.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str(), region.clone(), req_mem, req_vcpus).await;
                             if let Err(err) = res {
                                 println!("job {job}: Instance launch failed, {err}");
                                 break 'event 0;
@@ -324,7 +324,7 @@ async fn job_manager_once(
                     } else {
                         let running = running.unwrap();
                         if !running && rate >= min_rate {
-                            let res = aws_manager_impl.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str(), region.clone(), req_mem, req_vcpus).await;
+                            let res = infra_provider.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str(), region.clone(), req_mem, req_vcpus).await;
                             if let Err(err) = res {
                                 println!("job {job}: Instance launch failed, {err}");
                                 break 'event 0;
@@ -338,7 +338,7 @@ async fn job_manager_once(
             () = sleep(insolvency_duration) => {
                 // spin down instance
                 if instance_id.as_str() != "" {
-                    let res = aws_manager_impl.spin_down(&instance_id, region.clone()).await;
+                    let res = infra_provider.spin_down(&instance_id, region.clone()).await;
                     if let Err(err) = res {
                         println!("job {job}: ERROR failed to terminate instance, {err}");
                         break 'event 0;
@@ -351,13 +351,13 @@ async fn job_manager_once(
             }
             // aws delayed spin up check
             () = sleep(aws_delay_timeout) => {
-                let (exist, instance) = aws_manager_impl.get_job_instance(&job.to_string(), region.clone()).await.unwrap_or((false, "".to_string()));
+                let (exist, instance) = infra_provider.get_job_instance(&job.to_string(), region.clone()).await.unwrap_or((false, "".to_string()));
                 if exist {
                     instance_id = instance;
                     println!("job {job}: Found, instance id: {instance_id}");
                     if rate < min_rate {
                         println!("job {job}: Rate below minimum, shutting down instance");
-                        let res = aws_manager_impl.spin_down(&instance_id, region.clone()).await;
+                        let res = infra_provider.spin_down(&instance_id, region.clone()).await;
                         if let Err(err) = res {
                             println!("job {job}: ERROR failed to terminate instance, {err}");
                             break 'event 0;
@@ -365,7 +365,7 @@ async fn job_manager_once(
                         instance_id = String::new();
                     }
                 } else if rate >= min_rate {
-                    let res = aws_manager_impl.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str(), region.clone(), req_mem, req_vcpus).await;
+                    let res = infra_provider.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str(), region.clone(), req_mem, req_vcpus).await;
                     if let Err(err) = res {
                         println!("job {job}: Instance launch failed, {err}");
                         break 'event 0;
@@ -505,7 +505,7 @@ async fn job_manager_once(
                     }
                 } else if log.topics[0] == JOB_CLOSED {
                     if !aws_launch_scheduled && instance_id.as_str() != "" {
-                        let res = aws_manager_impl.spin_down(&instance_id, region.clone()).await;
+                        let res = infra_provider.spin_down(&instance_id, region.clone()).await;
                         if let Err(err) = res {
                             println!("job {job}: ERROR failed to terminate instance, {err}");
                             break 'event 0;
@@ -544,7 +544,7 @@ async fn job_manager_once(
                                 aws_launch_scheduled = false;
                                 println!("job {job}: Canelled scheduled instance");
                             } else if instance_id.as_str() != ""{
-                                let res = aws_manager_impl.spin_down(&instance_id, region.clone()).await;
+                                let res = infra_provider.spin_down(&instance_id, region.clone()).await;
                                 if let Err(err) = res {
                                     println!("job {job}: ERROR failed to terminate instance, {err}");
                                     break 'event 0;
@@ -623,7 +623,7 @@ async fn job_logs(
 pub struct TestLogger {}
 
 #[async_trait]
-impl Logger for TestLogger {
+impl LogsProvider for TestLogger {
     async fn new_jobs<'a>(
         &'a self,
         _client: &'a Provider<Ws>,
@@ -666,7 +666,7 @@ use std::fs::OpenOptions;
 use std::io::Write;
 
 #[async_trait]
-impl AwsManager for TestAws {
+impl InfraProvider for TestAws {
     async fn spin_up(
         &mut self,
         eif_url: &str,

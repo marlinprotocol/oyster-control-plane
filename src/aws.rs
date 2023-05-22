@@ -12,7 +12,7 @@ use std::str::FromStr;
 use tokio::time::{sleep, Duration};
 use whoami::username;
 
-use crate::market::AwsManager;
+use crate::market::InfraProvider;
 
 #[derive(Clone)]
 pub struct Aws {
@@ -907,7 +907,7 @@ impl Aws {
 use std::error::Error;
 
 #[async_trait]
-impl AwsManager for Aws {
+impl InfraProvider for Aws {
     async fn spin_up(
         &mut self,
         eif_url: &str,

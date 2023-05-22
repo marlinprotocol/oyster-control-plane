@@ -66,7 +66,7 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
         cli.rates.clone(),
     ));
 
-    market::run(aws, market::RealLogger {}, cli.rpc, regions, cli.rates).await;
+    market::run(aws, market::EthersProvider {}, cli.rpc, regions, cli.rates).await;
 
     Ok(())
 }

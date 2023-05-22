@@ -304,29 +304,28 @@ async fn job_manager_once(
 
         tokio::select! {
             // running instance heartbeat check
-            () = sleep(Duration::from_secs(5)) => {
-                if instance_id.as_str() != "" {
-                    let running = infra_provider.check_instance_running(&instance_id, region.clone()).await;
-                    if let Err(err) = running {
-                        println!("job {job}: failed to retrieve instance state, {err}");
-                        if rate >= min_rate {
-                            let res = infra_provider.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str(), region.clone(), req_mem, req_vcpus).await;
-                            if let Err(err) = res {
-                                println!("job {job}: Instance launch failed, {err}");
-                                break 'event 0;
-                            }
-                            instance_id = res.unwrap();
+            // should only happen if instance id is available
+            () = sleep(Duration::from_secs(5)), if instance_id != "" => {
+                let running = infra_provider.check_instance_running(&instance_id, region.clone()).await;
+                if let Err(err) = running {
+                    println!("job {job}: failed to retrieve instance state, {err}");
+                    if rate >= min_rate {
+                        let res = infra_provider.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str(), region.clone(), req_mem, req_vcpus).await;
+                        if let Err(err) = res {
+                            println!("job {job}: Instance launch failed, {err}");
+                            break 'event 0;
                         }
-                    } else {
-                        let running = running.unwrap();
-                        if !running && rate >= min_rate {
-                            let res = infra_provider.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str(), region.clone(), req_mem, req_vcpus).await;
-                            if let Err(err) = res {
-                                println!("job {job}: Instance launch failed, {err}");
-                                break 'event 0;
-                            }
-                            instance_id = res.unwrap();
+                        instance_id = res.unwrap();
+                    }
+                } else {
+                    let running = running.unwrap();
+                    if !running && rate >= min_rate {
+                        let res = infra_provider.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str(), region.clone(), req_mem, req_vcpus).await;
+                        if let Err(err) = res {
+                            println!("job {job}: Instance launch failed, {err}");
+                            break 'event 0;
                         }
+                        instance_id = res.unwrap();
                     }
                 }
             }

@@ -280,6 +280,46 @@ async fn job_manager(
     }
 }
 
+struct JobState {
+    balance: U256,
+    last_settled: Duration,
+    rate: U256,
+    original_rate: U256,
+    instance_id: String,
+    min_rate: U256,
+    eif_url: String,
+    instance_type: String,
+    region: String,
+    aws_launch_time: Instant,
+    aws_launch_scheduled: bool,
+    req_vcpus: i32,
+    req_mem: i64,
+}
+
+impl JobState {
+    fn new() -> JobState {
+        // solvency metrics
+        // default of 60s
+        JobState {
+            balance: U256::from(360),
+            last_settled: SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap(),
+            rate: U256::one(),
+            original_rate: U256::one(),
+            instance_id: String::new(),
+            min_rate: U256::one(),
+            eif_url: String::new(),
+            instance_type: "c6a.xlarge".to_string(),
+            region: "ap-south-1".to_string(),
+            aws_launch_time: Instant::now(),
+            aws_launch_scheduled: false,
+            req_vcpus: 2,
+            req_mem: 4096,
+        }
+    }
+}
+
 // manage the complete lifecycle of a job
 async fn job_manager_once(
     mut job_stream: impl Stream<Item = Log> + Unpin,
@@ -325,6 +365,9 @@ async fn job_manager_once(
     let mut aws_launch_scheduled = false;
     let mut req_vcpus: i32 = 2;
     let mut req_mem: i64 = 4096;
+
+    let mut state = JobState::new();
+
     let res = 'event: loop {
         // compute time to insolvency
         let now_ts = SystemTime::UNIX_EPOCH.elapsed().unwrap();
@@ -345,6 +388,8 @@ async fn job_manager_once(
 
         let aws_delay_timeout = aws_launch_time.saturating_duration_since(Instant::now());
 
+        // NOTE: some stuff like cargo fmt does not work inside this macro
+        // extract as much stuff as possible outside it
         tokio::select! {
             // running instance heartbeat check
             // should only happen if instance id is available

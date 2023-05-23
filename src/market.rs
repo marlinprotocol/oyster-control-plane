@@ -281,6 +281,8 @@ async fn job_manager(
 }
 
 struct JobState {
+    job: H256,
+    launch_delay: u64,
     balance: U256,
     last_settled: Duration,
     rate: U256,
@@ -297,10 +299,12 @@ struct JobState {
 }
 
 impl JobState {
-    fn new() -> JobState {
+    fn new(job: H256, launch_delay: u64) -> JobState {
         // solvency metrics
         // default of 60s
         JobState {
+            job,
+            launch_delay,
             balance: U256::from(360),
             last_settled: SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
@@ -332,8 +336,9 @@ impl JobState {
         }
     }
 
-    async fn heartbeat_check(&mut self, job: &H256, mut infra_provider: impl InfraProvider) {
+    async fn heartbeat_check(&mut self, mut infra_provider: impl InfraProvider) {
         // TODO: should check if enclave is running as well
+        let job = &self.job;
         let is_running = infra_provider
             .check_instance_running(&self.instance_id, self.region.clone())
             .await;
@@ -363,12 +368,9 @@ impl JobState {
     }
 
     // returns true on success
-    async fn handle_insolvency(
-        &mut self,
-        job: &H256,
-        mut infra_provider: impl InfraProvider,
-    ) -> bool {
+    async fn handle_insolvency(&mut self, mut infra_provider: impl InfraProvider) -> bool {
         // spin down instance
+        let job = &self.job;
         println!("job {job}: INSOLVENCY: Spinning down instance");
         if self.instance_id.as_str() != "" {
             let res = infra_provider
@@ -431,7 +433,7 @@ async fn job_manager_once(
     let mut req_vcpus: i32 = 2;
     let mut req_mem: i64 = 4096;
 
-    let mut state = JobState::new();
+    let mut state = JobState::new(job.clone(), aws_delay_duration);
 
     let res = 'event: loop {
         // compute time to insolvency
@@ -452,11 +454,11 @@ async fn job_manager_once(
             // running instance heartbeat check
             // should only happen if instance id is available
             () = sleep(Duration::from_secs(5)), if state.instance_id != "" => {
-                state.heartbeat_check(&job, &mut infra_provider).await;
+                state.heartbeat_check(&mut infra_provider).await;
             }
             // insolvency check
             () = sleep(insolvency_duration) => {
-                let res = state.handle_insolvency(&job, &mut infra_provider).await;
+                let res = state.handle_insolvency(&mut infra_provider).await;
                 if res {
                     // job done
                     return true;

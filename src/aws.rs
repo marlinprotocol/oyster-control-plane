@@ -947,10 +947,6 @@ impl InfraProvider for Aws {
         region: String,
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
         let res = self.get_instance_state(instance_id, region).await?;
-        if res.as_str() == "running" || res.as_str() == "pending" {
-            Ok(true)
-        } else {
-            Ok(false)
-        }
+        Ok(res == "running" || res == "pending")
     }
 }

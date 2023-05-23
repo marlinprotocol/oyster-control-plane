@@ -360,14 +360,15 @@ impl JobState {
         // spin down instance
         let job = &self.job;
         println!("job {job}: INSOLVENCY: Spinning down instance");
-        if self.instance_id.as_str() != "" {
-            let res = infra_provider
-                .spin_down(&self.instance_id, self.region.clone())
-                .await;
-            if let Err(err) = res {
-                println!("job {job}: ERROR failed to terminate instance, {err}");
-                return false;
-            }
+        let res = infra_provider
+            .spin_down(&self.instance_id, self.region.clone())
+            .await;
+        if let Err(err) = res {
+            println!("job {job}: ERROR failed to terminate instance, {err}");
+
+            // TODO: reschedule with a delay to avoid busy fails
+
+            return false;
         }
 
         return true;
@@ -454,7 +455,7 @@ async fn job_manager_once(
                 state.heartbeat_check(&mut infra_provider).await;
             }
             // insolvency check
-            () = sleep(insolvency_duration) => {
+            () = sleep(insolvency_duration), if state.instance_id != "" => {
                 let res = state.handle_insolvency(&mut infra_provider).await;
                 if res {
                     // job done

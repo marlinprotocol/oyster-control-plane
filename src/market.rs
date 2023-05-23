@@ -331,6 +331,36 @@ impl JobState {
                 .saturating_sub(now_ts.saturating_sub(self.last_settled))
         }
     }
+
+    async fn heartbeat_check(&mut self, job: &H256, mut infra_provider: impl InfraProvider) {
+        // TODO: should check if enclave is running as well
+        let is_running = infra_provider
+            .check_instance_running(&self.instance_id, self.region.clone())
+            .await;
+        match is_running {
+            Err(err) => {
+                println!("job {job}: failed to retrieve instance state, {err}");
+            }
+            Ok(is_running) => {
+                if !is_running && self.rate >= self.min_rate {
+                    let res = infra_provider
+                        .spin_up(
+                            self.eif_url.as_str(),
+                            job.to_string(),
+                            self.instance_type.as_str(),
+                            self.region.clone(),
+                            self.req_mem,
+                            self.req_vcpus,
+                        )
+                        .await;
+                    match res {
+                        Err(err) => println!("job {job}: Instance launch failed, {err}"),
+                        Ok(instance_id) => self.instance_id = instance_id,
+                    }
+                }
+            }
+        }
+    }
 }
 
 // manage the complete lifecycle of a job
@@ -399,29 +429,12 @@ async fn job_manager_once(
         tokio::select! {
             // running instance heartbeat check
             // should only happen if instance id is available
-            () = sleep(Duration::from_secs(5)), if instance_id != "" => {
-                let running = infra_provider.check_instance_running(&instance_id, region.clone()).await;
-                if let Err(err) = running {
-                    println!("job {job}: failed to retrieve instance state, {err}");
-                    if rate >= min_rate {
-                        let res = infra_provider.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str(), region.clone(), req_mem, req_vcpus).await;
-                        if let Err(err) = res {
-                            println!("job {job}: Instance launch failed, {err}");
-                            break 'event 0;
-                        }
-                        instance_id = res.unwrap();
-                    }
-                } else {
-                    let running = running.unwrap();
-                    if !running && rate >= min_rate {
-                        let res = infra_provider.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str(), region.clone(), req_mem, req_vcpus).await;
-                        if let Err(err) = res {
-                            println!("job {job}: Instance launch failed, {err}");
-                            break 'event 0;
-                        }
-                        instance_id = res.unwrap();
-                    }
-                }
+            () = sleep(Duration::from_secs(5)), if state.instance_id != "" => {
+                // TODO: cancel safety
+                // not cancel safe since the goal is to ensure enclave runs
+                // future can be dropped between instance start and enclave start
+
+                state.heartbeat_check(&job, &mut infra_provider).await;
             }
             // insolvency check
             () = sleep(insolvency_duration) => {

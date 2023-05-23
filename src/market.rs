@@ -52,6 +52,49 @@ pub trait InfraProvider {
 }
 
 #[async_trait]
+impl<'a, T> InfraProvider for &'a mut T
+where
+    T: InfraProvider + Send,
+{
+    async fn spin_up(
+        &mut self,
+        eif_url: &str,
+        job: String,
+        instance_type: &str,
+        region: String,
+        req_mem: i64,
+        req_vcpu: i32,
+    ) -> Result<String, Box<dyn Error + Send + Sync>> {
+        self.spin_up(eif_url, job, instance_type, region, req_mem, req_vcpu)
+            .await
+    }
+
+    async fn spin_down(
+        &mut self,
+        instance_id: &str,
+        region: String,
+    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        self.spin_down(instance_id, region).await
+    }
+
+    async fn get_job_instance(
+        &mut self,
+        job: &str,
+        region: String,
+    ) -> Result<(bool, String), Box<dyn Error + Send + Sync>> {
+        self.get_job_instance(job, region).await
+    }
+
+    async fn check_instance_running(
+        &mut self,
+        instance_id: &str,
+        region: String,
+    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        self.check_instance_running(instance_id, region).await
+    }
+}
+
+#[async_trait]
 pub trait LogsProvider {
     async fn new_jobs<'a>(
         &'a self,

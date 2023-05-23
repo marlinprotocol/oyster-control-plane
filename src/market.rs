@@ -318,6 +318,19 @@ impl JobState {
             req_mem: 4096,
         }
     }
+
+    fn insolvency_duration(&self) -> Duration {
+        let now_ts = SystemTime::UNIX_EPOCH.elapsed().unwrap();
+        let sat_convert = |n: U256| n.clamp(U256::zero(), u64::MAX.into()).low_u64();
+
+        if self.rate == U256::zero() {
+            Duration::from_secs(0)
+        } else {
+            // solvent for balance / rate seconds from last_settled with 300s as margin
+            Duration::from_secs(sat_convert(self.balance / self.rate).saturating_sub(300))
+                .saturating_sub(now_ts.saturating_sub(self.last_settled))
+        }
+    }
 }
 
 // manage the complete lifecycle of a job
@@ -370,23 +383,16 @@ async fn job_manager_once(
 
     let res = 'event: loop {
         // compute time to insolvency
-        let now_ts = SystemTime::UNIX_EPOCH.elapsed().unwrap();
-        let sat_convert = |n: U256| n.clamp(U256::zero(), u64::MAX.into()).low_u64();
-
-        let insolvency_duration = if rate == U256::zero() {
-            Duration::from_secs(0)
-        } else {
-            // solvent for balance / rate seconds from last_settled with 300s as margin
-            Duration::from_secs(sat_convert(balance / rate).saturating_sub(300))
-                .saturating_sub(now_ts.saturating_sub(last_settled))
-        };
+        let insolvency_duration = state.insolvency_duration();
         println!(
             "job {}: Insolvency after: {}",
             job,
             insolvency_duration.as_secs()
         );
 
-        let aws_delay_timeout = aws_launch_time.saturating_duration_since(Instant::now());
+        let aws_delay_timeout = state
+            .aws_launch_time
+            .saturating_duration_since(Instant::now());
 
         // NOTE: some stuff like cargo fmt does not work inside this macro
         // extract as much stuff as possible outside it

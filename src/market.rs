@@ -273,7 +273,7 @@ async fn job_manager(
         )
         .await;
 
-        if res < 0 {
+        if res {
             // full exit
             break;
         }
@@ -364,6 +364,7 @@ impl JobState {
 }
 
 // manage the complete lifecycle of a job
+// returns true if "done"
 async fn job_manager_once(
     mut job_stream: impl Stream<Item = Log> + Unpin,
     mut infra_provider: impl InfraProvider + Send + Sync + Clone,
@@ -371,7 +372,7 @@ async fn job_manager_once(
     allowed_regions: Vec<String>,
     aws_delay_duration: u64,
     rates_path: String,
-) -> i64 {
+) -> bool {
     // events
     #[allow(non_snake_case)]
     let JOB_OPENED =
@@ -693,7 +694,7 @@ async fn job_manager_once(
 
     println!("job {job}: Job stream ended");
 
-    return res;
+    return res < 0;
 }
 
 async fn job_logs(

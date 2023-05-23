@@ -348,20 +348,8 @@ impl JobState {
             }
             Ok(is_running) => {
                 if !is_running && self.rate >= self.min_rate {
-                    let res = infra_provider
-                        .spin_up(
-                            self.eif_url.as_str(),
-                            job.to_string(),
-                            self.instance_type.as_str(),
-                            self.region.clone(),
-                            self.req_mem,
-                            self.req_vcpus,
-                        )
-                        .await;
-                    match res {
-                        Err(err) => println!("job {job}: Instance launch failed, {err}"),
-                        Ok(instance_id) => self.instance_id = instance_id,
-                    }
+                    println!("job {job}: instance not running, scheduled launch");
+                    self.schedule_launch(0);
                 }
             }
         }
@@ -383,6 +371,15 @@ impl JobState {
         }
 
         return true;
+    }
+
+    fn schedule_launch(&mut self, delay: u64) {
+        let job = &self.job;
+        self.aws_launch_scheduled = true;
+        self.aws_launch_time = Instant::now()
+            .checked_add(Duration::from_secs(delay))
+            .unwrap();
+        println!("job {job}: Instance scheduled");
     }
 }
 

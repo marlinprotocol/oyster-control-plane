@@ -361,6 +361,27 @@ impl JobState {
             }
         }
     }
+
+    // returns true on success
+    async fn handle_insolvency(
+        &mut self,
+        job: &H256,
+        mut infra_provider: impl InfraProvider,
+    ) -> bool {
+        // spin down instance
+        println!("job {job}: INSOLVENCY: Spinning down instance");
+        if self.instance_id.as_str() != "" {
+            let res = infra_provider
+                .spin_down(&self.instance_id, self.region.clone())
+                .await;
+            if let Err(err) = res {
+                println!("job {job}: ERROR failed to terminate instance, {err}");
+                return false;
+            }
+        }
+
+        return true;
+    }
 }
 
 // manage the complete lifecycle of a job
@@ -431,26 +452,15 @@ async fn job_manager_once(
             // running instance heartbeat check
             // should only happen if instance id is available
             () = sleep(Duration::from_secs(5)), if state.instance_id != "" => {
-                // TODO: cancel safety
-                // not cancel safe since the goal is to ensure enclave runs
-                // future can be dropped between instance start and enclave start
-
                 state.heartbeat_check(&job, &mut infra_provider).await;
             }
             // insolvency check
             () = sleep(insolvency_duration) => {
-                // spin down instance
-                if instance_id.as_str() != "" {
-                    let res = infra_provider.spin_down(&instance_id, region.clone()).await;
-                    if let Err(err) = res {
-                        println!("job {job}: ERROR failed to terminate instance, {err}");
-                        break 'event 0;
-                    }
+                let res = state.handle_insolvency(&job, &mut infra_provider).await;
+                if res {
+                    // job done
+                    return true;
                 }
-                println!("job {job}: INSOLVENCY: Spinning down instance");
-
-                // exit fully
-                break 'event -1;
             }
             // aws delayed spin up check
             // should only happen if scheduled

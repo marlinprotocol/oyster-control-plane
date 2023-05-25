@@ -292,10 +292,15 @@ struct JobState {
     eif_url: String,
     instance_type: String,
     region: String,
-    aws_launch_time: Instant,
-    aws_launch_scheduled: bool,
     req_vcpus: i32,
     req_mem: i64,
+
+    // whether instance should exist or not
+    infra_state: bool,
+    // how long to wait for infra change
+    infra_change_time: Instant,
+    // whether to schedule change
+    infra_change_scheduled: bool,
 }
 
 impl JobState {
@@ -316,10 +321,11 @@ impl JobState {
             eif_url: String::new(),
             instance_type: "c6a.xlarge".to_string(),
             region: "ap-south-1".to_string(),
-            aws_launch_time: Instant::now(),
-            aws_launch_scheduled: false,
             req_vcpus: 2,
             req_mem: 4096,
+            infra_state: false,
+            infra_change_time: Instant::now(),
+            infra_change_scheduled: false,
         }
     }
 
@@ -348,7 +354,7 @@ impl JobState {
             }
             Ok(is_running) => {
                 if !is_running && self.rate >= self.min_rate {
-                    println!("job {job}: instance not running, scheduled launch");
+                    println!("job {job}: instance not running, scheduling new launch");
                     self.schedule_launch(0);
                 }
             }
@@ -376,11 +382,100 @@ impl JobState {
 
     fn schedule_launch(&mut self, delay: u64) {
         let job = &self.job;
-        self.aws_launch_scheduled = true;
-        self.aws_launch_time = Instant::now()
+        self.infra_change_scheduled = true;
+        self.infra_change_time = Instant::now()
             .checked_add(Duration::from_secs(delay))
             .unwrap();
-        println!("job {job}: Instance scheduled");
+        self.infra_state = true;
+        println!("job {job}: Instance launch scheduled");
+    }
+
+    async fn change_infra(&mut self, infra_provider: impl InfraProvider) -> bool {
+        let res = self.change_infra_impl(infra_provider).await;
+        if res {
+            // successful
+            self.infra_change_scheduled = false;
+        } else {
+            // failed, reschedule with small delay
+            self.infra_change_time = Instant::now() + Duration::from_secs(2);
+        }
+
+        return res;
+    }
+
+    async fn change_infra_impl(&mut self, mut infra_provider: impl InfraProvider) -> bool {
+        let job = &self.job;
+
+        let (exist, instance, state) = infra_provider
+            .get_job_instance(&job.to_string(), self.region.clone())
+            .await
+            .unwrap_or((false, "".to_string(), "".to_string()));
+
+        if self.infra_state {
+            // launch mode
+            if exist {
+                // instance exists already
+                if state == "pending" || state == "running" {
+                    // instance exists and is already running, we are done
+                    println!("job {job}: found existing healthy instance: {}", instance);
+                    self.instance_id = instance;
+                    return true;
+                }
+
+                if state == "stopping" || state == "stopped" {
+                    // instance unhealthy, terminate
+                    println!("job {job}: found existing unhealthy instance: {}", instance);
+                    let res = infra_provider
+                        .spin_down(&instance, self.region.clone())
+                        .await;
+                    if let Err(err) = res {
+                        println!("job {job}: ERROR failed to terminate instance, {err}");
+                        return false;
+                    }
+                }
+
+                // state is shutting-down or terminated at this point
+            }
+
+            // either no old instance or old instance was not enough, launch new one
+            println!("job {job}: launching new instance");
+            let res = infra_provider
+                .spin_up(
+                    self.eif_url.as_str(),
+                    job.to_string(),
+                    self.instance_type.as_str(),
+                    self.region.clone(),
+                    self.req_mem,
+                    self.req_vcpus,
+                )
+                .await;
+            if let Err(err) = res {
+                println!("job {job}: Instance launch failed, {err}");
+                return false;
+            }
+            self.instance_id = res.unwrap();
+
+            return true;
+        } else {
+            // terminate mode
+            if !exist || state == "shutting-down" || state == "terminated" {
+                // instance does not really exist anyway, we are done
+                println!("job {job}: instance does not exist or is already terminated");
+                return true;
+            }
+
+            // terminate instance
+            println!("job {job}: terminating existing instance: {}", instance);
+            let res = infra_provider
+                .spin_down(&instance, self.region.clone())
+                .await;
+            if let Err(err) = res {
+                println!("job {job}: ERROR failed to terminate instance, {err}");
+                return false;
+            }
+
+            return true;
+        }
     }
 }
 

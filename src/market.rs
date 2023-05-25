@@ -548,7 +548,7 @@ async fn job_manager_once(
         );
 
         let aws_delay_timeout = state
-            .aws_launch_time
+            .infra_change_time
             .saturating_duration_since(Instant::now());
 
         // NOTE: some stuff like cargo fmt does not work inside this macro
@@ -559,42 +559,26 @@ async fn job_manager_once(
             () = sleep(Duration::from_secs(5)), if state.instance_id != "" => {
                 state.heartbeat_check(&mut infra_provider).await;
             }
+
             // insolvency check
             () = sleep(insolvency_duration), if state.instance_id != "" => {
                 let res = state.handle_insolvency(&mut infra_provider).await;
                 if res {
-                    // job done
-                    return true;
+                    // job done, exit
+                    break 'event true;
                 }
             }
+
             // aws delayed spin up check
             // should only happen if scheduled
-            () = sleep(aws_delay_timeout), if aws_launch_scheduled => {
-                let (exist, instance) = infra_provider.get_job_instance(&job.to_string(), region.clone()).await.unwrap_or((false, "".to_string()));
-                if exist {
-                    instance_id = instance;
-                    println!("job {job}: Found, instance id: {instance_id}");
-                    if rate < min_rate {
-                        println!("job {job}: Rate below minimum, shutting down instance");
-                        let res = infra_provider.spin_down(&instance_id, region.clone()).await;
-                        if let Err(err) = res {
-                            println!("job {job}: ERROR failed to terminate instance, {err}");
-                            break 'event 0;
-                        }
-                        instance_id = String::new();
-                    }
-                } else if rate >= min_rate {
-                    let res = infra_provider.spin_up(eif_url.as_str(), job.to_string(), instance_type.as_str(), region.clone(), req_mem, req_vcpus).await;
-                    if let Err(err) = res {
-                        println!("job {job}: Instance launch failed, {err}");
-                        break 'event 0;
-                    }
-                    instance_id = res.unwrap();
-                } else {
-                    println!("job {job}: Rate below minimum, aborting launch.");
+            () = sleep(aws_delay_timeout), if state.infra_change_scheduled => {
+                let res = state.change_infra(&mut infra_provider).await;
+                if res && !state.infra_state {
+                    // successful termination, exit
+                    break 'event true;
                 }
-                aws_launch_scheduled = false;
             }
+
             log = job_stream.next() => {
                 if log.is_none() { break 'event 0; }
                 let log = log.unwrap();

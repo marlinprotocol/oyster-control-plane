@@ -42,7 +42,7 @@ pub trait InfraProvider {
         &mut self,
         job: &str,
         region: String,
-    ) -> Result<(bool, String), Box<dyn Error + Send + Sync>>;
+    ) -> Result<(bool, String, String), Box<dyn Error + Send + Sync>>;
 
     async fn check_instance_running(
         &mut self,
@@ -81,7 +81,7 @@ where
         &mut self,
         job: &str,
         region: String,
-    ) -> Result<(bool, String), Box<dyn Error + Send + Sync>> {
+    ) -> Result<(bool, String, String), Box<dyn Error + Send + Sync>> {
         self.get_job_instance(job, region).await
     }
 
@@ -834,9 +834,9 @@ impl InfraProvider for TestAws {
         &mut self,
         job: &str,
         region: String,
-    ) -> Result<(bool, String), Box<dyn Error + Send + Sync>> {
+    ) -> Result<(bool, String, String), Box<dyn Error + Send + Sync>> {
         println!("TEST: get_job_instance | job: {job}, region: {region}");
-        Ok((false, "".to_string()))
+        Ok((false, "".to_string(), "".to_owned()))
     }
 
     async fn check_instance_running(

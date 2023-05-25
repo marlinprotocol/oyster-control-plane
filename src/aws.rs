@@ -537,7 +537,7 @@ impl Aws {
             .to_string())
     }
 
-    pub async fn get_job_instance_id(&self, job: &str, region: String) -> Result<String> {
+    pub async fn get_job_instance_id(&self, job: &str, region: String) -> Result<(String, String)> {
         let res = self
             .client(region)
             .await
@@ -561,20 +561,19 @@ impl Aws {
             .first()
             .ok_or(anyhow!("no instances for the given job"))?;
 
-        let state = instance
-            .state()
-            .ok_or(anyhow!("could not parse instance state"))?
-            .name()
-            .ok_or(anyhow!("could not parse instance state name"))?
-            .as_str();
-        if state == "running" || state == "pending" {
-            Ok(instance
+        Ok((
+            instance
                 .instance_id()
                 .ok_or(anyhow!("could not parse ip address"))?
-                .to_string())
-        } else {
-            Err(anyhow!("no running instance found"))
-        }
+                .to_string(),
+            instance
+                .state()
+                .ok_or(anyhow!("could not parse instance state"))?
+                .name()
+                .ok_or(anyhow!("could not parse instance state name"))?
+                .as_str()
+                .to_owned(),
+        ))
     }
 
     pub async fn get_instance_state(&self, instance_id: &str, region: String) -> Result<String> {
@@ -936,9 +935,9 @@ impl InfraProvider for Aws {
         &mut self,
         job: &str,
         region: String,
-    ) -> Result<(bool, String), Box<dyn Error + Send + Sync>> {
+    ) -> Result<(bool, String, String), Box<dyn Error + Send + Sync>> {
         let instance = self.get_job_instance_id(job, region).await?;
-        Ok((true, instance))
+        Ok((true, instance.0, instance.1))
     }
 
     async fn check_instance_running(

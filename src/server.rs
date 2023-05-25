@@ -140,7 +140,7 @@ async fn handle_write(mut stream: TcpStream, response: &str) {
 async fn get_ip(client: &Aws, id: &str, region: String) -> Result<String> {
     let instance = client.get_job_instance_id(id, region.clone()).await?;
 
-    let ip = client.get_instance_ip(&instance, region).await?;
+    let ip = client.get_instance_ip(&instance.0, region).await?;
 
     Ok(ip)
 }

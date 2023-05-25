@@ -283,6 +283,8 @@ async fn job_manager(
 struct JobState {
     job: H256,
     launch_delay: u64,
+    allowed_regions: Vec<String>,
+
     balance: U256,
     last_settled: Duration,
     rate: U256,
@@ -304,12 +306,13 @@ struct JobState {
 }
 
 impl JobState {
-    fn new(job: H256, launch_delay: u64) -> JobState {
+    fn new(job: H256, launch_delay: u64, allowed_regions: Vec<String>) -> JobState {
         // solvency metrics
         // default of 60s
         JobState {
             job,
             launch_delay,
+            allowed_regions,
             balance: U256::from(360),
             last_settled: SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
@@ -361,7 +364,7 @@ impl JobState {
         }
     }
 
-    async fn handle_insolvency(&mut self) {
+    fn handle_insolvency(&mut self) {
         let job = &self.job;
         println!("job {job}: INSOLVENCY");
         self.schedule_termination(0);
@@ -474,6 +477,305 @@ impl JobState {
             return true;
         }
     }
+
+    // return 0 on success
+    // -1 on recoverable errors (can retry)
+    // -2 on unrecoverable errors (no point retrying)
+    fn process_log(&mut self, log: Option<Log>, rates_path: String) -> i8 {
+        let job = self.job.clone();
+
+        if log.is_none() {
+            // error in the stream, can retry with new conn
+            return -1;
+        }
+
+        let log = log.unwrap();
+        println!("job {}: New log: {}, {}", job, log.topics[0], log.data);
+
+        // events
+        #[allow(non_snake_case)]
+        let JOB_OPENED =
+            keccak256("JobOpened(bytes32,string,address,address,uint256,uint256,uint256)").into();
+        #[allow(non_snake_case)]
+        let JOB_SETTLED = keccak256("JobSettled(bytes32,uint256,uint256)").into();
+        #[allow(non_snake_case)]
+        let JOB_CLOSED = keccak256("JobClosed(bytes32)").into();
+        #[allow(non_snake_case)]
+        let JOB_DEPOSITED = keccak256("JobDeposited(bytes32,address,uint256)").into();
+        #[allow(non_snake_case)]
+        let JOB_WITHDREW = keccak256("JobWithdrew(bytes32,address,uint256)").into();
+        #[allow(non_snake_case)]
+        let JOB_REVISE_RATE_INITIATED = keccak256("JobReviseRateInitiated(bytes32,uint256)").into();
+        #[allow(non_snake_case)]
+        let JOB_REVISE_RATE_CANCELLED = keccak256("JobReviseRateCancelled(bytes32)").into();
+        #[allow(non_snake_case)]
+        let JOB_REVISE_RATE_FINALIZED =
+            keccak256("JobReviseRateFinalized(bytes32, uint256)").into();
+
+        if log.topics[0] == JOB_OPENED {
+            // decode
+            if let Ok((metadata, _rate, _balance, timestamp)) =
+                <(String, U256, U256, U256)>::decode(&log.data)
+            {
+                println!(
+                    "job {job}: OPENED: metadata: {metadata}, rate: {_rate}, balance: {_balance}, timestamp: {}",
+                    self.last_settled.as_secs()
+                );
+
+                // update solvency metrics
+                self.balance = _balance;
+                self.rate = _rate;
+                self.original_rate = _rate;
+                self.last_settled = Duration::from_secs(timestamp.low_u64());
+                let v = serde_json::from_str(&metadata);
+                if let Err(err) = v {
+                    println!("job {job}: Error reading metadata: {err}");
+                    return -2;
+                }
+
+                let v: Value = v.unwrap();
+
+                let r = v["instance"].as_str();
+                match r {
+                    Some(t) => {
+                        self.instance_type = t.to_string();
+                        println!("job {job}: Instance type set: {}", self.instance_type);
+                    }
+                    None => {
+                        println!("job {job}: Instance type not set");
+                        return -2;
+                    }
+                }
+
+                let r = v["region"].as_str();
+                match r {
+                    Some(t) => {
+                        self.region = t.to_string();
+                        println!("job {job}: Job region set: {}", self.region);
+                    }
+                    None => {
+                        println!("job {job}: Job region not set");
+                        return -2;
+                    }
+                }
+
+                if !self.allowed_regions.contains(&self.region) {
+                    println!(
+                        "job {job}: region : {} not suppported, exiting job",
+                        self.region
+                    );
+                    return -2;
+                }
+
+                let r = v["memory"].as_i64();
+                match r {
+                    Some(t) => {
+                        self.req_mem = t;
+                        println!("job {job}: Required memory: {}", self.req_mem);
+                    }
+                    None => {
+                        println!("job {job}: memory not set");
+                        return -2;
+                    }
+                }
+
+                let r = v["vcpu"].as_i64();
+                match r {
+                    Some(t) => {
+                        self.req_vcpus = t.try_into().unwrap_or(2);
+                        println!("job {job}: Required vcpu: {}", self.req_vcpus);
+                    }
+                    None => {
+                        println!("job {job}: vcpu not set");
+                        return -2;
+                    }
+                }
+
+                let url = v["url"].as_str();
+                if url.is_none() {
+                    println!("job {job}: eif url not found! Exiting job");
+                    return -2;
+                }
+                self.eif_url = url.unwrap().to_string();
+
+                let file_path = rates_path.clone();
+                let contents = fs::read_to_string(file_path);
+
+                if let Err(err) = contents {
+                    println!("job {job}: Error reading rates file : {err}");
+                    return -2;
+                } else {
+                    let contents = contents.unwrap();
+                    let data: Vec<server::RegionalRates> =
+                        serde_json::from_str(&contents).unwrap_or_default();
+                    let mut supported = false;
+                    for entry in data {
+                        if entry.region == self.region {
+                            for card in entry.rate_cards {
+                                if card.instance == self.instance_type {
+                                    self.min_rate = U256::from(card.min_rate);
+                                    supported = true;
+                                    break;
+                                }
+                            }
+                            break;
+                        }
+                    }
+                    if !supported {
+                        println!(
+                            "job {job}: instance type {}, not supported",
+                            self.instance_type
+                        );
+                        return -2;
+                    }
+                }
+                println!(
+                    "job {job}: MIN RATE for {} instance is {}",
+                    self.instance_type, self.min_rate
+                );
+
+                self.schedule_launch(self.launch_delay);
+            } else {
+                println!("job {job}: OPENED: Decode failure: {}", log.data);
+            }
+        } else if log.topics[0] == JOB_SETTLED {
+            // decode
+            if let Ok((amount, timestamp)) = <(U256, U256)>::decode(&log.data) {
+                println!(
+                    "job {job}: SETTLED: amount: {amount}, rate: {}, balance: {}, timestamp: {}",
+                    self.rate,
+                    self.balance,
+                    self.last_settled.as_secs()
+                );
+                // update solvency metrics
+                self.balance -= amount;
+                self.last_settled = Duration::from_secs(timestamp.low_u64());
+                println!(
+                    "job {job}: SETTLED: amount: {amount}, rate: {}, balance: {}, timestamp: {}",
+                    self.rate,
+                    self.balance,
+                    self.last_settled.as_secs()
+                );
+            } else {
+                println!("job {job}: SETTLED: Decode failure: {}", log.data);
+            }
+        } else if log.topics[0] == JOB_CLOSED {
+            self.schedule_termination(0);
+        } else if log.topics[0] == JOB_DEPOSITED {
+            // decode
+            if let Ok(amount) = U256::decode(&log.data) {
+                // update solvency metrics
+                println!(
+                    "job {job}: DEPOSITED: amount: {amount}, rate: {}, balance: {}, timestamp: {}",
+                    self.rate,
+                    self.balance,
+                    self.last_settled.as_secs()
+                );
+                self.balance += amount;
+                println!(
+                    "job {job}: DEPOSITED: amount: {amount}, rate: {}, balance: {}, timestamp: {}",
+                    self.rate,
+                    self.balance,
+                    self.last_settled.as_secs()
+                );
+            } else {
+                println!("job {job}: DEPOSITED: Decode failure: {}", log.data);
+            }
+        } else if log.topics[0] == JOB_WITHDREW {
+            // decode
+            if let Ok(amount) = U256::decode(&log.data) {
+                println!(
+                    "job {job}: WITHDREW: amount: {amount}, rate: {}, balance: {}, timestamp: {}",
+                    self.rate,
+                    self.balance,
+                    self.last_settled.as_secs()
+                );
+                // update solvency metrics
+                self.balance -= amount;
+                println!(
+                    "job {job}: WITHDREW: amount: {amount}, rate: {}, balance: {}, timestamp: {}",
+                    self.rate,
+                    self.balance,
+                    self.last_settled.as_secs()
+                );
+            } else {
+                println!("job {job}: WITHDREW: Decode failure: {}", log.data);
+            }
+        } else if log.topics[0] == JOB_REVISE_RATE_INITIATED {
+            if let Ok(new_rate) = U256::decode(&log.data) {
+                println!(
+                    "job {job}: JOB_REVISE_RATE_INTIATED: original_rate: {}, rate: {}, balance: {}, timestamp: {}", 
+                    self.original_rate,
+                    self.rate,
+                    self.balance,
+                    self.last_settled.as_secs()
+                );
+                self.original_rate = self.rate;
+                self.rate = new_rate;
+                if self.rate < self.min_rate {
+                    self.schedule_termination(0);
+                    println!("job {job}: Revised job rate below min rate, shut down");
+                }
+                println!(
+                    "job {job}: JOB_REVISE_RATE_INTIATED: original_rate: {}, rate: {}, balance: {}, timestamp: {}", 
+                    self.original_rate,
+                    self.rate,
+                    self.balance,
+                    self.last_settled.as_secs()
+                );
+            } else {
+                println!(
+                    "job {job}: JOB_REVISE_RATE_INITIATED: Decode failure: {}",
+                    log.data
+                );
+            }
+        } else if log.topics[0] == JOB_REVISE_RATE_CANCELLED {
+            println!(
+                "job {job}: JOB_REVISED_RATE_CANCELLED: rate: {}, balance: {}, timestamp: {}",
+                self.rate,
+                self.balance,
+                self.last_settled.as_secs()
+            );
+            self.rate = self.original_rate;
+            println!(
+                "job {job}: JOB_REVISED_RATE_CANCELLED: rate: {}, balance: {}, timestamp: {}",
+                self.rate,
+                self.balance,
+                self.last_settled.as_secs()
+            );
+        } else if log.topics[0] == JOB_REVISE_RATE_FINALIZED {
+            if let Ok(new_rate) = U256::decode(&log.data) {
+                println!(
+                    "job {job}: JOB_REVISE_RATE_FINALIZED: original_rate: {}, rate: {}, balance: {}, timestamp: {}", 
+                    self.original_rate,
+                    self.rate,
+                    self.balance,
+                    self.last_settled.as_secs()
+                );
+                if self.rate != new_rate {
+                    println!("Job {job}: Something went wrong, finalized rate not same as initiated rate");
+                    return -2;
+                }
+                self.original_rate = new_rate;
+                println!(
+                    "job {job}: JOB_REVISE_RATE_FINALIZED: original_rate: {}, rate: {}, balance: {}, timestamp: {}", 
+                    self.original_rate,
+                    self.rate,
+                    self.balance,
+                    self.last_settled.as_secs()
+                );
+            } else {
+                println!(
+                    "job {job}: JOB_REVISE_RATE_FINALIZED: Decode failure: {}",
+                    log.data
+                );
+            }
+        } else {
+            println!("job {job}: Unknown event: {}", log.topics[0]);
+        }
+
+        return 0;
+    }
 }
 
 // manage the complete lifecycle of a job
@@ -486,44 +788,7 @@ async fn job_manager_once(
     aws_delay_duration: u64,
     rates_path: String,
 ) -> bool {
-    // events
-    #[allow(non_snake_case)]
-    let JOB_OPENED =
-        keccak256("JobOpened(bytes32,string,address,address,uint256,uint256,uint256)").into();
-    #[allow(non_snake_case)]
-    let JOB_SETTLED = keccak256("JobSettled(bytes32,uint256,uint256)").into();
-    #[allow(non_snake_case)]
-    let JOB_CLOSED = keccak256("JobClosed(bytes32)").into();
-    #[allow(non_snake_case)]
-    let JOB_DEPOSITED = keccak256("JobDeposited(bytes32,address,uint256)").into();
-    #[allow(non_snake_case)]
-    let JOB_WITHDREW = keccak256("JobWithdrew(bytes32,address,uint256)").into();
-    #[allow(non_snake_case)]
-    let JOB_REVISE_RATE_INITIATED = keccak256("JobReviseRateInitiated(bytes32,uint256)").into();
-    #[allow(non_snake_case)]
-    let JOB_REVISE_RATE_CANCELLED = keccak256("JobReviseRateCancelled(bytes32)").into();
-    #[allow(non_snake_case)]
-    let JOB_REVISE_RATE_FINALIZED = keccak256("JobReviseRateFinalized(bytes32, uint256)").into();
-
-    // solvency metrics
-    // default of 60s
-    let mut balance = U256::from(360);
-    let mut last_settled = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap();
-    let mut rate = U256::one();
-    let mut original_rate = U256::one();
-    let mut instance_id = String::new();
-    let mut min_rate = U256::one();
-    let mut eif_url = String::new();
-    let mut instance_type = "c6a.xlarge".to_string();
-    let mut region = "ap-south-1".to_string();
-    let mut aws_launch_time = Instant::now();
-    let mut aws_launch_scheduled = false;
-    let mut req_vcpus: i32 = 2;
-    let mut req_mem: i64 = 4096;
-
-    let mut state = JobState::new(job.clone(), aws_delay_duration);
+    let mut state = JobState::new(job.clone(), aws_delay_duration, allowed_regions);
 
     let res = 'event: loop {
         // compute time to insolvency
@@ -541,6 +806,18 @@ async fn job_manager_once(
         // NOTE: some stuff like cargo fmt does not work inside this macro
         // extract as much stuff as possible outside it
         tokio::select! {
+            // order matters
+            biased;
+
+            log = job_stream.next() => {
+                let res = state.process_log(log, rates_path.clone());
+                if res == -2 {
+                    break 'event true;
+                } else if res == -1 {
+                    break 'event false;
+                }
+            }
+
             // running instance heartbeat check
             // should only happen if instance id is available
             () = sleep(Duration::from_secs(5)), if state.instance_id != "" => {
@@ -559,225 +836,15 @@ async fn job_manager_once(
                 let res = state.change_infra(&mut infra_provider).await;
                 if res && !state.infra_state {
                     // successful termination, exit
-                    break 'event true;
-                }
-            }
-
-            log = job_stream.next() => {
-                if log.is_none() { break 'event 0; }
-                let log = log.unwrap();
-                println!("job {}: New log: {}, {}", job, log.topics[0], log.data);
-
-                if log.topics[0] == JOB_OPENED {
-                    // decode
-                    if let Ok((metadata, _rate, _balance, timestamp)) = <(String, U256, U256, U256)>::decode(&log.data) {
-                        // update solvency metrics
-                        balance = _balance;
-                        rate = _rate;
-                        original_rate = _rate;
-                        last_settled = Duration::from_secs(timestamp.low_u64());
-                        println!("job {}: OPENED: metadata: {}, rate: {}, balance: {}, timestamp: {}", job, metadata, rate, balance, last_settled.as_secs());
-                        let v = serde_json::from_str(&metadata);
-                        if let Err(err) = v {
-                            println!("job {job}: Error reading metadata: {err}");
-                            break 'event -1;
-                        }
-
-                        let v: Value = v.unwrap();
-
-                        let r = v["instance"].as_str();
-                        match r {
-                            Some(t) => {
-                                instance_type = t.to_string();
-                                println!("job {job}: Instance type set: {instance_type}");
-                            }
-                            None => {
-                                println!("job {job}: Instance type not set");
-                                break 'event -1;
-                            }
-                        }
-
-                        let r = v["region"].as_str();
-                        match r {
-                            Some(t) => {
-                                region = t.to_string();
-                                println!("job {job}: Job region set: {region}");
-                            }
-                            None => {
-                                println!("job {job}: Job region not set");
-                                break 'event -1;
-                            }
-                        }
-
-                        if !allowed_regions.contains(&region) {
-                            println!("job {job}: region : {region} not suppported, exiting job");
-                            break 'event -1;
-                        }
-
-                        let r = v["memory"].as_i64();
-                        match r {
-                            Some(t) => {
-                                req_mem = t;
-                                println!("job {job}: Required memory: {req_mem}");
-                            }
-                            None => {
-                                println!("job {job}: memory not set");
-                                break 'event -1;
-                            }
-                        }
-
-                        let r = v["vcpu"].as_i64();
-                        match r {
-                            Some(t) => {
-                                req_vcpus = t.try_into().unwrap_or(2);
-                                println!("job {job}: Required vcpu: {req_vcpus}");
-                            }
-                            None => {
-                                println!("job {job}: vcpu not set");
-                                break 'event -1;
-                            }
-                        }
-
-                        let url = v["url"].as_str();
-                        if url.is_none() {
-                            println!("job {job}: eif url not found! Exiting job");
-                            break 'event -1;
-                        }
-                        eif_url = url.unwrap().to_string();
-
-                        let file_path = rates_path.clone();
-                        let contents = fs::read_to_string(file_path);
-
-                        if let Err(err) = contents {
-                            println!("job {job}: Error reading rates file : {err}");
-                            break 'event -1;
-                        } else {
-                            let contents = contents.unwrap();
-                            let data : Vec<server::RegionalRates> = serde_json::from_str(&contents).unwrap_or_default();
-                            let mut supported = false;
-                            for entry in data {
-                                if entry.region == region {
-                                    for card in entry.rate_cards {
-                                        if card.instance == instance_type {
-                                            min_rate = U256::from(card.min_rate);
-                                            supported = true;
-                                            break;
-                                        }
-                                    }
-                                    break;
-                                }
-                            }
-                            if !supported {
-                                println!("job {job}: instance type {instance_type}, not supported");
-                                break 'event -1;
-                            }
-                        }
-                        println!("job {job}: MIN RATE for {instance_type} instance is {min_rate}");
-
-                        aws_launch_time = Instant::now().checked_add(Duration::from_secs(aws_delay_duration)).unwrap();
-                        aws_launch_scheduled = true;
-                        println!("job {job}: Instance scheduled");
-                    } else {
-                        println!("job {}: OPENED: Decode failure: {}", job, log.data);
-                    }
-                } else if log.topics[0] == JOB_SETTLED {
-                    // decode
-                    if let Ok((amount, timestamp)) = <(U256, U256)>::decode(&log.data) {
-                        // update solvency metrics
-                        balance -= amount;
-                        last_settled = Duration::from_secs(timestamp.low_u64());
-                        println!("job {}: SETTLED: amount: {}, rate: {}, balance: {}, timestamp: {}", job, amount, rate, balance, last_settled.as_secs());
-                    } else {
-                        println!("job {}: SETTLED: Decode failure: {}", job, log.data);
-                    }
-                } else if log.topics[0] == JOB_CLOSED {
-                    if !aws_launch_scheduled && instance_id.as_str() != "" {
-                        let res = infra_provider.spin_down(&instance_id, region.clone()).await;
-                        if let Err(err) = res {
-                            println!("job {job}: ERROR failed to terminate instance, {err}");
-                            break 'event 0;
-                        }
-                        println!("job {job}: CLOSED: Spinning down instance");
-                    } else {
-                        println!("job {job}: Cancelled scheduled instance");
-                    }
-                    // exit fully
-                    println!("job {job}: CLOSED");
-                    break 'event -1;
-                } else if log.topics[0] == JOB_DEPOSITED {
-                    // decode
-                    if let Ok(amount) = U256::decode(&log.data) {
-                        // update solvency metrics
-                        balance += amount;
-                        println!("job {}: DEPOSITED: amount: {}, rate: {}, balance: {}, timestamp: {}", job, amount, rate, balance, last_settled.as_secs());
-                    } else {
-                        println!("job {}: DEPOSITED: Decode failure: {}", job, log.data);
-                    }
-                } else if log.topics[0] == JOB_WITHDREW {
-                    // decode
-                    if let Ok(amount) = U256::decode(&log.data) {
-                        // update solvency metrics
-                        balance -= amount;
-                        println!("job {}: WITHDREW: amount: {}, rate: {}, balance: {}, timestamp: {}", job, amount, rate, balance, last_settled.as_secs());
-                    } else {
-                        println!("job {}: WITHDREW: Decode failure: {}", job, log.data);
-                    }
-                } else if log.topics[0] == JOB_REVISE_RATE_INITIATED {
-                    if let Ok(new_rate) = U256::decode(&log.data) {
-                        original_rate = rate;
-                        rate = new_rate;
-                        if rate < min_rate {
-                            if aws_launch_scheduled {
-                                aws_launch_scheduled = false;
-                                println!("job {job}: Canelled scheduled instance");
-                            } else if instance_id.as_str() != ""{
-                                let res = infra_provider.spin_down(&instance_id, region.clone()).await;
-                                if let Err(err) = res {
-                                    println!("job {job}: ERROR failed to terminate instance, {err}");
-                                    break 'event 0;
-                                }
-                                instance_id = String::new();
-                            }
-                            println!("job {job}: Revised job rate below min rate, shut down");
-                        }
-                        println!("job {}: JOB_REVISE_RATE_INTIATED: original_rate: {}, rate: {}, balance: {}, timestamp: {}", job, original_rate, rate, balance, last_settled.as_secs());
-                    } else {
-                        println!("job {}: JOB_REVISE_RATE_INITIATED: Decode failure: {}", job, log.data);
-                    }
-                } else if log.topics[0] == JOB_REVISE_RATE_CANCELLED {
-                    rate = original_rate;
-                    if rate >= min_rate && !aws_launch_scheduled && instance_id.as_str() == ""{
-                        aws_launch_scheduled = true;
-                        aws_launch_time = Instant::now().checked_add(Duration::from_secs(aws_delay_duration)).unwrap();
-                        println!("job {job}: Instance scheduled");
-                    }
-                    println!("job {}: JOB_REVISED_RATE_CANCELLED: rate: {}, balance: {}, timestamp: {}", job, rate, balance, last_settled.as_secs());
-                } else if log.topics[0] == JOB_REVISE_RATE_FINALIZED {
-                    if let Ok(new_rate) = U256::decode(&log.data) {
-                        if rate != new_rate {
-                            println!("Job {job}: Something went wrong, finalized rate not same as initiated rate");
-                            break 'event -1;
-                        }
-                        if rate >= min_rate && !aws_launch_scheduled && instance_id.as_str() == "" {
-                            aws_launch_scheduled = true;
-                            aws_launch_time = Instant::now().checked_add(Duration::from_secs(aws_delay_duration)).unwrap();
-                            println!("job {job}: Instance scheduled");
-                        }
-                        println!("job {}: JOB_REVISE_RATE_FINALIZED: original_rate: {}, rate: {}, balance: {}, timestamp: {}", job, original_rate, rate, balance, last_settled.as_secs());
-                        original_rate = new_rate;
-                    } else {
-                        println!("job {}: JOB_REVISE_RATE_FINALIZED: Decode failure: {}", job, log.data);
-                    }
-                } else {
-                    println!("job {}: Unknown event: {}", job, log.topics[0]);
+                    break 'event res;
                 }
             }
         }
     };
 
-    println!("job {job}: Job stream ended");
+    println!("job {job}: Job stream ended: {res}");
 
-    return res < 0;
+    return res;
 }
 
 async fn job_logs(

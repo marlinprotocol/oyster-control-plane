@@ -361,23 +361,10 @@ impl JobState {
         }
     }
 
-    // returns true on success
-    async fn handle_insolvency(&mut self, mut infra_provider: impl InfraProvider) -> bool {
-        // spin down instance
+    async fn handle_insolvency(&mut self) {
         let job = &self.job;
-        println!("job {job}: INSOLVENCY: Spinning down instance");
-        let res = infra_provider
-            .spin_down(&self.instance_id, self.region.clone())
-            .await;
-        if let Err(err) = res {
-            println!("job {job}: ERROR failed to terminate instance, {err}");
-
-            // TODO: reschedule with a delay to avoid busy fails
-
-            return false;
-        }
-
-        return true;
+        println!("job {job}: INSOLVENCY");
+        self.schedule_termination(0);
     }
 
     fn schedule_launch(&mut self, delay: u64) {
@@ -561,12 +548,9 @@ async fn job_manager_once(
             }
 
             // insolvency check
-            () = sleep(insolvency_duration), if state.instance_id != "" => {
-                let res = state.handle_insolvency(&mut infra_provider).await;
-                if res {
-                    // job done, exit
-                    break 'event true;
-                }
+            // enable when termination is not already scheduled
+            () = sleep(insolvency_duration), if state.infra_change_scheduled == false || state.infra_state == true => {
+                state.handle_insolvency();
             }
 
             // aws delayed spin up check

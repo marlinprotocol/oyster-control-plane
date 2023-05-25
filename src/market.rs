@@ -390,6 +390,16 @@ impl JobState {
         println!("job {job}: Instance launch scheduled");
     }
 
+    fn schedule_termination(&mut self, delay: u64) {
+        let job = &self.job;
+        self.infra_change_scheduled = true;
+        self.infra_change_time = Instant::now()
+            .checked_add(Duration::from_secs(delay))
+            .unwrap();
+        self.infra_state = true;
+        println!("job {job}: Instance termination scheduled");
+    }
+
     async fn change_infra(&mut self, infra_provider: impl InfraProvider) -> bool {
         let res = self.change_infra_impl(infra_provider).await;
         if res {

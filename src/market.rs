@@ -35,6 +35,7 @@ pub trait InfraProvider {
     async fn spin_down(
         &mut self,
         instance_id: &str,
+        job: String,
         region: String,
     ) -> Result<bool, Box<dyn Error + Send + Sync>>;
 
@@ -72,9 +73,10 @@ where
     async fn spin_down(
         &mut self,
         instance_id: &str,
+        job: String,
         region: String,
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
-        self.spin_down(instance_id, region).await
+        self.spin_down(instance_id, job, region).await
     }
 
     async fn get_job_instance(
@@ -400,7 +402,7 @@ impl JobState {
             self.infra_change_time = Instant::now() + Duration::from_secs(2);
         }
 
-        return res;
+        res
     }
 
     async fn change_infra_impl(&mut self, mut infra_provider: impl InfraProvider) -> bool {
@@ -417,16 +419,16 @@ impl JobState {
                 // instance exists already
                 if state == "pending" || state == "running" {
                     // instance exists and is already running, we are done
-                    println!("job {job}: found existing healthy instance: {}", instance);
+                    println!("job {job}: found existing healthy instance: {instance}" );
                     self.instance_id = instance;
                     return true;
                 }
 
                 if state == "stopping" || state == "stopped" {
                     // instance unhealthy, terminate
-                    println!("job {job}: found existing unhealthy instance: {}", instance);
+                    println!("job {job}: found existing unhealthy instance: {instance}");
                     let res = infra_provider
-                        .spin_down(&instance, self.region.clone())
+                        .spin_down(&instance, job.to_string() , self.region.clone())
                         .await;
                     if let Err(err) = res {
                         println!("job {job}: ERROR failed to terminate instance, {err}");
@@ -454,8 +456,6 @@ impl JobState {
                 return false;
             }
             self.instance_id = res.unwrap();
-
-            return true;
         } else {
             // terminate mode
             if !exist || state == "shutting-down" || state == "terminated" {
@@ -465,24 +465,24 @@ impl JobState {
             }
 
             // terminate instance
-            println!("job {job}: terminating existing instance: {}", instance);
+            println!("job {job}: terminating existing instance: {instance}");
             let res = infra_provider
-                .spin_down(&instance, self.region.clone())
+                .spin_down(&instance, job.to_string(), self.region.clone())
                 .await;
             if let Err(err) = res {
                 println!("job {job}: ERROR failed to terminate instance, {err}");
                 return false;
             }
-
-            return true;
         }
+
+        true
     }
 
     // return 0 on success
     // -1 on recoverable errors (can retry)
     // -2 on unrecoverable errors (no point retrying)
     fn process_log(&mut self, log: Option<Log>, rates_path: String) -> i8 {
-        let job = self.job.clone();
+        let job = self.job;
 
         if log.is_none() {
             // error in the stream, can retry with new conn
@@ -598,7 +598,7 @@ impl JobState {
                 }
                 self.eif_url = url.unwrap().to_string();
 
-                let file_path = rates_path.clone();
+                let file_path = rates_path;
                 let contents = fs::read_to_string(file_path);
 
                 if let Err(err) = contents {
@@ -774,7 +774,7 @@ impl JobState {
             println!("job {job}: Unknown event: {}", log.topics[0]);
         }
 
-        return 0;
+        0
     }
 }
 
@@ -788,7 +788,7 @@ async fn job_manager_once(
     aws_delay_duration: u64,
     rates_path: String,
 ) -> bool {
-    let mut state = JobState::new(job.clone(), aws_delay_duration, allowed_regions);
+    let mut state = JobState::new(job, aws_delay_duration, allowed_regions);
 
     let res = 'event: loop {
         // compute time to insolvency
@@ -820,13 +820,13 @@ async fn job_manager_once(
 
             // running instance heartbeat check
             // should only happen if instance id is available
-            () = sleep(Duration::from_secs(5)), if state.instance_id != "" => {
+            () = sleep(Duration::from_secs(5)), if !state.instance_id.is_empty() => {
                 state.heartbeat_check(&mut infra_provider).await;
             }
 
             // insolvency check
             // enable when termination is not already scheduled
-            () = sleep(insolvency_duration), if state.infra_change_scheduled == false || state.infra_state == true => {
+            () = sleep(insolvency_duration), if !state.infra_change_scheduled || state.infra_state => {
                 state.handle_insolvency();
             }
 
@@ -844,7 +844,7 @@ async fn job_manager_once(
 
     println!("job {job}: Job stream ended: {res}");
 
-    return res;
+    res
 }
 
 async fn job_logs(
@@ -951,6 +951,7 @@ impl InfraProvider for TestAws {
     async fn spin_down(
         &mut self,
         instance_id: &str,
+        job: String,
         region: String,
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
         if self.outfile.as_str() != "" {
@@ -961,7 +962,7 @@ impl InfraProvider for TestAws {
             file.write_all("SpinDown\n".as_bytes())
                 .expect("write failed");
         }
-        println!("TEST: spin_down | instance_id: {instance_id}, region: {region}");
+        println!("TEST: spin_down | job: {job}, instance_id: {instance_id} region: {region}");
         if self.cur_idx >= self.max_idx || self.outcomes[self.cur_idx as usize] != 'D' {
             println!("TEST FAIL!\nTEST FAIL!\nTEST FAIL!\n");
             return Err("fail".into());

@@ -320,7 +320,7 @@ impl JobState {
             rate: U256::one(),
             original_rate: U256::one(),
             instance_id: String::new(),
-            min_rate: U256::one(),
+            min_rate: U256::MAX,
             eif_url: String::new(),
             instance_type: "c6a.xlarge".to_string(),
             region: "ap-south-1".to_string(),

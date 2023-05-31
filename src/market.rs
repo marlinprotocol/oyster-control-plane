@@ -512,6 +512,11 @@ impl JobState {
         let JOB_REVISE_RATE_FINALIZED =
             keccak256("JobReviseRateFinalized(bytes32, uint256)").into();
 
+        // NOTE: jobs should be killed fully if any individual event would kill it
+        // regardless of future events
+        // helps preserve consistency on restarts where events are procesed all at once
+        // e.g. do not spin up if job goes below min_rate and then goes above min_rate
+
         if log.topics[0] == JOB_OPENED {
             // decode
             if let Ok((metadata, _rate, _balance, timestamp)) =

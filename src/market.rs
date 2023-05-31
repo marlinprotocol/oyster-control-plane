@@ -144,6 +144,18 @@ pub async fn run(
     // start from scratch in case of connection errors
     // trying to implicitly resume connections or event streams can cause issues
     // since subscriptions are stateful
+
+    let file_path = rates_path;
+    let contents = fs::read_to_string(file_path);
+
+    if let Err(err) = contents {
+        println!("Error reading rates file : {err}");
+        return;
+    }
+    let contents = contents.unwrap();
+    let rates: Vec<server::RegionalRates> =
+        serde_json::from_str(&contents).unwrap_or_default();
+
     loop {
         println!("main: Connecting to RPC endpoint...");
         let res = Provider::<Ws>::connect(url.clone()).await;
@@ -175,7 +187,7 @@ pub async fn run(
             logs_provider.clone(),
             url.clone(),
             regions.clone(),
-            rates_path.clone(),
+            &rates
         )
         .await;
     }
@@ -187,7 +199,7 @@ async fn run_once(
     logs_provider: impl LogsProvider + Send + Sync + Clone + 'static,
     url: String,
     regions: Vec<String>,
-    rates_path: String,
+    rates: &Vec<server::RegionalRates>
 ) {
     while let Some((job, removed)) = job_stream.next().await {
         println!("main: New job: {job}, {removed}");
@@ -198,7 +210,7 @@ async fn run_once(
             job,
             regions.clone(),
             3,
-            rates_path.clone(),
+            rates.clone(),
         ));
     }
 
@@ -232,7 +244,7 @@ async fn job_manager(
     job: H256,
     allowed_regions: Vec<String>,
     aws_delay_duration: u64,
-    rates_path: String,
+    rates: Vec<server::RegionalRates>
 ) {
     let mut backoff = 1;
 
@@ -271,7 +283,7 @@ async fn job_manager(
             job,
             allowed_regions.clone(),
             aws_delay_duration,
-            rates_path.clone(),
+            &rates,
         )
         .await;
 
@@ -481,7 +493,7 @@ impl JobState {
     // return 0 on success
     // -1 on recoverable errors (can retry)
     // -2 on unrecoverable errors (no point retrying)
-    fn process_log(&mut self, log: Option<Log>, rates_path: String) -> i8 {
+    fn process_log(&mut self, log: Option<Log>, rates: &Vec<server::RegionalRates>) -> i8 {
         let job = self.job;
 
         if log.is_none() {
@@ -603,37 +615,27 @@ impl JobState {
                 }
                 self.eif_url = url.unwrap().to_string();
 
-                let file_path = rates_path;
-                let contents = fs::read_to_string(file_path);
-
-                if let Err(err) = contents {
-                    println!("job {job}: Error reading rates file : {err}");
-                    return -2;
-                } else {
-                    let contents = contents.unwrap();
-                    let data: Vec<server::RegionalRates> =
-                        serde_json::from_str(&contents).unwrap_or_default();
-                    let mut supported = false;
-                    for entry in data {
-                        if entry.region == self.region {
-                            for card in entry.rate_cards {
-                                if card.instance == self.instance_type {
-                                    self.min_rate = U256::from(card.min_rate);
-                                    supported = true;
-                                    break;
-                                }
+                let mut supported = false;
+                for entry in rates {
+                    if entry.region == self.region {
+                        for card in &entry.rate_cards {
+                            if card.instance == self.instance_type {
+                                self.min_rate = U256::from(card.min_rate);
+                                supported = true;
+                                break;
                             }
-                            break;
                         }
-                    }
-                    if !supported {
-                        println!(
-                            "job {job}: instance type {}, not supported",
-                            self.instance_type
-                        );
-                        return -2;
+                        break;
                     }
                 }
+                if !supported {
+                    println!(
+                        "job {job}: instance type {}, not supported",
+                        self.instance_type
+                    );
+                    return -2;
+                }
+                
                 println!(
                     "job {job}: MIN RATE for {} instance is {}",
                     self.instance_type, self.min_rate
@@ -796,7 +798,7 @@ async fn job_manager_once(
     job: H256,
     allowed_regions: Vec<String>,
     aws_delay_duration: u64,
-    rates_path: String,
+    rates: &Vec<server::RegionalRates>,
 ) -> bool {
     let mut state = JobState::new(job, aws_delay_duration, allowed_regions);
 
@@ -820,7 +822,7 @@ async fn job_manager_once(
             biased;
 
             log = job_stream.next() => {
-                let res = state.process_log(log, rates_path.clone());
+                let res = state.process_log(log, rates);
                 if res == -2 {
                     break 'event true;
                 } else if res == -1 {
@@ -1003,8 +1005,24 @@ impl InfraProvider for TestAws {
 #[cfg(test)]
 mod tests {
     use crate::market;
+    use crate::server;
     use ethers::prelude::*;
     use whoami::username;
+    use std::fs;
+
+    fn get_rates() -> Option<Vec<server::RegionalRates>>{
+        let file_path = "/home/".to_owned() + &username() + "/.marlin/rates.json";
+        let contents = fs::read_to_string(file_path);
+
+        if let Err(err) = contents {
+            println!("Error reading rates file : {err}");
+            return None;
+        }
+        let contents = contents.unwrap();
+        let rates: Vec<server::RegionalRates> =
+            serde_json::from_str(&contents).unwrap_or_default();
+        Some(rates)
+    }
 
     #[tokio::test]
     async fn test_1() {
@@ -1020,7 +1038,7 @@ mod tests {
             H256::from_low_u64_be(1),
             vec!["ap-south-1".into()],
             1,
-            "/home/".to_owned() + &username() + "/.marlin/rates.json",
+            get_rates().unwrap_or_default()
         )
         .await;
     }
@@ -1039,7 +1057,7 @@ mod tests {
             H256::from_low_u64_be(2),
             vec!["ap-south-1".into()],
             1,
-            "/home/".to_owned() + &username() + "/.marlin/rates.json",
+            get_rates().unwrap_or_default()
         )
         .await;
     }
@@ -1058,7 +1076,7 @@ mod tests {
             H256::from_low_u64_be(3),
             vec!["ap-south-1".into()],
             1,
-            "/home/".to_owned() + &username() + "/.marlin/rates.json",
+            get_rates().unwrap_or_default()
         )
         .await;
     }
@@ -1077,7 +1095,7 @@ mod tests {
             H256::from_low_u64_be(4),
             vec!["ap-south-1".into()],
             1,
-            "/home/".to_owned() + &username() + "/.marlin/rates.json",
+            get_rates().unwrap_or_default()
         )
         .await;
     }
@@ -1096,7 +1114,7 @@ mod tests {
             H256::from_low_u64_be(5),
             vec!["ap-south-1".into()],
             1,
-            "/home/".to_owned() + &username() + "/.marlin/rates.json",
+            get_rates().unwrap_or_default()
         )
         .await;
     }
@@ -1115,7 +1133,7 @@ mod tests {
             H256::from_low_u64_be(6),
             vec!["ap-south-1".into()],
             1,
-            "/home/".to_owned() + &username() + "/.marlin/rates.json",
+            get_rates().unwrap_or_default()
         )
         .await;
     }
@@ -1134,7 +1152,7 @@ mod tests {
             H256::from_low_u64_be(7),
             vec!["ap-south-1".into()],
             1,
-            "/home/".to_owned() + &username() + "/.marlin/rates.json",
+            get_rates().unwrap_or_default()
         )
         .await;
     }
@@ -1153,7 +1171,7 @@ mod tests {
             H256::from_low_u64_be(8),
             vec!["ap-south-1".into()],
             1,
-            "/home/".to_owned() + &username() + "/.marlin/rates.json",
+            get_rates().unwrap_or_default()
         )
         .await;
     }
@@ -1172,7 +1190,7 @@ mod tests {
             H256::from_low_u64_be(9),
             vec!["ap-south-1".into()],
             1,
-            "/home/".to_owned() + &username() + "/.marlin/rates.json",
+            get_rates().unwrap_or_default()
         )
         .await;
     }
@@ -1191,7 +1209,7 @@ mod tests {
             H256::from_low_u64_be(10),
             vec!["ap-south-1".into()],
             1,
-            "/home/".to_owned() + &username() + "/.marlin/rates.json",
+            get_rates().unwrap_or_default()
         )
         .await;
     }
@@ -1210,7 +1228,7 @@ mod tests {
             H256::from_low_u64_be(11),
             vec!["ap-south-1".into()],
             1,
-            "/home/".to_owned() + &username() + "/.marlin/rates.json",
+            get_rates().unwrap_or_default()
         )
         .await;
     }
@@ -1229,7 +1247,7 @@ mod tests {
             H256::from_low_u64_be(12),
             vec!["ap-south-1".into()],
             1,
-            "/home/".to_owned() + &username() + "/.marlin/rates.json",
+            get_rates().unwrap_or_default()
         )
         .await;
     }
@@ -1248,7 +1266,7 @@ mod tests {
             H256::from_low_u64_be(13),
             vec!["ap-south-1".into()],
             1,
-            "/home/".to_owned() + &username() + "/.marlin/rates.json",
+            get_rates().unwrap_or_default()
         )
         .await;
     }
@@ -1267,7 +1285,7 @@ mod tests {
             H256::from_low_u64_be(14),
             vec!["ap-south-1".into()],
             1,
-            "/home/".to_owned() + &username() + "/.marlin/rates.json",
+            get_rates().unwrap_or_default()
         )
         .await;
     }
@@ -1286,7 +1304,7 @@ mod tests {
             H256::from_low_u64_be(15),
             vec!["ap-south-1".into()],
             1,
-            "/home/".to_owned() + &username() + "/.marlin/rates.json",
+            get_rates().unwrap_or_default()
         )
         .await;
     }

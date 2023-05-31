@@ -386,7 +386,7 @@ impl JobState {
         self.infra_change_time = Instant::now()
             .checked_add(Duration::from_secs(delay))
             .unwrap();
-        self.infra_state = true;
+        self.infra_state = false;
         println!("job {job}: Instance termination scheduled");
     }
 

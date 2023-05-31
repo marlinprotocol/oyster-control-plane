@@ -30,6 +30,14 @@ struct Cli {
     #[clap(long, value_parser)]
     rates: String,
 
+    /// Contract address
+    #[clap(long, value_parser)]
+    contract: String,
+
+    /// Provider address
+    #[clap(long, value_parser)]
+    provider: String,
+
     /// Blacklist location
     #[clap(long, value_parser)]
     blacklist: Option<String>,
@@ -66,7 +74,12 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
         cli.rates.clone(),
     ));
 
-    market::run(aws, market::EthersProvider {}, cli.rpc, regions, cli.rates).await;
+    let ethers = market::EthersProvider {
+        address: cli.contract,
+        provider: cli.provider
+    };
+
+    market::run(aws, ethers, cli.rpc, regions, cli.rates).await;
 
     Ok(())
 }

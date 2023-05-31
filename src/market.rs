@@ -111,7 +111,10 @@ pub trait LogsProvider {
 }
 
 #[derive(Clone)]
-pub struct EthersProvider {}
+pub struct EthersProvider {
+    pub address: String,
+    pub provider: String,
+}
 
 #[async_trait]
 impl LogsProvider for EthersProvider {
@@ -119,7 +122,7 @@ impl LogsProvider for EthersProvider {
         &'a self,
         client: &'a Provider<Ws>,
     ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>, Box<dyn Error + Send + Sync>> {
-        new_jobs(client).await
+        new_jobs(client, self.address.clone(), self.provider.clone()).await
     }
 
     async fn job_logs<'a>(
@@ -219,14 +222,17 @@ async fn run_once(
 
 async fn new_jobs(
     client: &Provider<Ws>,
+    address: String,
+    provider: String
 ) -> Result<Box<dyn Stream<Item = (H256, bool)> + '_>, Box<dyn Error + Send + Sync>> {
     // TODO: Filter by contract and provider address
     let event_filter = Filter::new()
-        .address("0x9d95D61eA056721E358BC49fE995caBF3B86A34B".parse::<Address>()?)
+        .address(address.parse::<Address>()?)
         .select(0..)
         .topic0(vec![keccak256(
             "JobOpened(bytes32,string,address,address,uint256,uint256,uint256)",
-        )]);
+        )])
+        .topic3(provider.parse::<Address>()?);
 
     // register subscription
     let stream = client.subscribe_logs(&event_filter).await?;

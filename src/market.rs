@@ -642,6 +642,8 @@ impl JobState {
                 // launch only if rate is more than min
                 if self.rate >= self.min_rate {
                     self.schedule_launch(self.launch_delay);
+                } else {
+                    self.schedule_termination(0);
                 }
             } else {
                 println!("job {job}: OPENED: Decode failure: {}", log.data);

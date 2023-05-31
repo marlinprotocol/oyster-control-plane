@@ -322,7 +322,7 @@ impl JobState {
             rate: U256::one(),
             original_rate: U256::one(),
             instance_id: String::new(),
-            min_rate: U256::one(),
+            min_rate: U256::MAX,
             eif_url: String::new(),
             instance_type: "c6a.xlarge".to_string(),
             region: "ap-south-1".to_string(),
@@ -388,7 +388,7 @@ impl JobState {
         self.infra_change_time = Instant::now()
             .checked_add(Duration::from_secs(delay))
             .unwrap();
-        self.infra_state = true;
+        self.infra_state = false;
         println!("job {job}: Instance termination scheduled");
     }
 
@@ -512,6 +512,11 @@ impl JobState {
         let JOB_REVISE_RATE_FINALIZED =
             keccak256("JobReviseRateFinalized(bytes32, uint256)").into();
 
+        // NOTE: jobs should be killed fully if any individual event would kill it
+        // regardless of future events
+        // helps preserve consistency on restarts where events are procesed all at once
+        // e.g. do not spin up if job goes below min_rate and then goes above min_rate
+
         if log.topics[0] == JOB_OPENED {
             // decode
             if let Ok((metadata, _rate, _balance, timestamp)) =
@@ -634,7 +639,12 @@ impl JobState {
                     self.instance_type, self.min_rate
                 );
 
-                self.schedule_launch(self.launch_delay);
+                // launch only if rate is more than min
+                if self.rate >= self.min_rate {
+                    self.schedule_launch(self.launch_delay);
+                } else {
+                    self.schedule_termination(0);
+                }
             } else {
                 println!("job {job}: OPENED: Decode failure: {}", log.data);
             }

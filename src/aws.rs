@@ -12,7 +12,7 @@ use std::str::FromStr;
 use tokio::time::{sleep, Duration};
 use whoami::username;
 
-use crate::market::AwsManager;
+use crate::market::InfraProvider;
 
 #[derive(Clone)]
 pub struct Aws {
@@ -195,9 +195,7 @@ impl Aws {
         }
         s.clear();
 
-        println!(
-            "Nitro Enclave Service set up with cpus: {v_cpus} and memory: {mem}"
-        );
+        println!("Nitro Enclave Service set up with cpus: {v_cpus} and memory: {mem}");
 
         channel = sess.channel_session()?;
         channel.exec(&("wget -O enclave.eif ".to_owned() + url))?;
@@ -225,7 +223,7 @@ impl Aws {
 
                     if let Err(err) = contents {
                         println!("Error reading whitelist file : {err}");
-                        return  Err(anyhow!("Error reading whitelist file"));
+                        return Err(anyhow!("Error reading whitelist file"));
                     } else {
                         let contents = contents.unwrap();
                         let entries = contents.lines();
@@ -375,10 +373,10 @@ impl Aws {
                         let content_len = res.headers()["content-length"].to_str()?;
                         size = content_len.parse::<i64>()? / 1000000;
                     }
-                    Err(e) => return Err(anyhow!("failed to fetch eif file header, {e}"))
+                    Err(e) => return Err(anyhow!("failed to fetch eif file header, {e}")),
                 }
             }
-            Err(e) => return Err(anyhow!("failed to fetch eif file header, {e}"))
+            Err(e) => return Err(anyhow!("failed to fetch eif file header, {e}")),
         }
 
         println!("eif size: {size} MB");
@@ -539,7 +537,7 @@ impl Aws {
             .to_string())
     }
 
-    pub async fn get_job_instance_id(&self, job: &str, region: String) -> Result<String> {
+    pub async fn get_job_instance_id(&self, job: &str, region: String) -> Result<(String, String)> {
         let res = self
             .client(region)
             .await
@@ -563,20 +561,19 @@ impl Aws {
             .first()
             .ok_or(anyhow!("no instances for the given job"))?;
 
-        let state = instance
-            .state()
-            .ok_or(anyhow!("could not parse instance state"))?
-            .name()
-            .ok_or(anyhow!("could not parse instance state name"))?
-            .as_str();
-        if state == "running" || state == "pending" {
-            Ok(instance
+        Ok((
+            instance
                 .instance_id()
                 .ok_or(anyhow!("could not parse ip address"))?
-                .to_string())
-        } else {
-            Err(anyhow!("no running instance found"))
-        }
+                .to_string(),
+            instance
+                .state()
+                .ok_or(anyhow!("could not parse instance state"))?
+                .name()
+                .ok_or(anyhow!("could not parse instance state name"))?
+                .as_str()
+                .to_owned(),
+        ))
     }
 
     pub async fn get_instance_state(&self, instance_id: &str, region: String) -> Result<String> {
@@ -699,7 +696,7 @@ impl Aws {
             },
         )
     }
-    
+
     async fn get_instance_elastic_ip(
         &self,
         instance: &str,
@@ -755,11 +752,7 @@ impl Aws {
         Ok(())
     }
 
-    async fn disassociate_address(
-        &self,
-        association_id: &str,
-        region: String,
-    ) -> Result<()> {
+    async fn disassociate_address(&self, association_id: &str, region: String) -> Result<()> {
         self.client(region)
             .await
             .disassociate_address()
@@ -769,11 +762,7 @@ impl Aws {
         Ok(())
     }
 
-    async fn release_address(
-        &self,
-        alloc_id: &str,
-        region: String,
-    ) -> Result<()> {
+    async fn release_address(&self, alloc_id: &str, region: String) -> Result<()> {
         self.client(region)
             .await
             .release_address()
@@ -790,7 +779,7 @@ impl Aws {
         instance_type: &str,
         region: String,
         req_mem: i64,
-        req_vcpu: i32
+        req_vcpu: i32,
     ) -> Result<String> {
         let ec2_type = aws_sdk_ec2::model::InstanceType::from_str(instance_type)?;
         let resp = self
@@ -821,15 +810,17 @@ impl Aws {
                 }
                 println!("architecture: {}", arch.as_str());
             }
-            v_cpus = instance.v_cpu_info()
-                                .ok_or(anyhow!("error fetching instance v_cpu info"))?
-                                .default_v_cpus()
-                                .ok_or(anyhow!("error fetching instance v_cpu info"))?;
+            v_cpus = instance
+                .v_cpu_info()
+                .ok_or(anyhow!("error fetching instance v_cpu info"))?
+                .default_v_cpus()
+                .ok_or(anyhow!("error fetching instance v_cpu info"))?;
             println!("v_cpus: {v_cpus}");
-            mem = instance.memory_info()
-                                .ok_or(anyhow!("error fetching instance memory info"))?
-                                .size_in_mi_b()
-                                .ok_or(anyhow!("error fetching instance v_cpu info"))?;
+            mem = instance
+                .memory_info()
+                .ok_or(anyhow!("error fetching instance memory info"))?
+                .size_in_mi_b()
+                .ok_or(anyhow!("error fetching instance v_cpu info"))?;
             println!("memory: {mem}");
         }
 
@@ -847,9 +838,9 @@ impl Aws {
             )
             .await?;
         sleep(Duration::from_secs(100)).await;
-        let res = self.allocate_ip_addr(job, region.clone()).await;
+        let res = self.allocate_ip_addr(job.clone(), region.clone()).await;
         if let Err(err) = res {
-            self.spin_down_instance(&instance, region.clone()).await?;
+            self.spin_down_instance(&instance, &job, region.clone()).await?;
             return Err(anyhow!("error launching instance, {err}"));
         }
         let (alloc_id, ip) = res.unwrap();
@@ -859,17 +850,17 @@ impl Aws {
             .associate_address(&instance, &alloc_id, region.clone())
             .await;
         if let Err(err) = res {
-            self.spin_down_instance(&instance, region.clone()).await?;
+            self.spin_down_instance(&instance, &job, region.clone()).await?;
             return Err(anyhow!("error launching instance, {err}"));
         }
         let res = self.get_instance_ip(&instance, region.clone()).await;
         if let Err(err) = res {
-            self.spin_down_instance(&instance, region.clone()).await?;
+            self.spin_down_instance(&instance, &job, region.clone()).await?;
             return Err(anyhow!("error launching instance, {err}"));
         }
         let mut public_ip_address = res.unwrap();
         if public_ip_address.is_empty() {
-            self.spin_down_instance(&instance, region.clone()).await?;
+            self.spin_down_instance(&instance, &job, region.clone()).await?;
             return Err(anyhow!("error fetching instance ip address"));
         }
         public_ip_address.push_str(":22");
@@ -880,7 +871,7 @@ impl Aws {
                 match res {
                     Ok(_) => Ok(instance),
                     Err(e) => {
-                        self.spin_down_instance(&instance, region.clone()).await?;
+                        self.spin_down_instance(&instance, &job, region.clone()).await?;
                         println!("Error running enclave: {e}");
                         Err(anyhow!(
                             "error running enclave, terminating launched instance"
@@ -889,20 +880,29 @@ impl Aws {
                 }
             }
             Err(_) => {
-                self.spin_down_instance(&instance, region.clone()).await?;
+                self.spin_down_instance(&instance, &job, region.clone()).await?;
                 Err(anyhow!("error establishing ssh connection"))
             }
         }
     }
 
-    pub async fn spin_down_instance(&self, instance_id: &str, region: String) -> Result<()> {
-        let (exist, alloc_id, association_id) = self.get_instance_elastic_ip(instance_id, region.clone()).await?;
+    pub async fn spin_down_instance(&self, instance_id: &str, job: &str, region: String) -> Result<()> {
+        let (exist, _, association_id) = self
+            .get_instance_elastic_ip(instance_id, region.clone())
+            .await?;
         if exist {
-            self.disassociate_address(association_id.as_str(), region.clone()).await?;
-            self.release_address(alloc_id.as_str(), region.clone()).await?;
+            self.disassociate_address(association_id.as_str(), region.clone())
+                .await?;
+        }
+        let (exist, alloc_id, _) = self
+            .get_job_elastic_ip(job, region.clone())
+            .await?;
+        if exist {
+            self.release_address(alloc_id.as_str(), region.clone())
+                .await?;
             println!("Elastic IP released");
         }
-        
+
         self.terminate_instance(instance_id, region).await?;
         Ok(())
     }
@@ -911,7 +911,7 @@ impl Aws {
 use std::error::Error;
 
 #[async_trait]
-impl AwsManager for Aws {
+impl InfraProvider for Aws {
     async fn spin_up(
         &mut self,
         eif_url: &str,
@@ -919,7 +919,7 @@ impl AwsManager for Aws {
         instance_type: &str,
         region: String,
         req_mem: i64,
-        req_vcpu: i32
+        req_vcpu: i32,
     ) -> Result<String, Box<dyn Error + Send + Sync>> {
         let instance = self
             .spin_up_instance(eif_url, job, instance_type, region, req_mem, req_vcpu)
@@ -930,9 +930,10 @@ impl AwsManager for Aws {
     async fn spin_down(
         &mut self,
         instance_id: &str,
+        job: String,
         region: String,
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
-        let _ = self.spin_down_instance(instance_id, region).await?;
+        let _ = self.spin_down_instance(instance_id, &job, region).await?;
         Ok(true)
     }
 
@@ -940,9 +941,9 @@ impl AwsManager for Aws {
         &mut self,
         job: &str,
         region: String,
-    ) -> Result<(bool, String), Box<dyn Error + Send + Sync>> {
+    ) -> Result<(bool, String, String), Box<dyn Error + Send + Sync>> {
         let instance = self.get_job_instance_id(job, region).await?;
-        Ok((true, instance))
+        Ok((true, instance.0, instance.1))
     }
 
     async fn check_instance_running(
@@ -951,10 +952,6 @@ impl AwsManager for Aws {
         region: String,
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
         let res = self.get_instance_state(instance_id, region).await?;
-        if res.as_str() == "running" || res.as_str() == "pending" {
-            Ok(true)
-        } else {
-            Ok(false)
-        }
+        Ok(res == "running" || res == "pending")
     }
 }

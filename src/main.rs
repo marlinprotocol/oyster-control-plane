@@ -30,6 +30,14 @@ struct Cli {
     #[clap(long, value_parser)]
     rates: String,
 
+    /// Contract address
+    #[clap(long, value_parser)]
+    contract: String,
+
+    /// Provider address
+    #[clap(long, value_parser)]
+    provider: String,
+
     /// Blacklist location
     #[clap(long, value_parser)]
     blacklist: Option<String>,
@@ -46,7 +54,13 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
     let regions: Vec<String> = cli.regions.split(',').map(|r| (r.into())).collect();
     println!("Supported regions: {regions:?}");
 
-    let aws = aws::Aws::new(cli.profile, cli.key_name, cli.whitelist.unwrap_or("".to_owned()), cli.blacklist.unwrap_or("".to_owned())).await;
+    let aws = aws::Aws::new(
+        cli.profile,
+        cli.key_name,
+        cli.whitelist.unwrap_or("".to_owned()),
+        cli.blacklist.unwrap_or("".to_owned()),
+    )
+    .await;
 
     aws.generate_key_pair().await?;
 
@@ -60,7 +74,12 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
         cli.rates.clone(),
     ));
 
-    market::JobsService::run(aws, market::RealLogger {}, cli.rpc, regions, cli.rates).await;
+    let ethers = market::EthersProvider {
+        address: cli.contract,
+        provider: cli.provider
+    };
+
+    market::run(aws, ethers, cli.rpc, regions, cli.rates).await;
 
     Ok(())
 }

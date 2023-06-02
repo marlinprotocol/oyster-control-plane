@@ -13,14 +13,13 @@ aws-sdk-ec2 = "0.24.0"
 ssh2 = "0.9.3"
 ethers = { git = "https://github.com/gakonst/ethers-rs", features = ["ws", "rustls"] }
 serde_json = "1.0.88"
-reqwest = "0.11.13"
+reqwest = { version = "0.11.13", features = ["rustls-tls"], default-features = false }
 clap = { version = "4.0.29", features = ["derive"] }
 whoami = "0.2.0"
 async-trait = "0.1.51"
 aws-types = "0.54.1"
 anyhow = "1.0.69"
 serde = "1.0.159"
-openssl-sys = { features = ["vendored"] }
 
 [profile.release]
 lto = true

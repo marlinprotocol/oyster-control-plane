@@ -5,19 +5,19 @@ use std::fs;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 struct Spec {
     allowed_regions: Vec<String>,
     min_rates: Vec<RegionalRates>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RateCard {
     pub instance: String,
     pub min_rate: i64,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RegionalRates {
     pub region: String,
     pub rate_cards: Vec<RateCard>,
@@ -140,7 +140,7 @@ async fn handle_write(mut stream: TcpStream, response: &str) {
 async fn get_ip(client: &Aws, id: &str, region: String) -> Result<String> {
     let instance = client.get_job_instance_id(id, region.clone()).await?;
 
-    let ip = client.get_instance_ip(&instance, region).await?;
+    let ip = client.get_instance_ip(&instance.0, region).await?;
 
     Ok(ip)
 }

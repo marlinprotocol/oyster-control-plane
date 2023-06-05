@@ -66,7 +66,8 @@ where
         req_mem: i64,
         req_vcpu: i32,
     ) -> Result<String, Box<dyn Error + Send + Sync>> {
-        self.spin_up(eif_url, job, instance_type, region, req_mem, req_vcpu)
+        (**self)
+            .spin_up(eif_url, job, instance_type, region, req_mem, req_vcpu)
             .await
     }
 
@@ -76,7 +77,7 @@ where
         job: String,
         region: String,
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
-        self.spin_down(instance_id, job, region).await
+        (**self).spin_down(instance_id, job, region).await
     }
 
     async fn get_job_instance(
@@ -84,7 +85,7 @@ where
         job: &str,
         region: String,
     ) -> Result<(bool, String, String), Box<dyn Error + Send + Sync>> {
-        self.get_job_instance(job, region).await
+        (**self).get_job_instance(job, region).await
     }
 
     async fn check_instance_running(
@@ -92,7 +93,7 @@ where
         instance_id: &str,
         region: String,
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
-        self.check_instance_running(instance_id, region).await
+        (**self).check_instance_running(instance_id, region).await
     }
 }
 

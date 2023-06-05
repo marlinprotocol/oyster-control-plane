@@ -157,8 +157,7 @@ pub async fn run(
         return;
     }
     let contents = contents.unwrap();
-    let rates: Vec<server::RegionalRates> =
-        serde_json::from_str(&contents).unwrap_or_default();
+    let rates: Vec<server::RegionalRates> = serde_json::from_str(&contents).unwrap_or_default();
 
     loop {
         println!("main: Connecting to RPC endpoint...");
@@ -191,7 +190,7 @@ pub async fn run(
             logs_provider.clone(),
             url.clone(),
             regions.clone(),
-            &rates
+            &rates,
         )
         .await;
     }
@@ -203,7 +202,7 @@ async fn run_once(
     logs_provider: impl LogsProvider + Send + Sync + Clone + 'static,
     url: String,
     regions: Vec<String>,
-    rates: &Vec<server::RegionalRates>
+    rates: &Vec<server::RegionalRates>,
 ) {
     while let Some((job, removed)) = job_stream.next().await {
         println!("main: New job: {job}, {removed}");
@@ -224,7 +223,7 @@ async fn run_once(
 async fn new_jobs(
     client: &Provider<Ws>,
     address: String,
-    provider: String
+    provider: String,
 ) -> Result<Box<dyn Stream<Item = (H256, bool)> + '_>, Box<dyn Error + Send + Sync>> {
     // TODO: Filter by contract and provider address
     let event_filter = Filter::new()
@@ -251,7 +250,7 @@ async fn job_manager(
     job: H256,
     allowed_regions: Vec<String>,
     aws_delay_duration: u64,
-    rates: Vec<server::RegionalRates>
+    rates: Vec<server::RegionalRates>,
 ) {
     let mut backoff = 1;
 
@@ -438,7 +437,7 @@ impl JobState {
                 // instance exists already
                 if state == "pending" || state == "running" {
                     // instance exists and is already running, we are done
-                    println!("job {job}: found existing healthy instance: {instance}" );
+                    println!("job {job}: found existing healthy instance: {instance}");
                     self.instance_id = instance;
                     return true;
                 }
@@ -447,7 +446,7 @@ impl JobState {
                     // instance unhealthy, terminate
                     println!("job {job}: found existing unhealthy instance: {instance}");
                     let res = infra_provider
-                        .spin_down(&instance, job.to_string() , self.region.clone())
+                        .spin_down(&instance, job.to_string(), self.region.clone())
                         .await;
                     if let Err(err) = res {
                         println!("job {job}: ERROR failed to terminate instance, {err}");
@@ -642,7 +641,7 @@ impl JobState {
                     );
                     return -2;
                 }
-                
+
                 println!(
                     "job {job}: MIN RATE for {} instance is {}",
                     self.instance_type, self.min_rate
@@ -1014,11 +1013,11 @@ mod tests {
     use crate::market;
     use crate::server;
     use ethers::prelude::*;
-    use whoami::username;
     use std::fs;
+    use whoami::username;
 
-    fn get_rates() -> Option<Vec<server::RegionalRates>>{
-        let file_path = "/home/".to_owned() + &username() + "/.marlin/rates.json";
+    fn get_rates() -> Option<Vec<server::RegionalRates>> {
+        let file_path = "./rates.json";
         let contents = fs::read_to_string(file_path);
 
         if let Err(err) = contents {
@@ -1026,8 +1025,7 @@ mod tests {
             return None;
         }
         let contents = contents.unwrap();
-        let rates: Vec<server::RegionalRates> =
-            serde_json::from_str(&contents).unwrap_or_default();
+        let rates: Vec<server::RegionalRates> = serde_json::from_str(&contents).unwrap_or_default();
         Some(rates)
     }
 
@@ -1045,7 +1043,7 @@ mod tests {
             H256::from_low_u64_be(1),
             vec!["ap-south-1".into()],
             1,
-            get_rates().unwrap_or_default()
+            get_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1064,7 +1062,7 @@ mod tests {
             H256::from_low_u64_be(2),
             vec!["ap-south-1".into()],
             1,
-            get_rates().unwrap_or_default()
+            get_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1083,7 +1081,7 @@ mod tests {
             H256::from_low_u64_be(3),
             vec!["ap-south-1".into()],
             1,
-            get_rates().unwrap_or_default()
+            get_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1102,7 +1100,7 @@ mod tests {
             H256::from_low_u64_be(4),
             vec!["ap-south-1".into()],
             1,
-            get_rates().unwrap_or_default()
+            get_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1121,7 +1119,7 @@ mod tests {
             H256::from_low_u64_be(5),
             vec!["ap-south-1".into()],
             1,
-            get_rates().unwrap_or_default()
+            get_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1140,7 +1138,7 @@ mod tests {
             H256::from_low_u64_be(6),
             vec!["ap-south-1".into()],
             1,
-            get_rates().unwrap_or_default()
+            get_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1159,7 +1157,7 @@ mod tests {
             H256::from_low_u64_be(7),
             vec!["ap-south-1".into()],
             1,
-            get_rates().unwrap_or_default()
+            get_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1178,7 +1176,7 @@ mod tests {
             H256::from_low_u64_be(8),
             vec!["ap-south-1".into()],
             1,
-            get_rates().unwrap_or_default()
+            get_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1197,7 +1195,7 @@ mod tests {
             H256::from_low_u64_be(9),
             vec!["ap-south-1".into()],
             1,
-            get_rates().unwrap_or_default()
+            get_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1216,7 +1214,7 @@ mod tests {
             H256::from_low_u64_be(10),
             vec!["ap-south-1".into()],
             1,
-            get_rates().unwrap_or_default()
+            get_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1235,7 +1233,7 @@ mod tests {
             H256::from_low_u64_be(11),
             vec!["ap-south-1".into()],
             1,
-            get_rates().unwrap_or_default()
+            get_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1254,7 +1252,7 @@ mod tests {
             H256::from_low_u64_be(12),
             vec!["ap-south-1".into()],
             1,
-            get_rates().unwrap_or_default()
+            get_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1273,7 +1271,7 @@ mod tests {
             H256::from_low_u64_be(13),
             vec!["ap-south-1".into()],
             1,
-            get_rates().unwrap_or_default()
+            get_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1292,7 +1290,7 @@ mod tests {
             H256::from_low_u64_be(14),
             vec!["ap-south-1".into()],
             1,
-            get_rates().unwrap_or_default()
+            get_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1311,7 +1309,7 @@ mod tests {
             H256::from_low_u64_be(15),
             vec!["ap-south-1".into()],
             1,
-            get_rates().unwrap_or_default()
+            get_rates().unwrap_or_default(),
         )
         .await;
     }

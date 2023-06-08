@@ -824,7 +824,7 @@ impl Aws {
             println!("memory: {mem}");
         }
 
-        if req_mem >= mem || req_vcpu >= v_cpus {
+        if req_mem > mem || req_vcpu > v_cpus {
             return Err(anyhow!("Required memory or vcpus are more than available"));
         }
         let instance_type = aws_sdk_ec2::model::InstanceType::from_str(instance_type)?;

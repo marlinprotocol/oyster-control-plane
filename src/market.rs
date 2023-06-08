@@ -1014,7 +1014,6 @@ mod tests {
     use crate::server;
     use ethers::prelude::*;
     use std::fs;
-    use whoami::username;
 
     fn get_rates() -> Option<Vec<server::RegionalRates>> {
         let file_path = "./rates.json";

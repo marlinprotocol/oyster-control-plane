@@ -840,7 +840,8 @@ impl Aws {
         sleep(Duration::from_secs(100)).await;
         let res = self.allocate_ip_addr(job.clone(), region.clone()).await;
         if let Err(err) = res {
-            self.spin_down_instance(&instance, &job, region.clone()).await?;
+            self.spin_down_instance(&instance, &job, region.clone())
+                .await?;
             return Err(anyhow!("error launching instance, {err}"));
         }
         let (alloc_id, ip) = res.unwrap();
@@ -850,17 +851,20 @@ impl Aws {
             .associate_address(&instance, &alloc_id, region.clone())
             .await;
         if let Err(err) = res {
-            self.spin_down_instance(&instance, &job, region.clone()).await?;
+            self.spin_down_instance(&instance, &job, region.clone())
+                .await?;
             return Err(anyhow!("error launching instance, {err}"));
         }
         let res = self.get_instance_ip(&instance, region.clone()).await;
         if let Err(err) = res {
-            self.spin_down_instance(&instance, &job, region.clone()).await?;
+            self.spin_down_instance(&instance, &job, region.clone())
+                .await?;
             return Err(anyhow!("error launching instance, {err}"));
         }
         let mut public_ip_address = res.unwrap();
         if public_ip_address.is_empty() {
-            self.spin_down_instance(&instance, &job, region.clone()).await?;
+            self.spin_down_instance(&instance, &job, region.clone())
+                .await?;
             return Err(anyhow!("error fetching instance ip address"));
         }
         public_ip_address.push_str(":22");
@@ -871,7 +875,8 @@ impl Aws {
                 match res {
                     Ok(_) => Ok(instance),
                     Err(e) => {
-                        self.spin_down_instance(&instance, &job, region.clone()).await?;
+                        self.spin_down_instance(&instance, &job, region.clone())
+                            .await?;
                         println!("Error running enclave: {e}");
                         Err(anyhow!(
                             "error running enclave, terminating launched instance"
@@ -880,13 +885,19 @@ impl Aws {
                 }
             }
             Err(_) => {
-                self.spin_down_instance(&instance, &job, region.clone()).await?;
+                self.spin_down_instance(&instance, &job, region.clone())
+                    .await?;
                 Err(anyhow!("error establishing ssh connection"))
             }
         }
     }
 
-    pub async fn spin_down_instance(&self, instance_id: &str, job: &str, region: String) -> Result<()> {
+    pub async fn spin_down_instance(
+        &self,
+        instance_id: &str,
+        job: &str,
+        region: String,
+    ) -> Result<()> {
         let (exist, _, association_id) = self
             .get_instance_elastic_ip(instance_id, region.clone())
             .await?;
@@ -894,9 +905,7 @@ impl Aws {
             self.disassociate_address(association_id.as_str(), region.clone())
                 .await?;
         }
-        let (exist, alloc_id, _) = self
-            .get_job_elastic_ip(job, region.clone())
-            .await?;
+        let (exist, alloc_id, _) = self.get_job_elastic_ip(job, region.clone()).await?;
         if exist {
             self.release_address(alloc_id.as_str(), region.clone())
                 .await?;

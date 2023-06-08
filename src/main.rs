@@ -76,7 +76,7 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
 
     let ethers = market::EthersProvider {
         address: cli.contract,
-        provider: cli.provider
+        provider: cli.provider,
     };
 
     market::run(aws, ethers, cli.rpc, regions, cli.rates).await;

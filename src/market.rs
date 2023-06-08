@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use ethers::abi::AbiDecode;
+use ethers::abi::{AbiDecode, AbiEncode};
 use ethers::prelude::*;
 use ethers::utils::keccak256;
 use serde_json::Value;
@@ -427,7 +427,7 @@ impl JobState {
         let job = &self.job;
 
         let (exist, instance, state) = infra_provider
-            .get_job_instance(&job.to_string(), self.region.clone())
+            .get_job_instance(&job.encode_hex(), self.region.clone())
             .await
             .unwrap_or((false, "".to_string(), "".to_string()));
 
@@ -446,7 +446,7 @@ impl JobState {
                     // instance unhealthy, terminate
                     println!("job {job}: found existing unhealthy instance: {instance}");
                     let res = infra_provider
-                        .spin_down(&instance, job.to_string(), self.region.clone())
+                        .spin_down(&instance, job.encode_hex(), self.region.clone())
                         .await;
                     if let Err(err) = res {
                         println!("job {job}: ERROR failed to terminate instance, {err}");
@@ -462,7 +462,7 @@ impl JobState {
             let res = infra_provider
                 .spin_up(
                     self.eif_url.as_str(),
-                    job.to_string(),
+                    job.encode_hex(),
                     self.instance_type.as_str(),
                     self.region.clone(),
                     self.req_mem,
@@ -485,7 +485,7 @@ impl JobState {
             // terminate instance
             println!("job {job}: terminating existing instance: {instance}");
             let res = infra_provider
-                .spin_down(&instance, job.to_string(), self.region.clone())
+                .spin_down(&instance, job.encode_hex(), self.region.clone())
                 .await;
             if let Err(err) = res {
                 println!("job {job}: ERROR failed to terminate instance, {err}");

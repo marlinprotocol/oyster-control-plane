@@ -158,7 +158,7 @@ impl Aws {
         Ok(sess)
     }
 
-    async fn run_enclave(&self, sess: &Session, url: &str, v_cpus: i32, mem: i64) -> Result<()> {
+    async fn run_enclave(&self, sess: &Session, url: &str, v_cpus: i32, mem: i64, bandwidth: u64) -> Result<()> {
         let mut channel = sess.channel_session()?;
         let mut s = String::new();
         channel.exec(
@@ -270,6 +270,21 @@ impl Aws {
                 }
             }
         }
+
+        channel = sess.channel_session()?;
+        channel
+            .exec(
+                &("sudo tc qdisc add dev eth0 root tbf rate ".to_owned() + &(bandwidth / 256).to_string() + "mbit burst " + &(bandwidth * 10 / 256).to_string() + "mb latency 100ms"),
+            )?;
+
+        let _ = channel.stderr().read_to_string(&mut s);
+        let _ = channel.wait_close();
+
+        if !s.is_empty() {
+            println!("{s}");
+            return Err(anyhow!("Error setting up bandwidth limit"));
+        }
+        s.clear();
 
         channel = sess.channel_session()?;
         channel
@@ -780,6 +795,7 @@ impl Aws {
         region: String,
         req_mem: i64,
         req_vcpu: i32,
+        bandwidth: u64
     ) -> Result<String> {
         let ec2_type = aws_sdk_ec2::model::InstanceType::from_str(instance_type)?;
         let resp = self
@@ -871,7 +887,7 @@ impl Aws {
         let sess = self.ssh_connect(&public_ip_address).await;
         match sess {
             Ok(r) => {
-                let res = self.run_enclave(&r, image_url, req_vcpu, req_mem).await;
+                let res = self.run_enclave(&r, image_url, req_vcpu, req_mem, bandwidth).await;
                 match res {
                     Ok(_) => Ok(instance),
                     Err(e) => {
@@ -929,9 +945,10 @@ impl InfraProvider for Aws {
         region: String,
         req_mem: i64,
         req_vcpu: i32,
+        bandwidth: u64
     ) -> Result<String, Box<dyn Error + Send + Sync>> {
         let instance = self
-            .spin_up_instance(eif_url, job, instance_type, region, req_mem, req_vcpu)
+            .spin_up_instance(eif_url, job, instance_type, region, req_mem, req_vcpu, bandwidth)
             .await?;
         Ok(instance)
     }

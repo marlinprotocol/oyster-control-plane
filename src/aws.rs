@@ -271,20 +271,44 @@ impl Aws {
             }
         }
 
+        let mut output = String::new();
         channel = sess.channel_session()?;
-        channel
-            .exec(
-                &("sudo tc qdisc add dev eth0 root tbf rate ".to_owned() + &(bandwidth / 256).to_string() + "mbit burst " + &(bandwidth * 10 / 256).to_string() + "mb latency 100ms"),
-            )?;
-
+        channel.exec("nmcli device status")?;
         let _ = channel.stderr().read_to_string(&mut s);
+        let _ = channel.read_to_string(&mut output);
         let _ = channel.wait_close();
-
-        if !s.is_empty() {
+        if !s.is_empty() || output.is_empty(){
             println!("{s}");
-            return Err(anyhow!("Error setting up bandwidth limit"));
+            return Err(anyhow!("Error fetching network interface name"));
         }
-        s.clear();
+        let mut interface = String::new();
+        let entries: Vec<&str> = output.split('\n').collect();
+        for line in entries {
+            let entry: Vec<&str> = line.split_whitespace().collect();
+            if entry.len() > 1 && entry[1] == "ethernet" {
+                interface = entry[0].to_string();
+                break;
+            }
+        }
+
+        if !interface.is_empty() {
+            channel = sess.channel_session()?;
+            channel
+                .exec(
+                    &("sudo tc qdisc add dev ".to_owned() + &interface + " root tbf rate " + &(bandwidth / 256).to_string() + "mbit burst 50gb latency 100ms"),
+                )?;
+
+            let _ = channel.stderr().read_to_string(&mut s);
+            let _ = channel.wait_close();
+
+            if !s.is_empty() {
+                println!("{s}");
+                return Err(anyhow!("Error setting up bandwidth limit"));
+            }
+            s.clear();
+        } else {
+            return Err(anyhow!("Error fetching network interface name"));
+        }
 
         channel = sess.channel_session()?;
         channel

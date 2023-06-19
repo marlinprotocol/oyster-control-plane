@@ -30,6 +30,10 @@ struct Cli {
     #[clap(long, value_parser)]
     rates: String,
 
+    /// Bandwidth Rates location
+    #[clap(long, value_parser)]
+    bandwidth: String,
+
     /// Contract address
     #[clap(long, value_parser)]
     contract: String,
@@ -79,7 +83,7 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
         provider: cli.provider,
     };
 
-    market::run(aws, ethers, cli.rpc, regions, cli.rates).await;
+    market::run(aws, ethers, cli.rpc, regions, cli.rates, cli.bandwidth).await;
 
     Ok(())
 }

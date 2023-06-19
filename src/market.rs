@@ -389,8 +389,10 @@ impl JobState {
             Duration::from_secs(0)
         } else {
             // solvent for balance / rate seconds from last_settled with 300s as margin
-            Duration::from_secs(sat_convert(self.balance / self.rate).saturating_sub(300))
-                .saturating_sub(now_ts.saturating_sub(self.last_settled))
+            Duration::from_secs(
+                sat_convert(self.balance * U256::exp10(12) / self.rate).saturating_sub(300),
+            )
+            .saturating_sub(now_ts.saturating_sub(self.last_settled))
         }
     }
 

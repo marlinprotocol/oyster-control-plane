@@ -304,7 +304,7 @@ impl Aws {
                 &("sudo tc qdisc add dev ".to_owned()
                     + &interface
                     + " root tbf rate "
-                    + &(bandwidth / 256).to_string()
+                    + &bandwidth.to_string()
                     + "mbit burst 50gb latency 100ms"),
             )?;
 

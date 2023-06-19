@@ -150,7 +150,7 @@ impl LogsProvider for EthersProvider {
 pub struct GBRateCard {
     pub region: String,
     pub region_code: String,
-    pub rate: i64,
+    pub rate: u128,
 }
 
 pub async fn run(
@@ -692,7 +692,10 @@ impl JobState {
                         let gb_cost = entry.rate;
                         let bandwidth_rate = self.rate - self.min_rate;
 
-                        self.bandwidth = (bandwidth_rate.as_u64() / gb_cost as u64) * 1024 * 1024;
+                        self.bandwidth = ((bandwidth_rate * 1024 * 8 / U256::from(gb_cost))
+                            as U256)
+                            .clamp(U256::zero(), u64::MAX.into())
+                            .low_u64();
                         break;
                     }
                 }

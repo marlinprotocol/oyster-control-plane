@@ -49,6 +49,14 @@ struct Cli {
     /// Whitelist location
     #[clap(long, value_parser)]
     whitelist: Option<String>,
+
+    /// Address Blacklist location
+    #[clap(long, value_parser)]
+    address_blacklist: Option<String>,
+
+    /// Address Whitelist location
+    #[clap(long, value_parser)]
+    address_whitelist: Option<String>,
 }
 
 #[tokio::main]
@@ -83,7 +91,17 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
         provider: cli.provider,
     };
 
-    market::run(aws, ethers, cli.rpc, regions, cli.rates, cli.bandwidth).await;
+    market::run(
+        aws,
+        ethers,
+        cli.rpc,
+        regions,
+        cli.rates,
+        cli.bandwidth,
+        cli.address_whitelist.unwrap_or("".to_owned()),
+        cli.address_blacklist.unwrap_or("".to_owned()),
+    )
+    .await;
 
     Ok(())
 }

@@ -151,7 +151,9 @@ pub async fn run(
     url: String,
     regions: Vec<String>,
     rates_path: String,
-    gb_rates_path: String
+    gb_rates_path: String,
+    addess_whitelist: String,
+    addess_blacklist: String
 ) {
     let mut backoff = 1;
 
@@ -213,7 +215,9 @@ pub async fn run(
             url.clone(),
             regions.clone(),
             &rates,
-            &gb_rates
+            &gb_rates,
+            addess_whitelist,
+            addess_blacklist
         )
         .await;
     }
@@ -226,7 +230,9 @@ async fn run_once(
     url: String,
     regions: Vec<String>,
     rates: &Vec<server::RegionalRates>,
-    gb_rates: &Vec<GBRateCard>
+    gb_rates: &Vec<GBRateCard>,
+    addess_whitelist: String,
+    addess_blacklist: String
 ) {
     while let Some((job, removed)) = job_stream.next().await {
         println!("main: New job: {job}, {removed}");
@@ -238,7 +244,9 @@ async fn run_once(
             regions.clone(),
             3,
             rates.clone(),
-            gb_rates.clone()
+            gb_rates.clone(),
+            addess_whitelist,
+            addess_blacklist
         ));
     }
 
@@ -276,7 +284,9 @@ async fn job_manager(
     allowed_regions: Vec<String>,
     aws_delay_duration: u64,
     rates: Vec<server::RegionalRates>,
-    gb_rates: Vec<GBRateCard>
+    gb_rates: Vec<GBRateCard>,
+    addess_whitelist: String,
+    addess_blacklist: String
 ) {
     let mut backoff = 1;
 
@@ -316,7 +326,9 @@ async fn job_manager(
             allowed_regions.clone(),
             aws_delay_duration,
             &rates,
-            &gb_rates
+            &gb_rates,
+            addess_whitelist,
+            addess_blacklist
         )
         .await;
 
@@ -526,16 +538,95 @@ impl JobState {
         true
     }
 
+    fn whitelist_blacklist_check(
+        log: Option<Log>,
+        addess_whitelist: String,
+        addess_blacklist: String
+    ) -> Result<bool, String> {
+        
+        // check whitelist
+        if addess_whitelist.as_str() != "" {
+            println!("Checking address whitelist...");
+            let file_path = addess_whitelist.as_str();
+            let contents = fs::read_to_string(file_path);
+
+            if let Err(err) = contents {
+                println!("Error reading address whitelist file : {err}");
+                return Err(anyhow!("Error reading address whitelist file"));
+            } else {
+                let contents = contents.unwrap();
+                let entries = contents.lines();
+                let mut allowed: bool = false;
+                for entry in entries {
+                    if entry.contains(log.topics[2].as_str()) {
+                        allowed = true;
+                        break;
+                    }
+                }
+                if allowed {
+                    println!("ADDRESS ALLOWED!");
+                } else {
+                    println!("ADDRESS NOT ALLOWED!");
+                    return Err(anyhow!("ADDRESS NOT ALLOWED"));
+                }
+            }
+        }
+
+        // check blacklist
+        if addess_blacklist.as_str() != "" {
+            println!("Checking address blacklist...");
+            let file_path = addess_blacklist.as_str();
+            let contents = fs::read_to_string(file_path);
+
+            if let Err(err) = contents {
+                println!("Error reading address blacklist file : {err}");
+                return Err(anyhow!("Error reading address blacklist file"));
+            } else {
+                let contents = contents.unwrap();
+                let entries = contents.lines();
+                let mut allowed = true;
+                for entry in entries {
+                    if entry.contains(log.topics[2].as_str()) {
+                        allowed = false;
+                        break;
+                    }
+                }
+                if allowed {
+                    println!("ADDRESS ALLOWED!");
+                } else {
+                    println!("ADDRESS NOT ALLOWED!");
+                    return Err(anyhow!("ADDRESS NOT ALLOWED"));
+                }
+            }
+        }
+
+        return Ok((true))
+    }
+
     // return 0 on success
     // -1 on recoverable errors (can retry)
     // -2 on unrecoverable errors (no point retrying)
-    fn process_log(&mut self, log: Option<Log>, rates: &Vec<server::RegionalRates>, gb_rates: &Vec<GBRateCard>) -> i8 {
+    fn process_log(
+        &mut self,
+        log: Option<Log>,
+        rates: &Vec<server::RegionalRates>,
+        gb_rates: &Vec<GBRateCard>,
+        addess_whitelist: String,
+        addess_blacklist: String
+    ) -> i8 {
         let job = self.job;
 
         if log.is_none() {
             // error in the stream, can retry with new conn
             return -1;
         }
+
+        let allowed = whitelist_blacklist_check(log, addess_whitelist, addess_blacklist);
+        if !allowed {
+            // blacklisted or not whitelisted address
+            return -1;
+        }
+
 
         let log = log.unwrap();
         println!("job {}: New log: {}, {}", job, log.topics[0], log.data);
@@ -847,7 +938,9 @@ async fn job_manager_once(
     allowed_regions: Vec<String>,
     aws_delay_duration: u64,
     rates: &Vec<server::RegionalRates>,
-    gb_rates: &Vec<GBRateCard>
+    gb_rates: &Vec<GBRateCard>,
+    addess_whitelist: String,
+    addess_blacklist: String
 ) -> bool {
     let mut state = JobState::new(job, aws_delay_duration, allowed_regions);
 
@@ -871,7 +964,7 @@ async fn job_manager_once(
             biased;
 
             log = job_stream.next() => {
-                let res = state.process_log(log, rates, gb_rates);
+                let res = state.process_log(log, rates, gb_rates, addess_whitelist, addess_whitelist, addess_blacklist);
                 if res == -2 {
                     break 'event true;
                 } else if res == -1 {

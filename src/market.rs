@@ -622,7 +622,7 @@ impl JobState {
         }
 
         let allowed = whitelist_blacklist_check(log, addess_whitelist, addess_blacklist);
-        if !allowed {
+        if allowed != Ok(true) {
             // blacklisted or not whitelisted address
             return -1;
         }

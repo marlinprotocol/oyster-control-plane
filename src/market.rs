@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use async_trait::async_trait;
 use ethers::abi::{AbiDecode, AbiEncode};
 use ethers::prelude::*;
@@ -6,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::error::Error;
 use std::fs;
+use std::sync::Arc;
 use std::time::SystemTime;
 use tokio::time::sleep;
 use tokio::time::{Duration, Instant};
@@ -31,7 +33,7 @@ pub trait InfraProvider {
         region: String,
         req_mem: i64,
         req_vcpu: i32,
-        bandwidth: u64
+        bandwidth: u64,
     ) -> Result<String, Box<dyn Error + Send + Sync>>;
 
     async fn spin_down(
@@ -67,10 +69,18 @@ where
         region: String,
         req_mem: i64,
         req_vcpu: i32,
-        bandwidth: u64
+        bandwidth: u64,
     ) -> Result<String, Box<dyn Error + Send + Sync>> {
         (**self)
-            .spin_up(eif_url, job, instance_type, region, req_mem, req_vcpu, bandwidth)
+            .spin_up(
+                eif_url,
+                job,
+                instance_type,
+                region,
+                req_mem,
+                req_vcpu,
+                bandwidth,
+            )
             .await
     }
 
@@ -142,7 +152,19 @@ impl LogsProvider for EthersProvider {
 pub struct GBRateCard {
     pub region: String,
     pub region_code: String,
-    pub rate: i64
+    pub rate: i64,
+}
+
+pub async fn parse_file(filepath: String) -> Result<String, anyhow::Error> {
+    let file_path = filepath.as_str();
+    let contents = fs::read_to_string(file_path);
+
+    if let Err(err) = contents {
+        return Err(anyhow!("Error reading file"));
+    } else {
+        let contents: String = contents.unwrap();
+        Ok(contents)
+    }
 }
 
 pub async fn run(
@@ -152,8 +174,8 @@ pub async fn run(
     regions: Vec<String>,
     rates_path: String,
     gb_rates_path: String,
-    addess_whitelist: String,
-    addess_blacklist: String
+    address_whitelist: &Arc<String>,
+    address_blacklist: &Arc<String>,
 ) {
     let mut backoff = 1;
 
@@ -181,7 +203,6 @@ pub async fn run(
     }
     let contents = contents.unwrap();
     let gb_rates: Vec<GBRateCard> = serde_json::from_str(&contents).unwrap_or_default();
-
 
     loop {
         println!("main: Connecting to RPC endpoint...");
@@ -216,8 +237,8 @@ pub async fn run(
             regions.clone(),
             &rates,
             &gb_rates,
-            addess_whitelist,
-            addess_blacklist
+            address_whitelist,
+            address_blacklist,
         )
         .await;
     }
@@ -231,9 +252,12 @@ async fn run_once(
     regions: Vec<String>,
     rates: &Vec<server::RegionalRates>,
     gb_rates: &Vec<GBRateCard>,
-    addess_whitelist: String,
-    addess_blacklist: String
+    address_whitelist: &Arc<String>,
+    address_blacklist: &Arc<String>,
 ) {
+    let address_whitelist_clone: Arc<String> = Arc::clone(&address_whitelist);
+    let address_blacklist_clone: Arc<String> = Arc::clone(&address_whitelist);
+
     while let Some((job, removed)) = job_stream.next().await {
         println!("main: New job: {job}, {removed}");
         tokio::spawn(job_manager(
@@ -245,8 +269,8 @@ async fn run_once(
             3,
             rates.clone(),
             gb_rates.clone(),
-            addess_whitelist,
-            addess_blacklist
+            address_whitelist_clone.clone(),
+            address_blacklist_clone.clone(),
         ));
     }
 
@@ -285,8 +309,8 @@ async fn job_manager(
     aws_delay_duration: u64,
     rates: Vec<server::RegionalRates>,
     gb_rates: Vec<GBRateCard>,
-    addess_whitelist: String,
-    addess_blacklist: String
+    address_whitelist: Arc<String>,
+    address_blacklist: Arc<String>,
 ) {
     let mut backoff = 1;
 
@@ -327,8 +351,8 @@ async fn job_manager(
             aws_delay_duration,
             &rates,
             &gb_rates,
-            addess_whitelist,
-            addess_blacklist
+            &address_whitelist,
+            &address_blacklist,
         )
         .await;
 
@@ -508,7 +532,7 @@ impl JobState {
                     self.region.clone(),
                     self.req_mem,
                     self.req_vcpus,
-                    self.bandwidth
+                    self.bandwidth,
                 )
                 .await;
             if let Err(err) = res {
@@ -539,68 +563,52 @@ impl JobState {
     }
 
     fn whitelist_blacklist_check(
+        &self,
         log: Option<Log>,
-        addess_whitelist: String,
-        addess_blacklist: String
-    ) -> Result<bool, String> {
-        
+        address_whitelist: &Arc<String>,
+        address_blacklist: &Arc<String>,
+    ) -> bool {
         // check whitelist
-        if addess_whitelist.as_str() != "" {
+        if address_whitelist.as_str() != "" {
             println!("Checking address whitelist...");
-            let file_path = addess_whitelist.as_str();
-            let contents = fs::read_to_string(file_path);
-
-            if let Err(err) = contents {
-                println!("Error reading address whitelist file : {err}");
-                return Err(anyhow!("Error reading address whitelist file"));
+            let contents = contents.unwrap();
+            let entries = contents.lines();
+            let mut allowed: bool = false;
+            for entry in entries {
+                if entry.contains(log.topics[2].as_str()) {
+                    allowed = true;
+                    break;
+                }
+            }
+            if allowed {
+                println!("ADDRESS ALLOWED!");
             } else {
-                let contents = contents.unwrap();
-                let entries = contents.lines();
-                let mut allowed: bool = false;
-                for entry in entries {
-                    if entry.contains(log.topics[2].as_str()) {
-                        allowed = true;
-                        break;
-                    }
-                }
-                if allowed {
-                    println!("ADDRESS ALLOWED!");
-                } else {
-                    println!("ADDRESS NOT ALLOWED!");
-                    return Err(anyhow!("ADDRESS NOT ALLOWED"));
-                }
+                println!("ADDRESS NOT ALLOWED!");
+                return Err(anyhow!("ADDRESS NOT ALLOWED"));
             }
         }
 
         // check blacklist
-        if addess_blacklist.as_str() != "" {
+        if address_blacklist.as_str() != "" {
             println!("Checking address blacklist...");
-            let file_path = addess_blacklist.as_str();
-            let contents = fs::read_to_string(file_path);
-
-            if let Err(err) = contents {
-                println!("Error reading address blacklist file : {err}");
-                return Err(anyhow!("Error reading address blacklist file"));
+            let contents = contents.unwrap();
+            let entries = contents.lines();
+            let mut allowed = true;
+            for entry in entries {
+                if entry.contains(log.topics[2].as_str()) {
+                    allowed = false;
+                    break;
+                }
+            }
+            if allowed {
+                println!("ADDRESS ALLOWED!");
             } else {
-                let contents = contents.unwrap();
-                let entries = contents.lines();
-                let mut allowed = true;
-                for entry in entries {
-                    if entry.contains(log.topics[2].as_str()) {
-                        allowed = false;
-                        break;
-                    }
-                }
-                if allowed {
-                    println!("ADDRESS ALLOWED!");
-                } else {
-                    println!("ADDRESS NOT ALLOWED!");
-                    return Err(anyhow!("ADDRESS NOT ALLOWED"));
-                }
+                println!("ADDRESS NOT ALLOWED!");
+                return Err(anyhow!("ADDRESS NOT ALLOWED"));
             }
         }
 
-        return Ok((true))
+        return true;
     }
 
     // return 0 on success
@@ -611,8 +619,8 @@ impl JobState {
         log: Option<Log>,
         rates: &Vec<server::RegionalRates>,
         gb_rates: &Vec<GBRateCard>,
-        addess_whitelist: String,
-        addess_blacklist: String
+        address_whitelist: &Arc<String>,
+        address_blacklist: &Arc<String>,
     ) -> i8 {
         let job = self.job;
 
@@ -621,12 +629,12 @@ impl JobState {
             return -1;
         }
 
-        let allowed = whitelist_blacklist_check(log, addess_whitelist, addess_blacklist);
-        if allowed != Ok(true) {
+        let allowed: bool =
+            self.whitelist_blacklist_check(log, address_whitelist, address_blacklist);
+        if !allowed {
             // blacklisted or not whitelisted address
             return -1;
         }
-
 
         let log = log.unwrap();
         println!("job {}: New log: {}, {}", job, log.topics[0], log.data);
@@ -755,7 +763,6 @@ impl JobState {
                         break;
                     }
                 }
-
 
                 if !supported {
                     println!(
@@ -939,8 +946,8 @@ async fn job_manager_once(
     aws_delay_duration: u64,
     rates: &Vec<server::RegionalRates>,
     gb_rates: &Vec<GBRateCard>,
-    addess_whitelist: String,
-    addess_blacklist: String
+    address_whitelist: &Arc<String>,
+    address_blacklist: &Arc<String>,
 ) -> bool {
     let mut state = JobState::new(job, aws_delay_duration, allowed_regions);
 
@@ -964,7 +971,7 @@ async fn job_manager_once(
             biased;
 
             log = job_stream.next() => {
-                let res = state.process_log(log, rates, gb_rates, addess_whitelist, addess_blacklist);
+                let res = state.process_log(log, rates, gb_rates, address_whitelist, address_blacklist);
                 if res == -2 {
                     break 'event true;
                 } else if res == -1 {
@@ -1083,7 +1090,7 @@ impl InfraProvider for TestAws {
         region: String,
         req_mem: i64,
         req_vcpu: i32,
-        bandwidth: u64
+        bandwidth: u64,
     ) -> Result<String, Box<dyn Error + Send + Sync>> {
         if self.outfile.as_str() != "" {
             let mut file = OpenOptions::new()
@@ -1195,7 +1202,7 @@ mod tests {
             vec!["ap-south-1".into()],
             1,
             get_rates().unwrap_or_default(),
-            get_gb_rates().unwrap_or_default()
+            get_gb_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1215,7 +1222,7 @@ mod tests {
             vec!["ap-south-1".into()],
             1,
             get_rates().unwrap_or_default(),
-            get_gb_rates().unwrap_or_default()
+            get_gb_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1235,7 +1242,7 @@ mod tests {
             vec!["ap-south-1".into()],
             1,
             get_rates().unwrap_or_default(),
-            get_gb_rates().unwrap_or_default()
+            get_gb_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1255,7 +1262,7 @@ mod tests {
             vec!["ap-south-1".into()],
             1,
             get_rates().unwrap_or_default(),
-            get_gb_rates().unwrap_or_default()
+            get_gb_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1275,7 +1282,7 @@ mod tests {
             vec!["ap-south-1".into()],
             1,
             get_rates().unwrap_or_default(),
-            get_gb_rates().unwrap_or_default()
+            get_gb_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1295,7 +1302,7 @@ mod tests {
             vec!["ap-south-1".into()],
             1,
             get_rates().unwrap_or_default(),
-            get_gb_rates().unwrap_or_default()
+            get_gb_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1315,7 +1322,7 @@ mod tests {
             vec!["ap-south-1".into()],
             1,
             get_rates().unwrap_or_default(),
-            get_gb_rates().unwrap_or_default()
+            get_gb_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1335,7 +1342,7 @@ mod tests {
             vec!["ap-south-1".into()],
             1,
             get_rates().unwrap_or_default(),
-            get_gb_rates().unwrap_or_default()
+            get_gb_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1355,7 +1362,7 @@ mod tests {
             vec!["ap-south-1".into()],
             1,
             get_rates().unwrap_or_default(),
-            get_gb_rates().unwrap_or_default()
+            get_gb_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1375,7 +1382,7 @@ mod tests {
             vec!["ap-south-1".into()],
             1,
             get_rates().unwrap_or_default(),
-            get_gb_rates().unwrap_or_default()
+            get_gb_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1395,7 +1402,7 @@ mod tests {
             vec!["ap-south-1".into()],
             1,
             get_rates().unwrap_or_default(),
-            get_gb_rates().unwrap_or_default()
+            get_gb_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1415,7 +1422,7 @@ mod tests {
             vec!["ap-south-1".into()],
             1,
             get_rates().unwrap_or_default(),
-            get_gb_rates().unwrap_or_default()
+            get_gb_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1435,7 +1442,7 @@ mod tests {
             vec!["ap-south-1".into()],
             1,
             get_rates().unwrap_or_default(),
-            get_gb_rates().unwrap_or_default()
+            get_gb_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1455,7 +1462,7 @@ mod tests {
             vec!["ap-south-1".into()],
             1,
             get_rates().unwrap_or_default(),
-            get_gb_rates().unwrap_or_default()
+            get_gb_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1475,7 +1482,7 @@ mod tests {
             vec!["ap-south-1".into()],
             1,
             get_rates().unwrap_or_default(),
-            get_gb_rates().unwrap_or_default()
+            get_gb_rates().unwrap_or_default(),
         )
         .await;
     }

@@ -5,6 +5,7 @@ mod test;
 
 use clap::Parser;
 use std::error::Error;
+use std::sync::Arc;
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
@@ -91,6 +92,23 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
         provider: cli.provider,
     };
 
+    let address_whitelist: Arc<String> =
+        match market::parse_file(cli.address_whitelist.unwrap_or("".to_owned())).await {
+            Ok(contents) => Arc::new(contents),
+            Err(err) => {
+                println!("Error parsing whitelist file: {}", err);
+                return;
+            }
+        };
+    let address_blacklist: Arc<String> =
+        match market::parse_file(cli.address_blacklist.unwrap_or("".to_owned())).await {
+            Ok(contents) => Arc::new(contents),
+            Err(err) => {
+                println!("Error parsing blacklist file: {}", err);
+                return;
+            }
+        };
+
     market::run(
         aws,
         ethers,
@@ -98,8 +116,8 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
         regions,
         cli.rates,
         cli.bandwidth,
-        cli.address_whitelist.unwrap_or("".to_owned()),
-        cli.address_blacklist.unwrap_or("".to_owned()),
+        &address_whitelist,
+        &address_blacklist,
     )
     .await;
 

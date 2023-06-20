@@ -964,7 +964,7 @@ async fn job_manager_once(
             biased;
 
             log = job_stream.next() => {
-                let res = state.process_log(log, rates, gb_rates, addess_whitelist, addess_whitelist, addess_blacklist);
+                let res = state.process_log(log, rates, gb_rates, addess_whitelist, addess_blacklist);
                 if res == -2 {
                     break 'event true;
                 } else if res == -1 {

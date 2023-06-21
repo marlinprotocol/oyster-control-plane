@@ -568,7 +568,7 @@ impl JobState {
 
     fn whitelist_blacklist_check(
         &self,
-        log: Option<Log>,
+        log: Log,
         address_whitelist: &Arc<String>,
         address_blacklist: &Arc<String>,
     ) -> bool {
@@ -631,14 +631,14 @@ impl JobState {
             return -1;
         }
 
+        let log: Log = log.unwrap();
+
         let allowed: bool =
             self.whitelist_blacklist_check(log, address_whitelist, address_blacklist);
         if !allowed {
             // blacklisted or not whitelisted address
             return -2;
         }
-
-        let log = log.unwrap();
         println!("job {}: New log: {}, {}", job, log.topics[0], log.data);
 
         // events
@@ -1160,6 +1160,7 @@ mod tests {
     use crate::server;
     use ethers::prelude::*;
     use std::fs;
+    use std::sync::Arc;
 
     use super::GBRateCard;
 
@@ -1205,6 +1206,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
+            Arc::new(String::new()),
+            Arc::new(String::new()),
         )
         .await;
     }
@@ -1225,6 +1228,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
+            Arc::new(String::new()),
+            Arc::new(String::new()),
         )
         .await;
     }
@@ -1245,6 +1250,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
+            Arc::new(String::new()),
+            Arc::new(String::new()),
         )
         .await;
     }
@@ -1265,6 +1272,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
+            Arc::new(String::new()),
+            Arc::new(String::new()),
         )
         .await;
     }
@@ -1285,6 +1294,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
+            Arc::new(String::new()),
+            Arc::new(String::new()),
         )
         .await;
     }
@@ -1305,6 +1316,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
+            Arc::new(String::new()),
+            Arc::new(String::new()),
         )
         .await;
     }
@@ -1325,6 +1338,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
+            Arc::new(String::new()),
+            Arc::new(String::new()),
         )
         .await;
     }
@@ -1345,6 +1360,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
+            Arc::new(String::new()),
+            Arc::new(String::new()),
         )
         .await;
     }
@@ -1365,6 +1382,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
+            Arc::new(String::new()),
+            Arc::new(String::new()),
         )
         .await;
     }
@@ -1385,6 +1404,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
+            Arc::new(String::new()),
+            Arc::new(String::new()),
         )
         .await;
     }
@@ -1405,6 +1426,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
+            Arc::new(String::new()),
+            Arc::new(String::new()),
         )
         .await;
     }
@@ -1425,6 +1448,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
+            Arc::new(String::new()),
+            Arc::new(String::new()),
         )
         .await;
     }
@@ -1445,6 +1470,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
+            Arc::new(String::new()),
+            Arc::new(String::new()),
         )
         .await;
     }
@@ -1465,6 +1492,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
+            Arc::new(String::new()),
+            Arc::new(String::new()),
         )
         .await;
     }
@@ -1485,6 +1514,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
+            Arc::new(String::new()),
+            Arc::new(String::new()),
         )
         .await;
     }

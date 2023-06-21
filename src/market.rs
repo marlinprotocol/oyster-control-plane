@@ -571,8 +571,7 @@ impl JobState {
         // check whitelist
         if address_whitelist.as_str() != "" {
             println!("Checking address whitelist...");
-            let contents = contents.unwrap();
-            let entries = contents.lines();
+            let entries = address_whitelist.lines();
             let mut allowed: bool = false;
             for entry in entries {
                 if entry.contains(log.topics[2].as_str()) {
@@ -584,15 +583,14 @@ impl JobState {
                 println!("ADDRESS ALLOWED!");
             } else {
                 println!("ADDRESS NOT ALLOWED!");
-                return Err(anyhow!("ADDRESS NOT ALLOWED"));
+                return false;
             }
         }
 
         // check blacklist
         if address_blacklist.as_str() != "" {
             println!("Checking address blacklist...");
-            let contents = contents.unwrap();
-            let entries = contents.lines();
+            let entries = address_blacklist.lines();
             let mut allowed = true;
             for entry in entries {
                 if entry.contains(log.topics[2].as_str()) {
@@ -604,7 +602,7 @@ impl JobState {
                 println!("ADDRESS ALLOWED!");
             } else {
                 println!("ADDRESS NOT ALLOWED!");
-                return Err(anyhow!("ADDRESS NOT ALLOWED"));
+                return false;
             }
         }
 
@@ -633,7 +631,7 @@ impl JobState {
             self.whitelist_blacklist_check(log, address_whitelist, address_blacklist);
         if !allowed {
             // blacklisted or not whitelisted address
-            return -1;
+            return -2;
         }
 
         let log = log.unwrap();

@@ -155,7 +155,11 @@ pub struct GBRateCard {
     pub rate: i64,
 }
 
-pub async fn parse_file(filepath: String) -> Result<String, anyhow::Error> {
+pub async fn parse_file(filepath: String) -> Result<std::string::String, anyhow::Error> {
+    if filepath.is_empty() {
+        return Ok(String::new());
+    }
+    
     let file_path = filepath.as_str();
     let contents = fs::read_to_string(file_path);
 

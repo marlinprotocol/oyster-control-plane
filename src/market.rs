@@ -578,7 +578,7 @@ impl JobState {
             let entries = address_whitelist.lines();
             let mut allowed: bool = false;
             for entry in entries {
-                if entry.contains(log.topics[2].as_str()) {
+                if entry == log.topics[2].encode_hex() {
                     allowed = true;
                     break;
                 }
@@ -597,7 +597,7 @@ impl JobState {
             let entries = address_blacklist.lines();
             let mut allowed = true;
             for entry in entries {
-                if entry.contains(log.topics[2].as_str()) {
+                if entry == log.topics[2].encode_hex() {
                     allowed = false;
                     break;
                 }

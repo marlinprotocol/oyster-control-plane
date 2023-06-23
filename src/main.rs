@@ -93,21 +93,9 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
     };
 
     let address_whitelist: Arc<String> =
-        match market::parse_file(cli.address_whitelist.unwrap_or("".to_owned())).await {
-            Ok(contents) => Arc::new(contents),
-            Err(err) => {
-                println!("Error parsing whitelist file: {}", err);
-                return Err(Box::new(err).context("Failed to parse whitelist file"));
-            }
-        };
+        Arc::new(market::parse_file(cli.address_whitelist.unwrap_or("".to_owned())).await?);
     let address_blacklist: Arc<String> =
-        match market::parse_file(cli.address_blacklist.unwrap_or("".to_owned())).await {
-            Ok(contents) => Arc::new(contents),
-            Err(err) => {
-                println!("Error parsing blacklist file: {}", err);
-                return Err(Box::new(err).context("Failed to parse blacklist file"));
-            }
-        };
+        Arc::new(market::parse_file(cli.address_blacklist.unwrap_or("".to_owned())).await?);
 
     market::run(
         aws,

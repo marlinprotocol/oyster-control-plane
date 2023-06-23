@@ -164,7 +164,7 @@ pub async fn parse_file(filepath: String) -> Result<std::string::String, anyhow:
     let contents = fs::read_to_string(file_path);
 
     if let Err(err) = contents {
-        return Err(anyhow!("Error reading file"));
+        return Err(anyhow!("Error reading file: {err}"));
     } else {
         let contents: String = contents.unwrap();
         Ok(contents)
@@ -260,7 +260,7 @@ async fn run_once(
     address_blacklist: &Arc<String>,
 ) {
     let address_whitelist_clone: Arc<String> = Arc::clone(&address_whitelist);
-    let address_blacklist_clone: Arc<String> = Arc::clone(&address_whitelist);
+    let address_blacklist_clone: Arc<String> = Arc::clone(&address_blacklist);
 
     while let Some((job, removed)) = job_stream.next().await {
         println!("main: New job: {job}, {removed}");
@@ -634,7 +634,7 @@ impl JobState {
         let log: Log = log.unwrap();
 
         let allowed: bool =
-            self.whitelist_blacklist_check(log, address_whitelist, address_blacklist);
+            self.whitelist_blacklist_check(log.clone(), address_whitelist, address_blacklist);
         if !allowed {
             // blacklisted or not whitelisted address
             return -2;

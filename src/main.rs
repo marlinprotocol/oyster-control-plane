@@ -97,7 +97,7 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
             Ok(contents) => Arc::new(contents),
             Err(err) => {
                 println!("Error parsing whitelist file: {}", err);
-                return;
+                return Err(Box::new(err).context("Failed to parse whitelist file"));
             }
         };
     let address_blacklist: Arc<String> =
@@ -105,7 +105,7 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
             Ok(contents) => Arc::new(contents),
             Err(err) => {
                 println!("Error parsing blacklist file: {}", err);
-                return;
+                return Err(Box::new(err).context("Failed to parse blacklist file"));
             }
         };
 

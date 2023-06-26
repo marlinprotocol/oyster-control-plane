@@ -1519,4 +1519,92 @@ mod tests {
         )
         .await;
     }
+
+    #[tokio::test]
+    async fn test_16() {
+        market::job_manager(
+            market::TestAws {
+                outcomes: vec!['U', 'D'],
+                cur_idx: 0,
+                max_idx: 2,
+                outfile: "".into(),
+            },
+            market::TestLogger {},
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+            H256::from_low_u64_be(1),
+            vec!["ap-south-1".into()],
+            1,
+            get_rates().unwrap_or_default(),
+            get_gb_rates().unwrap_or_default(),
+            Arc::new(String::from("0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec")),
+            Arc::new(String::new()),
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn test_17() {
+        market::job_manager(
+            market::TestAws {
+                outcomes: vec!['U', 'D'],
+                cur_idx: 0,
+                max_idx: 2,
+                outfile: "".into(),
+            },
+            market::TestLogger {},
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+            H256::from_low_u64_be(1),
+            vec!["ap-south-1".into()],
+            1,
+            get_rates().unwrap_or_default(),
+            get_gb_rates().unwrap_or_default(),
+            Arc::new(String::from("0x000000000000000000000000000000000000000000000000f020c4f6gc7a56ce")),
+            Arc::new(String::new()),
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn test_18() {
+        market::job_manager(
+            market::TestAws {
+                outcomes: vec!['U', 'D'],
+                cur_idx: 0,
+                max_idx: 2,
+                outfile: "".into(),
+            },
+            market::TestLogger {},
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+            H256::from_low_u64_be(1),
+            vec!["ap-south-1".into()],
+            1,
+            get_rates().unwrap_or_default(),
+            get_gb_rates().unwrap_or_default(),
+            Arc::new(String::new()),
+            Arc::new(String::from("0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec")),
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn test_19() {
+        market::job_manager(
+            market::TestAws {
+                outcomes: vec!['U', 'D'],
+                cur_idx: 0,
+                max_idx: 2,
+                outfile: "".into(),
+            },
+            market::TestLogger {},
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+            H256::from_low_u64_be(1),
+            vec!["ap-south-1".into()],
+            1,
+            get_rates().unwrap_or_default(),
+            get_gb_rates().unwrap_or_default(),
+            Arc::new(String::new()),
+            Arc::new(String::from("0x000000000000000000000000000000000000000000000000f020c4f6gc7a56ce")),
+        )
+        .await;
+    }
 }

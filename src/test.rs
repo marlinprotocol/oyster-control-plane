@@ -97,6 +97,22 @@ fn get_logs_data() -> Vec<(Actions, Bytes, U256)> {
         (Actions::LockDelete, [].into()),
         (Actions::ReviseRate, [].into()),
         (Actions::Close, [].into()),
+
+        // test : 16 -> Address is Whitelisted - job open and close
+        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),2,1001,time+1).encode()),
+        (Actions::Close, [].into()),
+
+        // test : 17 -> Address is not Whitelisted - job open and close
+        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),2,1001,time+1).encode()),
+        (Actions::Close, [].into()),
+
+        // test : 18 -> Address is Blacklisted - job open and close
+        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),2,1001,time+1).encode()),
+        (Actions::Close, [].into()),
+
+        // test : 19 -> Address is not Blacklisted - job open and close
+        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),2,1001,time+1).encode()),
+        (Actions::Close, [].into()),
     ];
     let mut res: Vec<(Actions, Bytes, U256)> = Vec::new();
     for v in input {
@@ -143,6 +159,7 @@ fn get_log(topic: Actions, data: Bytes, idx: H256) -> Log {
                     "JobOpened(bytes32,string,address,address,uint256,uint256,uint256)",
                 )),
                 idx,
+                H256::from_low_u64_be(log.address.to_low_u64_be()),
             ];
         }
         Actions::Close => {
@@ -152,36 +169,42 @@ fn get_log(topic: Actions, data: Bytes, idx: H256) -> Log {
             log.topics = vec![
                 H256::from(keccak256("JobSettled(bytes32,uint256,uint256)")),
                 idx,
+                H256::from_low_u64_be(log.address.to_low_u64_be()),
             ];
         }
         Actions::Deposit => {
             log.topics = vec![
                 H256::from(keccak256("JobDeposited(bytes32,address,uint256)")),
                 idx,
+                H256::from_low_u64_be(log.address.to_low_u64_be()),
             ];
         }
         Actions::Withdraw => {
             log.topics = vec![
                 H256::from(keccak256("JobWithdrew(bytes32,address,uint256)")),
                 idx,
+                H256::from_low_u64_be(log.address.to_low_u64_be()),
             ];
         }
         Actions::LockCreate => {
             log.topics = vec![
                 H256::from(keccak256("LockCreated(bytes32,bytes32,uint256,uint256)")),
                 idx,
+                H256::from_low_u64_be(log.address.to_low_u64_be()),
             ];
         }
         Actions::LockDelete => {
             log.topics = vec![
                 H256::from(keccak256("LockDeleted(bytes32,bytes32,uint256)")),
                 idx,
+                H256::from_low_u64_be(log.address.to_low_u64_be()),
             ];
         }
         Actions::ReviseRate => {
             log.topics = vec![
                 H256::from(keccak256("JobRevisedRate(bytes32,uint256)")),
                 idx,
+                H256::from_low_u64_be(log.address.to_low_u64_be()),
             ];
         }
     }

@@ -596,13 +596,6 @@ impl JobState {
         }
 
         let log = log.unwrap();
-
-        let allowed =
-            self.whitelist_blacklist_check(log.clone(), address_whitelist, address_blacklist);
-        if !allowed {
-            // blacklisted or not whitelisted address
-            return -2;
-        }
         println!("job {}: New log: {}, {}", job, log.topics[0], log.data);
 
         // events
@@ -631,6 +624,15 @@ impl JobState {
         // e.g. do not spin up if job goes below min_rate and then goes above min_rate
 
         if log.topics[0] == JOB_OPENED {
+
+            // blacklist whitelist check
+            let allowed =
+                self.whitelist_blacklist_check(log.clone(), address_whitelist, address_blacklist);
+            if !allowed {
+                // blacklisted or not whitelisted address
+                return -2;
+            }
+
             // decode
             if let Ok((metadata, _rate, _balance, timestamp)) =
                 <(String, U256, U256, U256)>::decode(&log.data)

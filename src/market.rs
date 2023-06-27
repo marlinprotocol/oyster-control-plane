@@ -1,4 +1,3 @@
-use anyhow::anyhow;
 use async_trait::async_trait;
 use ethers::abi::{AbiDecode, AbiEncode};
 use ethers::prelude::*;
@@ -155,22 +154,6 @@ pub struct GBRateCard {
     pub rate: i64,
 }
 
-pub async fn parse_file(filepath: String) -> Result<std::string::String, anyhow::Error> {
-    if filepath.is_empty() {
-        return Ok(String::new());
-    }
-    
-    let file_path = filepath.as_str();
-    let contents = fs::read_to_string(file_path);
-
-    if let Err(err) = contents {
-        return Err(anyhow!("Error reading file: {err}"));
-    } else {
-        let contents: String = contents.unwrap();
-        Ok(contents)
-    }
-}
-
 pub async fn run(
     infra_provider: impl InfraProvider + Send + Sync + Clone + 'static,
     logs_provider: impl LogsProvider + Send + Sync + Clone + 'static,
@@ -178,8 +161,8 @@ pub async fn run(
     regions: Vec<String>,
     rates_path: String,
     gb_rates_path: String,
-    address_whitelist: &Arc<String>,
-    address_blacklist: &Arc<String>,
+    address_whitelist: &Arc<Vec<String>>,
+    address_blacklist: &Arc<Vec<String>>,
 ) {
     let mut backoff = 1;
 
@@ -256,11 +239,11 @@ async fn run_once(
     regions: Vec<String>,
     rates: &Vec<server::RegionalRates>,
     gb_rates: &Vec<GBRateCard>,
-    address_whitelist: &Arc<String>,
-    address_blacklist: &Arc<String>,
+    address_whitelist: &Arc<Vec<String>>,
+    address_blacklist: &Arc<Vec<String>>,
 ) {
-    let address_whitelist_clone: Arc<String> = Arc::clone(&address_whitelist);
-    let address_blacklist_clone: Arc<String> = Arc::clone(&address_blacklist);
+    let address_whitelist_clone: Arc<Vec<String>> = Arc::new(address_whitelist.as_ref().clone());
+    let address_blacklist_clone: Arc<Vec<String>> = Arc::new(address_blacklist.as_ref().clone());
 
     while let Some((job, removed)) = job_stream.next().await {
         println!("main: New job: {job}, {removed}");
@@ -313,8 +296,8 @@ async fn job_manager(
     aws_delay_duration: u64,
     rates: Vec<server::RegionalRates>,
     gb_rates: Vec<GBRateCard>,
-    address_whitelist: Arc<String>,
-    address_blacklist: Arc<String>,
+    address_whitelist: Arc<Vec<String>>,
+    address_blacklist: Arc<Vec<String>>,
 ) {
     let mut backoff = 1;
 
@@ -569,21 +552,13 @@ impl JobState {
     fn whitelist_blacklist_check(
         &self,
         log: Log,
-        address_whitelist: &Arc<String>,
-        address_blacklist: &Arc<String>,
+        address_whitelist: &Arc<Vec<String>>,
+        address_blacklist: &Arc<Vec<String>>,
     ) -> bool {
         // check whitelist
-        if address_whitelist.as_str() != "" {
+        if !address_whitelist.is_empty() {
             println!("Checking address whitelist...");
-            let entries = address_whitelist.lines();
-            let mut allowed: bool = false;
-            for entry in entries {
-                if entry == log.topics[2].encode_hex() {
-                    allowed = true;
-                    break;
-                }
-            }
-            if allowed {
+            if address_whitelist.iter().any(|s| s == &log.topics[2].encode_hex()) {
                 println!("ADDRESS ALLOWED!");
             } else {
                 println!("ADDRESS NOT ALLOWED!");
@@ -592,21 +567,13 @@ impl JobState {
         }
 
         // check blacklist
-        if address_blacklist.as_str() != "" {
+        if !address_blacklist.is_empty() {
             println!("Checking address blacklist...");
-            let entries = address_blacklist.lines();
-            let mut allowed = true;
-            for entry in entries {
-                if entry == log.topics[2].encode_hex() {
-                    allowed = false;
-                    break;
-                }
-            }
-            if allowed {
-                println!("ADDRESS ALLOWED!");
-            } else {
+            if address_blacklist.iter().any(|s| s == &log.topics[2].encode_hex()) {
                 println!("ADDRESS NOT ALLOWED!");
                 return false;
+            } else {
+                println!("ADDRESS ALLOWED!");
             }
         }
 
@@ -621,8 +588,8 @@ impl JobState {
         log: Option<Log>,
         rates: &Vec<server::RegionalRates>,
         gb_rates: &Vec<GBRateCard>,
-        address_whitelist: &Arc<String>,
-        address_blacklist: &Arc<String>,
+        address_whitelist: &Arc<Vec<String>>,
+        address_blacklist: &Arc<Vec<String>>,
     ) -> i8 {
         let job = self.job;
 
@@ -948,8 +915,8 @@ async fn job_manager_once(
     aws_delay_duration: u64,
     rates: &Vec<server::RegionalRates>,
     gb_rates: &Vec<GBRateCard>,
-    address_whitelist: &Arc<String>,
-    address_blacklist: &Arc<String>,
+    address_whitelist: &Arc<Vec<String>>,
+    address_blacklist: &Arc<Vec<String>>,
 ) -> bool {
     let mut state = JobState::new(job, aws_delay_duration, allowed_regions);
 
@@ -1206,8 +1173,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Arc::new(String::new()),
-            Arc::new(String::new()),
+            Arc::new(Vec::new()),
+            Arc::new(Vec::new()),
         )
         .await;
     }
@@ -1228,8 +1195,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Arc::new(String::new()),
-            Arc::new(String::new()),
+            Arc::new(Vec::new()),
+            Arc::new(Vec::new()),
         )
         .await;
     }
@@ -1250,8 +1217,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Arc::new(String::new()),
-            Arc::new(String::new()),
+            Arc::new(Vec::new()),
+            Arc::new(Vec::new()),
         )
         .await;
     }
@@ -1272,8 +1239,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Arc::new(String::new()),
-            Arc::new(String::new()),
+            Arc::new(Vec::new()),
+            Arc::new(Vec::new()),
         )
         .await;
     }
@@ -1294,8 +1261,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Arc::new(String::new()),
-            Arc::new(String::new()),
+            Arc::new(Vec::new()),
+            Arc::new(Vec::new()),
         )
         .await;
     }
@@ -1316,8 +1283,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Arc::new(String::new()),
-            Arc::new(String::new()),
+            Arc::new(Vec::new()),
+            Arc::new(Vec::new()),
         )
         .await;
     }
@@ -1338,8 +1305,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Arc::new(String::new()),
-            Arc::new(String::new()),
+            Arc::new(Vec::new()),
+            Arc::new(Vec::new()),
         )
         .await;
     }
@@ -1360,8 +1327,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Arc::new(String::new()),
-            Arc::new(String::new()),
+            Arc::new(Vec::new()),
+            Arc::new(Vec::new()),
         )
         .await;
     }
@@ -1382,8 +1349,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Arc::new(String::new()),
-            Arc::new(String::new()),
+            Arc::new(Vec::new()),
+            Arc::new(Vec::new()),
         )
         .await;
     }
@@ -1404,8 +1371,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Arc::new(String::new()),
-            Arc::new(String::new()),
+            Arc::new(Vec::new()),
+            Arc::new(Vec::new()),
         )
         .await;
     }
@@ -1426,8 +1393,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Arc::new(String::new()),
-            Arc::new(String::new()),
+            Arc::new(Vec::new()),
+            Arc::new(Vec::new()),
         )
         .await;
     }
@@ -1448,8 +1415,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Arc::new(String::new()),
-            Arc::new(String::new()),
+            Arc::new(Vec::new()),
+            Arc::new(Vec::new()),
         )
         .await;
     }
@@ -1470,8 +1437,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Arc::new(String::new()),
-            Arc::new(String::new()),
+            Arc::new(Vec::new()),
+            Arc::new(Vec::new()),
         )
         .await;
     }
@@ -1492,8 +1459,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Arc::new(String::new()),
-            Arc::new(String::new()),
+            Arc::new(Vec::new()),
+            Arc::new(Vec::new()),
         )
         .await;
     }
@@ -1514,8 +1481,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Arc::new(String::new()),
-            Arc::new(String::new()),
+            Arc::new(Vec::new()),
+            Arc::new(Vec::new()),
         )
         .await;
     }
@@ -1536,8 +1503,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Arc::new(String::from("0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec")),
-            Arc::new(String::new()),
+            Arc::new(Vec::from(["0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string()])),
+            Arc::new(Vec::new()),
         )
         .await;
     }
@@ -1558,8 +1525,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Arc::new(String::from("0x000000000000000000000000000000000000000000000000f020c4f6gc7a56ce")),
-            Arc::new(String::new()),
+            Arc::new(Vec::from(["0x000000000000000000000000000000000000000000000000f020c4f6gc7a56ce".to_string()])),
+            Arc::new(Vec::new()),
         )
         .await;
     }
@@ -1580,8 +1547,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Arc::new(String::new()),
-            Arc::new(String::from("0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec")),
+            Arc::new(Vec::new()),
+            Arc::new(Vec::from(["0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string()])),
         )
         .await;
     }
@@ -1602,8 +1569,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Arc::new(String::new()),
-            Arc::new(String::from("0x000000000000000000000000000000000000000000000000f020c4f6gc7a56ce")),
+            Arc::new(Vec::new()),
+            Arc::new(Vec::from(["0x000000000000000000000000000000000000000000000000f020c4f6gc7a56ce".to_string()])),
         )
         .await;
     }

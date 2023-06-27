@@ -3,8 +3,10 @@ mod market;
 mod server;
 mod test;
 
+use anyhow::anyhow;
 use clap::Parser;
 use std::error::Error;
+use std::fs;
 use std::sync::Arc;
 
 #[derive(Parser)]
@@ -60,6 +62,22 @@ struct Cli {
     address_whitelist: Option<String>,
 }
 
+async fn parse_file(filepath: String) -> Result<Vec<String>, anyhow::Error> {
+    if filepath.is_empty() {
+        return Ok(Vec::new());
+    }
+    
+    let file_path = filepath.as_str();
+    let contents = fs::read_to_string(file_path);
+
+    if let Err(err) = contents {
+        return Err(anyhow!("Error reading file: {err}"));
+    } else {
+        let lines: Vec<String> = contents.unwrap().lines().map(|s| s.to_string()).collect();
+        return Ok(lines);
+    }
+}
+
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
@@ -92,10 +110,10 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
         provider: cli.provider,
     };
 
-    let address_whitelist: Arc<String> =
-        Arc::new(market::parse_file(cli.address_whitelist.unwrap_or("".to_owned())).await?);
-    let address_blacklist: Arc<String> =
-        Arc::new(market::parse_file(cli.address_blacklist.unwrap_or("".to_owned())).await?);
+    let address_whitelist: Arc<Vec<String>> =
+        Arc::new(parse_file(cli.address_whitelist.unwrap_or("".to_owned())).await?);
+    let address_blacklist: Arc<Vec<String>> =
+        Arc::new(parse_file(cli.address_blacklist.unwrap_or("".to_owned())).await?);
 
     market::run(
         aws,

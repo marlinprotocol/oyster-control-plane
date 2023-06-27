@@ -242,8 +242,8 @@ async fn run_once(
     address_whitelist: &Arc<Vec<String>>,
     address_blacklist: &Arc<Vec<String>>,
 ) {
-    let address_whitelist_clone: Arc<Vec<String>> = Arc::new(address_whitelist.as_ref().clone());
-    let address_blacklist_clone: Arc<Vec<String>> = Arc::new(address_blacklist.as_ref().clone());
+    let address_whitelist_clone: Arc<Vec<String>> = Arc::clone(&address_whitelist);
+    let address_blacklist_clone: Arc<Vec<String>> = Arc::clone(&address_blacklist);
 
     while let Some((job, removed)) = job_stream.next().await {
         println!("main: New job: {job}, {removed}");

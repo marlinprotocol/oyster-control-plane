@@ -595,9 +595,9 @@ impl JobState {
             return -1;
         }
 
-        let log: Log = log.unwrap();
+        let log = log.unwrap();
 
-        let allowed: bool =
+        let allowed =
             self.whitelist_blacklist_check(log.clone(), address_whitelist, address_blacklist);
         if !allowed {
             // blacklisted or not whitelisted address

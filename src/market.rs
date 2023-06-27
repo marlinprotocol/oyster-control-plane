@@ -242,9 +242,6 @@ async fn run_once(
     address_whitelist: &Arc<Vec<String>>,
     address_blacklist: &Arc<Vec<String>>,
 ) {
-    let address_whitelist_clone: Arc<Vec<String>> = Arc::clone(&address_whitelist);
-    let address_blacklist_clone: Arc<Vec<String>> = Arc::clone(&address_blacklist);
-
     while let Some((job, removed)) = job_stream.next().await {
         println!("main: New job: {job}, {removed}");
         tokio::spawn(job_manager(
@@ -256,8 +253,8 @@ async fn run_once(
             3,
             rates.clone(),
             gb_rates.clone(),
-            address_whitelist_clone.clone(),
-            address_blacklist_clone.clone(),
+            address_whitelist.clone(),
+            address_blacklist.clone(),
         ));
     }
 

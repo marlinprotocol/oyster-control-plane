@@ -630,6 +630,7 @@ impl JobState {
                 self.whitelist_blacklist_check(log.clone(), address_whitelist, address_blacklist);
             if !allowed {
                 // blacklisted or not whitelisted address
+                self.schedule_termination(0);
                 return -2;
             }
 

@@ -305,7 +305,7 @@ impl Aws {
                     + &interface
                     + " root tbf rate "
                     + &(bandwidth / 128).to_string()
-                    + "mbit burst 4gb latency 100ms"),
+                    + "mbit burst 4000Mb latency 100ms"),
             )?;
 
             let _ = channel.stderr().read_to_string(&mut s);

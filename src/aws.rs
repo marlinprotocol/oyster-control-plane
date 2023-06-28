@@ -304,8 +304,8 @@ impl Aws {
                 &("sudo tc qdisc add dev ".to_owned()
                     + &interface
                     + " root tbf rate "
-                    + &bandwidth.to_string()
-                    + "mbit burst 50gb latency 100ms"),
+                    + &(bandwidth / 128).to_string()
+                    + "mbit burst 4gb latency 100ms"),
             )?;
 
             let _ = channel.stderr().read_to_string(&mut s);

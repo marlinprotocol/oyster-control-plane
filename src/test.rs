@@ -169,42 +169,36 @@ fn get_log(topic: Actions, data: Bytes, idx: H256) -> Log {
             log.topics = vec![
                 H256::from(keccak256("JobSettled(bytes32,uint256,uint256)")),
                 idx,
-                H256::from_low_u64_be(log.address.to_low_u64_be()),
             ];
         }
         Actions::Deposit => {
             log.topics = vec![
                 H256::from(keccak256("JobDeposited(bytes32,address,uint256)")),
                 idx,
-                H256::from_low_u64_be(log.address.to_low_u64_be()),
             ];
         }
         Actions::Withdraw => {
             log.topics = vec![
                 H256::from(keccak256("JobWithdrew(bytes32,address,uint256)")),
                 idx,
-                H256::from_low_u64_be(log.address.to_low_u64_be()),
             ];
         }
         Actions::LockCreate => {
             log.topics = vec![
                 H256::from(keccak256("LockCreated(bytes32,bytes32,uint256,uint256)")),
                 idx,
-                H256::from_low_u64_be(log.address.to_low_u64_be()),
             ];
         }
         Actions::LockDelete => {
             log.topics = vec![
                 H256::from(keccak256("LockDeleted(bytes32,bytes32,uint256)")),
                 idx,
-                H256::from_low_u64_be(log.address.to_low_u64_be()),
             ];
         }
         Actions::ReviseRate => {
             log.topics = vec![
                 H256::from(keccak256("JobRevisedRate(bytes32,uint256)")),
                 idx,
-                H256::from_low_u64_be(log.address.to_low_u64_be()),
             ];
         }
     }

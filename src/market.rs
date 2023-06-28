@@ -580,6 +580,7 @@ impl JobState {
     // return 0 on success
     // -1 on recoverable errors (can retry)
     // -2 on unrecoverable errors (no point retrying)
+    // -3 when blacklist/whitelist check fails
     fn process_log(
         &mut self,
         log: Option<Log>,
@@ -631,7 +632,7 @@ impl JobState {
             if !allowed {
                 // blacklisted or not whitelisted address
                 self.schedule_termination(0);
-                return -2;
+                return -3;
             }
 
             // decode

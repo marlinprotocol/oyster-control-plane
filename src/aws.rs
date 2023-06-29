@@ -158,7 +158,14 @@ impl Aws {
         Ok(sess)
     }
 
-    async fn run_enclave(&self, sess: &Session, url: &str, v_cpus: i32, mem: i64, bandwidth: u64) -> Result<()> {
+    async fn run_enclave(
+        &self,
+        sess: &Session,
+        url: &str,
+        v_cpus: i32,
+        mem: i64,
+        bandwidth: u64,
+    ) -> Result<()> {
         let mut channel = sess.channel_session()?;
         let mut s = String::new();
         channel.exec(
@@ -277,7 +284,7 @@ impl Aws {
         let _ = channel.stderr().read_to_string(&mut s);
         let _ = channel.read_to_string(&mut output);
         let _ = channel.wait_close();
-        if !s.is_empty() || output.is_empty(){
+        if !s.is_empty() || output.is_empty() {
             println!("{s}");
             return Err(anyhow!("Error fetching network interface name"));
         }
@@ -293,10 +300,13 @@ impl Aws {
 
         if !interface.is_empty() {
             channel = sess.channel_session()?;
-            channel
-                .exec(
-                    &("sudo tc qdisc add dev ".to_owned() + &interface + " root tbf rate " + &(bandwidth / 256).to_string() + "mbit burst 50gb latency 100ms"),
-                )?;
+            channel.exec(
+                &("sudo tc qdisc add dev ".to_owned()
+                    + &interface
+                    + " root tbf rate "
+                    + &bandwidth.to_string()
+                    + "mbit burst 4000Mb latency 100ms"),
+            )?;
 
             let _ = channel.stderr().read_to_string(&mut s);
             let _ = channel.wait_close();
@@ -819,7 +829,7 @@ impl Aws {
         region: String,
         req_mem: i64,
         req_vcpu: i32,
-        bandwidth: u64
+        bandwidth: u64,
     ) -> Result<String> {
         let ec2_type = aws_sdk_ec2::model::InstanceType::from_str(instance_type)?;
         let resp = self
@@ -911,7 +921,9 @@ impl Aws {
         let sess = self.ssh_connect(&public_ip_address).await;
         match sess {
             Ok(r) => {
-                let res = self.run_enclave(&r, image_url, req_vcpu, req_mem, bandwidth).await;
+                let res = self
+                    .run_enclave(&r, image_url, req_vcpu, req_mem, bandwidth)
+                    .await;
                 match res {
                     Ok(_) => Ok(instance),
                     Err(e) => {
@@ -969,10 +981,18 @@ impl InfraProvider for Aws {
         region: String,
         req_mem: i64,
         req_vcpu: i32,
-        bandwidth: u64
+        bandwidth: u64,
     ) -> Result<String, Box<dyn Error + Send + Sync>> {
         let instance = self
-            .spin_up_instance(eif_url, job, instance_type, region, req_mem, req_vcpu, bandwidth)
+            .spin_up_instance(
+                eif_url,
+                job,
+                instance_type,
+                region,
+                req_mem,
+                req_vcpu,
+                bandwidth,
+            )
             .await?;
         Ok(instance)
     }

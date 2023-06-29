@@ -1055,7 +1055,11 @@ impl InfraProvider for TestAws {
         region: String,
     ) -> Result<(bool, String, String), Box<dyn Error + Send + Sync>> {
         println!("TEST: get_job_instance | job: {job}, region: {region}");
-        Ok((false, "".to_string(), "".to_owned()))
+        if self.cur_idx == 0 {
+            Ok((false, "".to_string(), "".to_owned()))
+        } else {
+            Ok((true, "12345".to_string(), "running".to_owned()))
+        }
     }
 
     async fn check_instance_running(
@@ -1187,9 +1191,9 @@ mod tests {
     async fn test_5() {
         market::job_manager(
             market::TestAws {
-                outcomes: vec!['U', 'U', 'D'],
+                outcomes: vec!['U', 'D'],
                 cur_idx: 0,
-                max_idx: 3,
+                max_idx: 2,
                 outfile: "".into(),
             },
             market::TestLogger {},
@@ -1387,9 +1391,9 @@ mod tests {
     async fn test_15() {
         market::job_manager(
             market::TestAws {
-                outcomes: vec!['U', 'D', 'U', 'D'],
+                outcomes: vec!['U', 'D'],
                 cur_idx: 0,
-                max_idx: 4,
+                max_idx: 2,
                 outfile: "".into(),
             },
             market::TestLogger {},

@@ -7,7 +7,6 @@ use anyhow::anyhow;
 use clap::Parser;
 use std::error::Error;
 use std::fs;
-use std::sync::Arc;
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
@@ -110,10 +109,10 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
         provider: cli.provider,
     };
 
-    let address_whitelist: Arc<Vec<String>> =
-        Arc::new(parse_file(cli.address_whitelist.unwrap_or("".to_owned())).await?);
-    let address_blacklist: Arc<Vec<String>> =
-        Arc::new(parse_file(cli.address_blacklist.unwrap_or("".to_owned())).await?);
+    let address_whitelist: Vec<String> =
+        parse_file(cli.address_whitelist.unwrap_or("".to_owned())).await?;
+    let address_blacklist: Vec<String> =
+        parse_file(cli.address_blacklist.unwrap_or("".to_owned())).await?;
 
     market::run(
         aws,

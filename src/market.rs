@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::error::Error;
 use std::fs;
-use std::sync::Arc;
 use std::time::SystemTime;
 use tokio::time::sleep;
 use tokio::time::{Duration, Instant};
@@ -161,8 +160,8 @@ pub async fn run(
     regions: Vec<String>,
     rates_path: String,
     gb_rates_path: String,
-    address_whitelist: &Arc<Vec<String>>,
-    address_blacklist: &Arc<Vec<String>>,
+    address_whitelist: &Vec<String>,
+    address_blacklist: &Vec<String>,
 ) {
     let mut backoff = 1;
 
@@ -239,8 +238,8 @@ async fn run_once(
     regions: Vec<String>,
     rates: &Vec<server::RegionalRates>,
     gb_rates: &Vec<GBRateCard>,
-    address_whitelist: &Arc<Vec<String>>,
-    address_blacklist: &Arc<Vec<String>>,
+    address_whitelist: &Vec<String>,
+    address_blacklist: &Vec<String>,
 ) {
     while let Some((job, removed)) = job_stream.next().await {
         println!("main: New job: {job}, {removed}");
@@ -293,8 +292,8 @@ async fn job_manager(
     aws_delay_duration: u64,
     rates: Vec<server::RegionalRates>,
     gb_rates: Vec<GBRateCard>,
-    address_whitelist: Arc<Vec<String>>,
-    address_blacklist: Arc<Vec<String>>,
+    address_whitelist: Vec<String>,
+    address_blacklist: Vec<String>,
 ) {
     let mut backoff = 1;
 
@@ -549,8 +548,8 @@ impl JobState {
     fn whitelist_blacklist_check(
         &self,
         log: Log,
-        address_whitelist: &Arc<Vec<String>>,
-        address_blacklist: &Arc<Vec<String>>,
+        address_whitelist: &Vec<String>,
+        address_blacklist: &Vec<String>,
     ) -> bool {
         // check whitelist
         if !address_whitelist.is_empty() {
@@ -586,8 +585,8 @@ impl JobState {
         log: Option<Log>,
         rates: &Vec<server::RegionalRates>,
         gb_rates: &Vec<GBRateCard>,
-        address_whitelist: &Arc<Vec<String>>,
-        address_blacklist: &Arc<Vec<String>>,
+        address_whitelist: &Vec<String>,
+        address_blacklist: &Vec<String>,
     ) -> i8 {
         let job = self.job;
 
@@ -915,8 +914,8 @@ async fn job_manager_once(
     aws_delay_duration: u64,
     rates: &Vec<server::RegionalRates>,
     gb_rates: &Vec<GBRateCard>,
-    address_whitelist: &Arc<Vec<String>>,
-    address_blacklist: &Arc<Vec<String>>,
+    address_whitelist: &Vec<String>,
+    address_blacklist: &Vec<String>,
 ) -> bool {
     let mut state = JobState::new(job, aws_delay_duration, allowed_regions);
 
@@ -1127,7 +1126,6 @@ mod tests {
     use crate::server;
     use ethers::prelude::*;
     use std::fs;
-    use std::sync::Arc;
 
     use super::GBRateCard;
 
@@ -1173,8 +1171,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Arc::new(Vec::new()),
-            Arc::new(Vec::new()),
+            Vec::new(),
+            Vec::new(),
         )
         .await;
     }
@@ -1195,8 +1193,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Arc::new(Vec::new()),
-            Arc::new(Vec::new()),
+            Vec::new(),
+            Vec::new(),
         )
         .await;
     }
@@ -1217,8 +1215,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Arc::new(Vec::new()),
-            Arc::new(Vec::new()),
+            Vec::new(),
+            Vec::new(),
         )
         .await;
     }
@@ -1239,8 +1237,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Arc::new(Vec::new()),
-            Arc::new(Vec::new()),
+            Vec::new(),
+            Vec::new(),
         )
         .await;
     }
@@ -1261,8 +1259,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Arc::new(Vec::new()),
-            Arc::new(Vec::new()),
+            Vec::new(),
+            Vec::new(),
         )
         .await;
     }
@@ -1283,8 +1281,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Arc::new(Vec::new()),
-            Arc::new(Vec::new()),
+            Vec::new(),
+            Vec::new(),
         )
         .await;
     }
@@ -1305,8 +1303,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Arc::new(Vec::new()),
-            Arc::new(Vec::new()),
+            Vec::new(),
+            Vec::new(),
         )
         .await;
     }
@@ -1327,8 +1325,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Arc::new(Vec::new()),
-            Arc::new(Vec::new()),
+            Vec::new(),
+            Vec::new(),
         )
         .await;
     }
@@ -1349,8 +1347,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Arc::new(Vec::new()),
-            Arc::new(Vec::new()),
+            Vec::new(),
+            Vec::new(),
         )
         .await;
     }
@@ -1371,8 +1369,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Arc::new(Vec::new()),
-            Arc::new(Vec::new()),
+            Vec::new(),
+            Vec::new(),
         )
         .await;
     }
@@ -1393,8 +1391,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Arc::new(Vec::new()),
-            Arc::new(Vec::new()),
+            Vec::new(),
+            Vec::new(),
         )
         .await;
     }
@@ -1415,8 +1413,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Arc::new(Vec::new()),
-            Arc::new(Vec::new()),
+            Vec::new(),
+            Vec::new(),
         )
         .await;
     }
@@ -1437,8 +1435,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Arc::new(Vec::new()),
-            Arc::new(Vec::new()),
+            Vec::new(),
+            Vec::new(),
         )
         .await;
     }
@@ -1459,8 +1457,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Arc::new(Vec::new()),
-            Arc::new(Vec::new()),
+            Vec::new(),
+            Vec::new(),
         )
         .await;
     }
@@ -1481,8 +1479,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Arc::new(Vec::new()),
-            Arc::new(Vec::new()),
+            Vec::new(),
+            Vec::new(),
         )
         .await;
     }
@@ -1503,8 +1501,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Arc::new(Vec::from(["0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string()])),
-            Arc::new(Vec::new()),
+            Vec::from(["0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string()]),
+            Vec::new(),
         )
         .await;
     }
@@ -1525,8 +1523,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Arc::new(Vec::from(["0x000000000000000000000000000000000000000000000000f020c4f6gc7a56ce".to_string()])),
-            Arc::new(Vec::new()),
+            Vec::from(["0x000000000000000000000000000000000000000000000000f020c4f6gc7a56ce".to_string()]),
+            Vec::new(),
         )
         .await;
     }
@@ -1547,8 +1545,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Arc::new(Vec::new()),
-            Arc::new(Vec::from(["0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string()])),
+            Vec::new(),
+            Vec::from(["0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string()]),
         )
         .await;
     }
@@ -1569,8 +1567,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Arc::new(Vec::new()),
-            Arc::new(Vec::from(["0x000000000000000000000000000000000000000000000000f020c4f6gc7a56ce".to_string()])),
+            Vec::new(),
+            Vec::from(["0x000000000000000000000000000000000000000000000000f020c4f6gc7a56ce".to_string()]),
         )
         .await;
     }

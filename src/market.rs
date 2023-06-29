@@ -1513,7 +1513,7 @@ mod tests {
     async fn test_17() {
         market::job_manager(
             market::TestAws {
-                outcomes: vec!['U', 'D'],
+                outcomes: vec![],
                 cur_idx: 0,
                 max_idx: 2,
                 outfile: "".into(),
@@ -1535,7 +1535,7 @@ mod tests {
     async fn test_18() {
         market::job_manager(
             market::TestAws {
-                outcomes: vec!['U', 'D'],
+                outcomes: vec![],
                 cur_idx: 0,
                 max_idx: 2,
                 outfile: "".into(),

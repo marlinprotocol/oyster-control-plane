@@ -31,7 +31,7 @@ pub trait InfraProvider {
         region: String,
         req_mem: i64,
         req_vcpu: i32,
-        bandwidth: u64
+        bandwidth: u64,
     ) -> Result<String, Box<dyn Error + Send + Sync>>;
 
     async fn spin_down(
@@ -67,10 +67,18 @@ where
         region: String,
         req_mem: i64,
         req_vcpu: i32,
-        bandwidth: u64
+        bandwidth: u64,
     ) -> Result<String, Box<dyn Error + Send + Sync>> {
         (**self)
-            .spin_up(eif_url, job, instance_type, region, req_mem, req_vcpu, bandwidth)
+            .spin_up(
+                eif_url,
+                job,
+                instance_type,
+                region,
+                req_mem,
+                req_vcpu,
+                bandwidth,
+            )
             .await
     }
 
@@ -142,7 +150,7 @@ impl LogsProvider for EthersProvider {
 pub struct GBRateCard {
     pub region: String,
     pub region_code: String,
-    pub rate: i64
+    pub rate: u128,
 }
 
 pub async fn run(
@@ -151,7 +159,7 @@ pub async fn run(
     url: String,
     regions: Vec<String>,
     rates_path: String,
-    gb_rates_path: String
+    gb_rates_path: String,
 ) {
     let mut backoff = 1;
 
@@ -179,7 +187,6 @@ pub async fn run(
     }
     let contents = contents.unwrap();
     let gb_rates: Vec<GBRateCard> = serde_json::from_str(&contents).unwrap_or_default();
-
 
     loop {
         println!("main: Connecting to RPC endpoint...");
@@ -213,7 +220,7 @@ pub async fn run(
             url.clone(),
             regions.clone(),
             &rates,
-            &gb_rates
+            &gb_rates,
         )
         .await;
     }
@@ -226,7 +233,7 @@ async fn run_once(
     url: String,
     regions: Vec<String>,
     rates: &Vec<server::RegionalRates>,
-    gb_rates: &Vec<GBRateCard>
+    gb_rates: &Vec<GBRateCard>,
 ) {
     while let Some((job, removed)) = job_stream.next().await {
         println!("main: New job: {job}, {removed}");
@@ -238,7 +245,7 @@ async fn run_once(
             regions.clone(),
             3,
             rates.clone(),
-            gb_rates.clone()
+            gb_rates.clone(),
         ));
     }
 
@@ -276,7 +283,7 @@ async fn job_manager(
     allowed_regions: Vec<String>,
     aws_delay_duration: u64,
     rates: Vec<server::RegionalRates>,
-    gb_rates: Vec<GBRateCard>
+    gb_rates: Vec<GBRateCard>,
 ) {
     let mut backoff = 1;
 
@@ -316,7 +323,7 @@ async fn job_manager(
             allowed_regions.clone(),
             aws_delay_duration,
             &rates,
-            &gb_rates
+            &gb_rates,
         )
         .await;
 
@@ -389,8 +396,10 @@ impl JobState {
             Duration::from_secs(0)
         } else {
             // solvent for balance / rate seconds from last_settled with 300s as margin
-            Duration::from_secs(sat_convert(self.balance / self.rate).saturating_sub(300))
-                .saturating_sub(now_ts.saturating_sub(self.last_settled))
+            Duration::from_secs(
+                sat_convert(self.balance * U256::exp10(12) / self.rate).saturating_sub(300),
+            )
+            .saturating_sub(now_ts.saturating_sub(self.last_settled))
         }
     }
 
@@ -496,7 +505,7 @@ impl JobState {
                     self.region.clone(),
                     self.req_mem,
                     self.req_vcpus,
-                    self.bandwidth
+                    self.bandwidth,
                 )
                 .await;
             if let Err(err) = res {
@@ -529,7 +538,12 @@ impl JobState {
     // return 0 on success
     // -1 on recoverable errors (can retry)
     // -2 on unrecoverable errors (no point retrying)
-    fn process_log(&mut self, log: Option<Log>, rates: &Vec<server::RegionalRates>, gb_rates: &Vec<GBRateCard>) -> i8 {
+    fn process_log(
+        &mut self,
+        log: Option<Log>,
+        rates: &Vec<server::RegionalRates>,
+        gb_rates: &Vec<GBRateCard>,
+    ) -> i8 {
         let job = self.job;
 
         if log.is_none() {
@@ -665,7 +679,6 @@ impl JobState {
                     }
                 }
 
-
                 if !supported {
                     println!(
                         "job {job}: instance type {}, not supported",
@@ -679,7 +692,10 @@ impl JobState {
                         let gb_cost = entry.rate;
                         let bandwidth_rate = self.rate - self.min_rate;
 
-                        self.bandwidth = (bandwidth_rate.as_u64() / gb_cost as u64) * 1024 * 1024;
+                        self.bandwidth = ((bandwidth_rate * 1024 * 8 / U256::from(gb_cost))
+                            as U256)
+                            .clamp(U256::zero(), u64::MAX.into())
+                            .low_u64();
                         break;
                     }
                 }
@@ -847,7 +863,7 @@ async fn job_manager_once(
     allowed_regions: Vec<String>,
     aws_delay_duration: u64,
     rates: &Vec<server::RegionalRates>,
-    gb_rates: &Vec<GBRateCard>
+    gb_rates: &Vec<GBRateCard>,
 ) -> bool {
     let mut state = JobState::new(job, aws_delay_duration, allowed_regions);
 
@@ -990,7 +1006,7 @@ impl InfraProvider for TestAws {
         region: String,
         req_mem: i64,
         req_vcpu: i32,
-        bandwidth: u64
+        bandwidth: u64,
     ) -> Result<String, Box<dyn Error + Send + Sync>> {
         if self.outfile.as_str() != "" {
             let mut file = OpenOptions::new()
@@ -1102,7 +1118,7 @@ mod tests {
             vec!["ap-south-1".into()],
             1,
             get_rates().unwrap_or_default(),
-            get_gb_rates().unwrap_or_default()
+            get_gb_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1122,7 +1138,7 @@ mod tests {
             vec!["ap-south-1".into()],
             1,
             get_rates().unwrap_or_default(),
-            get_gb_rates().unwrap_or_default()
+            get_gb_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1142,7 +1158,7 @@ mod tests {
             vec!["ap-south-1".into()],
             1,
             get_rates().unwrap_or_default(),
-            get_gb_rates().unwrap_or_default()
+            get_gb_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1162,7 +1178,7 @@ mod tests {
             vec!["ap-south-1".into()],
             1,
             get_rates().unwrap_or_default(),
-            get_gb_rates().unwrap_or_default()
+            get_gb_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1182,7 +1198,7 @@ mod tests {
             vec!["ap-south-1".into()],
             1,
             get_rates().unwrap_or_default(),
-            get_gb_rates().unwrap_or_default()
+            get_gb_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1202,7 +1218,7 @@ mod tests {
             vec!["ap-south-1".into()],
             1,
             get_rates().unwrap_or_default(),
-            get_gb_rates().unwrap_or_default()
+            get_gb_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1222,7 +1238,7 @@ mod tests {
             vec!["ap-south-1".into()],
             1,
             get_rates().unwrap_or_default(),
-            get_gb_rates().unwrap_or_default()
+            get_gb_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1242,7 +1258,7 @@ mod tests {
             vec!["ap-south-1".into()],
             1,
             get_rates().unwrap_or_default(),
-            get_gb_rates().unwrap_or_default()
+            get_gb_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1262,7 +1278,7 @@ mod tests {
             vec!["ap-south-1".into()],
             1,
             get_rates().unwrap_or_default(),
-            get_gb_rates().unwrap_or_default()
+            get_gb_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1282,7 +1298,7 @@ mod tests {
             vec!["ap-south-1".into()],
             1,
             get_rates().unwrap_or_default(),
-            get_gb_rates().unwrap_or_default()
+            get_gb_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1302,7 +1318,7 @@ mod tests {
             vec!["ap-south-1".into()],
             1,
             get_rates().unwrap_or_default(),
-            get_gb_rates().unwrap_or_default()
+            get_gb_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1322,7 +1338,7 @@ mod tests {
             vec!["ap-south-1".into()],
             1,
             get_rates().unwrap_or_default(),
-            get_gb_rates().unwrap_or_default()
+            get_gb_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1342,7 +1358,7 @@ mod tests {
             vec!["ap-south-1".into()],
             1,
             get_rates().unwrap_or_default(),
-            get_gb_rates().unwrap_or_default()
+            get_gb_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1362,7 +1378,7 @@ mod tests {
             vec!["ap-south-1".into()],
             1,
             get_rates().unwrap_or_default(),
-            get_gb_rates().unwrap_or_default()
+            get_gb_rates().unwrap_or_default(),
         )
         .await;
     }
@@ -1382,7 +1398,7 @@ mod tests {
             vec!["ap-south-1".into()],
             1,
             get_rates().unwrap_or_default(),
-            get_gb_rates().unwrap_or_default()
+            get_gb_rates().unwrap_or_default(),
         )
         .await;
     }

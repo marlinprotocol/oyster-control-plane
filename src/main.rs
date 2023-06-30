@@ -109,8 +109,10 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
         provider: cli.provider,
     };
 
-    let address_whitelist_vec = parse_file(cli.address_whitelist.unwrap_or("".to_owned())).await?;
-    let address_blacklist_vec = parse_file(cli.address_blacklist.unwrap_or("".to_owned())).await?;
+    let address_whitelist_vec: Vec<String> = parse_file(cli.address_whitelist.unwrap_or("".to_owned())).await?;
+    let address_blacklist_vec: Vec<String> = parse_file(cli.address_blacklist.unwrap_or("".to_owned())).await?;
+    // Converting Vec<String> to &'static [String]
+    // because market::run_once needs a static [String]
     let address_whitelist: &'static [String] = Box::leak(address_whitelist_vec.into_boxed_slice());
     let address_blacklist: &'static [String] = Box::leak(address_blacklist_vec.into_boxed_slice());
 

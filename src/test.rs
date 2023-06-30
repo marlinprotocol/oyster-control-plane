@@ -11,9 +11,9 @@ enum Actions {
     Settle,     // amount, timestamp
     Deposit,    // amount
     Withdraw,   // amount
-    LockCreate, // new_rate, 0
-    LockDelete, //
-    ReviseRate, //
+    ReviseRateInitiated, // new_rate
+    ReviseRateCancelled, //
+    ReviseRateFinalized, //
 }
 
 fn get_logs_data() -> Vec<(Actions, Bytes, U256)> {
@@ -24,59 +24,58 @@ fn get_logs_data() -> Vec<(Actions, Bytes, U256)> {
         .as_secs();
     let input = vec![
         // test : 1 -> job open and close
-        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),2,1001,time+1).encode()),
+        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,time+1).encode()),
         (Actions::Close, [].into()),
 
         // test : 2 -> deposit
-        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),2,1001,time+3).encode()),
+        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,time+3).encode()),
         (Actions::Deposit, (500).encode()),
         (Actions::Close, [].into()),
 
         // test : 3 -> withdraw
-        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),2,1001,time+6).encode()),
+        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,time+6).encode()),
         (Actions::Withdraw, (500).encode()),
         (Actions::Close, [].into()),
 
         // test : 4 -> settle
-        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),2,1001,time+9).encode()),
+        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,time+9).encode()),
         (Actions::Settle, (2, time+10).encode()),
         (Actions::Close, [].into()),
 
         // test : 5 -> revise rate
-        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),2,1001,time+12).encode()),
-        (Actions::LockCreate, (5,0).encode()),
-        (Actions::LockDelete, [].into()),
-        (Actions::ReviseRate, [].into()),
+        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,time+12).encode()),
+        (Actions::ReviseRateInitiated, (50,0).encode()),
+        (Actions::ReviseRateFinalized, (50,0).encode()),
         (Actions::Close, [].into()),
 
         // test : 6 -> revise rate cancel
-        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),2,1001,time+17).encode()),
-        (Actions::LockCreate, (5,0).encode()),
-        (Actions::LockDelete, [].into()),
+        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,time+17).encode()),
+        (Actions::ReviseRateInitiated, (50,0).encode()),
+        (Actions::ReviseRateCancelled, [].into()),
         (Actions::Close, [].into()),
 
         // test : 7 -> region type not supported
-        (Actions::Open, ("{\"region\":\"ap-east-2\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),2,1001,time+21).encode()),
+        (Actions::Open, ("{\"region\":\"ap-east-2\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,time+21).encode()),
         (Actions::Close, [].into()),
 
         // test : 8 -> region not provided
-        (Actions::Open, ("{\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),2,1001,time+23).encode()),
+        (Actions::Open, ("{\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,time+23).encode()),
         (Actions::Close, [].into()),
 
         // test : 9 -> instance type not provided
-        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"memory\":4096,\"vcpu\":2}".to_string(),2,1001,time+25).encode()),
+        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,time+25).encode()),
         (Actions::Close, [].into()),
 
         // test : 10 -> instance type not supported
-        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.vsmall\",\"memory\":1024,\"vcpu\":1}".to_string(),2,1001,time+27).encode()),
+        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.vsmall\",\"memory\":1024,\"vcpu\":1}".to_string(),30,1001,time+27).encode()),
         (Actions::Close, [].into()),
 
         // test : 11 -> eif url not provided
-        (Actions::Open, ("{\"region\":\"ap-south-1\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),2,1001,time+29).encode()),
+        (Actions::Open, ("{\"region\":\"ap-south-1\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,time+29).encode()),
         (Actions::Close, [].into()),
 
         // test : 12 -> rate lower than min rate
-        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.large\",\"memory\":4096,\"vcpu\":2}".to_string(),2,1001,time+31).encode()),
+        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),2,1001,time+31).encode()),
         (Actions::Close, [].into()),
 
         // test : 13 -> rate higher than balance
@@ -84,19 +83,16 @@ fn get_logs_data() -> Vec<(Actions, Bytes, U256)> {
         (Actions::Close, [].into()),
 
         // test : 14 -> withdraw to amount lower than rate
-        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),20,1001,time+35).encode()),
+        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,time+35).encode()),
         (Actions::Withdraw, (990).encode()),
         (Actions::Close, [].into()),
 
         // test : 15 -> revised rate lower than min rate and again to higher
-        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.large\",\"memory\":4096,\"vcpu\":2}".to_string(),5,1001,time+38).encode()),
-        (Actions::LockCreate, (3,0).encode()),
-        (Actions::LockDelete, [].into()),
-        (Actions::ReviseRate, [].into()),
-        (Actions::LockCreate, (8,0).encode()),
-        (Actions::LockDelete, [].into()),
-        (Actions::ReviseRate, [].into()),
-        (Actions::Close, [].into()),
+        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,time+38).encode()),
+        (Actions::ReviseRateInitiated, (25,0).encode()),
+        (Actions::ReviseRateFinalized, (25,0).encode()),
+        (Actions::ReviseRateInitiated, (50,0).encode()),
+        (Actions::ReviseRateFinalized, (50,0).encode()),
 
         // test : 16 -> Address is Whitelisted - job open and close
         (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),2,1001,time+1).encode()),
@@ -183,21 +179,21 @@ fn get_log(topic: Actions, data: Bytes, idx: H256) -> Log {
                 idx,
             ];
         }
-        Actions::LockCreate => {
+        Actions::ReviseRateInitiated => {
             log.topics = vec![
-                H256::from(keccak256("LockCreated(bytes32,bytes32,uint256,uint256)")),
+                H256::from(keccak256("JobReviseRateInitiated(bytes32,uint256)")),
                 idx,
             ];
         }
-        Actions::LockDelete => {
+        Actions::ReviseRateCancelled => {
             log.topics = vec![
-                H256::from(keccak256("LockDeleted(bytes32,bytes32,uint256)")),
+                H256::from(keccak256("JobReviseRateCancelled(bytes32)")),
                 idx,
             ];
         }
-        Actions::ReviseRate => {
+        Actions::ReviseRateFinalized => {
             log.topics = vec![
-                H256::from(keccak256("JobRevisedRate(bytes32,uint256)")),
+                H256::from(keccak256("JobReviseRateFinalized(bytes32, uint256)")),
                 idx,
             ];
         }

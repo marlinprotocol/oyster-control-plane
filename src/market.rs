@@ -346,6 +346,35 @@ async fn job_manager(
     }
 }
 
+fn whitelist_blacklist_check(
+    log: Log,
+    address_whitelist: &[String],
+    address_blacklist: &[String],
+) -> bool {
+    // check whitelist
+    if !address_whitelist.is_empty() {
+        println!("Checking address whitelist...");
+        if address_whitelist.iter().any(|s| s == &log.topics[2].encode_hex()) {
+            println!("ADDRESS ALLOWED!");
+        } else {
+            println!("ADDRESS NOT ALLOWED!");
+            return false;
+        }
+    }
+
+    // check blacklist
+    if !address_blacklist.is_empty() {
+        println!("Checking address blacklist...");
+        if address_blacklist.iter().any(|s| s == &log.topics[2].encode_hex()) {
+            println!("ADDRESS NOT ALLOWED!");
+            return false;
+        } else {
+            println!("ADDRESS ALLOWED!");
+        }
+    }
+
+    return true;
+}
 struct JobState {
     job: H256,
     launch_delay: u64,
@@ -547,37 +576,6 @@ impl JobState {
         true
     }
 
-    fn whitelist_blacklist_check(
-        &self,
-        log: Log,
-        address_whitelist: &[String],
-        address_blacklist: &[String],
-    ) -> bool {
-        // check whitelist
-        if !address_whitelist.is_empty() {
-            println!("Checking address whitelist...");
-            if address_whitelist.iter().any(|s| s == &log.topics[2].encode_hex()) {
-                println!("ADDRESS ALLOWED!");
-            } else {
-                println!("ADDRESS NOT ALLOWED!");
-                return false;
-            }
-        }
-
-        // check blacklist
-        if !address_blacklist.is_empty() {
-            println!("Checking address blacklist...");
-            if address_blacklist.iter().any(|s| s == &log.topics[2].encode_hex()) {
-                println!("ADDRESS NOT ALLOWED!");
-                return false;
-            } else {
-                println!("ADDRESS ALLOWED!");
-            }
-        }
-
-        return true;
-    }
-
     // return 0 on success
     // -1 on recoverable errors (can retry)
     // -2 on unrecoverable errors (no point retrying)
@@ -712,8 +710,7 @@ impl JobState {
                 self.eif_url = url.unwrap().to_string();
 
                 // blacklist whitelist check
-                let allowed =
-                    self.whitelist_blacklist_check(log.clone(), address_whitelist, address_blacklist);
+                let allowed = whitelist_blacklist_check(log.clone(), address_whitelist, address_blacklist);
                 if !allowed {
                     // blacklisted or not whitelisted address
                     self.schedule_termination(0);
@@ -1132,6 +1129,7 @@ impl InfraProvider for TestAws {
 mod tests {
     use crate::market;
     use crate::server;
+    use crate::test;
     use ethers::prelude::*;
     use std::fs;
 
@@ -1580,4 +1578,93 @@ mod tests {
         )
         .await;
     }
+
+    // Tests for whitelist blacklist checks
+    #[tokio::test]
+    async fn test_whitelist_blacklist_check_no_list() {
+        let log = &test::test_logs()[0];
+        let address_whitelist = vec![];
+        let address_blacklist = vec![];
+
+        assert!(market::whitelist_blacklist_check(log.clone(), &address_whitelist, &address_blacklist));
+    }
+
+    #[tokio::test]
+    async fn test_whitelist_blacklist_check_whitelisted() {
+        let log = &test::test_logs()[0];
+        let address_whitelist = vec![
+            "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
+            "0x000000000000000000000000000000000000000000000000f020b3e5fd6sd76d".to_string(),
+        ];
+        let address_blacklist = vec![];
+
+        assert!(market::whitelist_blacklist_check(log.clone(), &address_whitelist, &address_blacklist));
+    }
+
+    #[tokio::test]
+    async fn test_whitelist_blacklist_check_not_whitelisted() {
+        let log = &test::test_logs()[0];
+        let address_whitelist = vec![
+            "0x000000000000000000000000000000000000000000000000f020b3e5fc7a48as".to_string(),
+            "0x000000000000000000000000000000000000000000000000f020b3e5fd6sd76d".to_string(),
+        ];
+        let address_blacklist = vec![];
+
+        assert!(!market::whitelist_blacklist_check(log.clone(), &address_whitelist, &address_blacklist));
+    }
+
+    #[tokio::test]
+    async fn test_whitelist_blacklist_check_blacklisted() {
+        let log = &test::test_logs()[0];
+        let address_whitelist = vec![];
+        let address_blacklist = vec![
+            "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
+            "0x000000000000000000000000000000000000000000000000f020b3e5fd6sdsd6".to_string(),
+        ];
+
+        assert!(!market::whitelist_blacklist_check(log.clone(), &address_whitelist, &address_blacklist));
+    }
+
+    #[tokio::test]
+    async fn test_whitelist_blacklist_check_not_blacklisted() {
+        let log = &test::test_logs()[0];
+        let address_whitelist = vec![];
+        let address_blacklist = vec![
+            "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49fe".to_string(),
+            "0x000000000000000000000000000000000000000000000000f020b3e5fd6sdsd6".to_string(),
+        ];
+
+        assert!(market::whitelist_blacklist_check(log.clone(), &address_whitelist, &address_blacklist));
+    }
+
+    #[tokio::test]
+    async fn test_whitelist_blacklist_check_neither() {
+        let log = &test::test_logs()[0];
+        let address_whitelist = vec![
+            "0x000000000000000000000000000000000000000000000000f020b3e5fc7a48aa".to_string(),
+            "0x000000000000000000000000000000000000000000000000f020b3e5fd6sd76d".to_string(),
+        ];
+        let address_blacklist = vec![
+            "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ed".to_string(),
+            "0x000000000000000000000000000000000000000000000000f020b3e5fd6sdsd6".to_string(),
+        ];
+
+        assert!(!market::whitelist_blacklist_check(log.clone(), &address_whitelist, &address_blacklist));
+    }
+
+    #[tokio::test]
+    async fn test_whitelist_blacklist_check_both() {
+        let log = &test::test_logs()[0];
+        let address_whitelist = vec![
+            "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
+            "0x000000000000000000000000000000000000000000000000f020b3e5fd6sd76d".to_string(),
+        ];
+        let address_blacklist = vec![
+            "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
+            "0x000000000000000000000000000000000000000000000000f020b3e5fd6sdsd6".to_string(),
+        ];
+
+        assert!(!market::whitelist_blacklist_check(log.clone(), &address_whitelist, &address_blacklist));
+    }
+
 }

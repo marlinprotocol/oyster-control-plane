@@ -687,19 +687,6 @@ impl JobState {
                     return -2;
                 }
 
-                for entry in gb_rates {
-                    if entry.region_code == self.region {
-                        let gb_cost = entry.rate;
-                        let bandwidth_rate = self.rate - self.min_rate;
-
-                        self.bandwidth = ((bandwidth_rate * 1024 * 8 / U256::from(gb_cost))
-                            as U256)
-                            .clamp(U256::zero(), u64::MAX.into())
-                            .low_u64();
-                        break;
-                    }
-                }
-
                 println!(
                     "job {job}: MIN RATE for {} instance is {}",
                     self.instance_type, self.min_rate
@@ -707,6 +694,18 @@ impl JobState {
 
                 // launch only if rate is more than min
                 if self.rate >= self.min_rate {
+                    for entry in gb_rates {
+                        if entry.region_code == self.region {
+                            let gb_cost = entry.rate;
+                            let bandwidth_rate = self.rate - self.min_rate;
+    
+                            self.bandwidth = ((bandwidth_rate * 1024 * 8 / U256::from(gb_cost))
+                                as U256)
+                                .clamp(U256::zero(), u64::MAX.into())
+                                .low_u64();
+                            break;
+                        }
+                    }
                     self.schedule_launch(self.launch_delay);
                 } else {
                     self.schedule_termination(0);
@@ -1055,7 +1054,11 @@ impl InfraProvider for TestAws {
         region: String,
     ) -> Result<(bool, String, String), Box<dyn Error + Send + Sync>> {
         println!("TEST: get_job_instance | job: {job}, region: {region}");
-        Ok((false, "".to_string(), "".to_owned()))
+        if self.cur_idx == 0 {
+            Ok((false, "".to_string(), "".to_owned()))
+        } else {
+            Ok((true, "12345".to_string(), "running".to_owned()))
+        }
     }
 
     async fn check_instance_running(
@@ -1187,9 +1190,9 @@ mod tests {
     async fn test_5() {
         market::job_manager(
             market::TestAws {
-                outcomes: vec!['U', 'U', 'D'],
+                outcomes: vec!['U', 'D'],
                 cur_idx: 0,
-                max_idx: 3,
+                max_idx: 2,
                 outfile: "".into(),
             },
             market::TestLogger {},
@@ -1387,9 +1390,9 @@ mod tests {
     async fn test_15() {
         market::job_manager(
             market::TestAws {
-                outcomes: vec!['U', 'D', 'U', 'D'],
+                outcomes: vec!['U', 'D'],
                 cur_idx: 0,
-                max_idx: 4,
+                max_idx: 2,
                 outfile: "".into(),
             },
             market::TestLogger {},

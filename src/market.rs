@@ -160,8 +160,8 @@ pub async fn run(
     regions: Vec<String>,
     rates_path: String,
     gb_rates_path: String,
-    address_whitelist: &Vec<String>,
-    address_blacklist: &Vec<String>,
+    address_whitelist: &'static [String],
+    address_blacklist: &'static [String],
 ) {
     let mut backoff = 1;
 
@@ -238,8 +238,8 @@ async fn run_once(
     regions: Vec<String>,
     rates: &Vec<server::RegionalRates>,
     gb_rates: &Vec<GBRateCard>,
-    address_whitelist: &Vec<String>,
-    address_blacklist: &Vec<String>,
+    address_whitelist: &'static [String],
+    address_blacklist: &'static [String],
 ) {
     while let Some((job, removed)) = job_stream.next().await {
         println!("main: New job: {job}, {removed}");
@@ -252,8 +252,8 @@ async fn run_once(
             3,
             rates.clone(),
             gb_rates.clone(),
-            address_whitelist.clone(),
-            address_blacklist.clone(),
+            address_whitelist,
+            address_blacklist,
         ));
     }
 
@@ -292,8 +292,8 @@ async fn job_manager(
     aws_delay_duration: u64,
     rates: Vec<server::RegionalRates>,
     gb_rates: Vec<GBRateCard>,
-    address_whitelist: Vec<String>,
-    address_blacklist: Vec<String>,
+    address_whitelist: &[String],
+    address_blacklist: &[String],
 ) {
     let mut backoff = 1;
 
@@ -334,8 +334,8 @@ async fn job_manager(
             aws_delay_duration,
             &rates,
             &gb_rates,
-            &address_whitelist,
-            &address_blacklist,
+            address_whitelist,
+            address_blacklist,
         )
         .await;
 
@@ -550,8 +550,8 @@ impl JobState {
     fn whitelist_blacklist_check(
         &self,
         log: Log,
-        address_whitelist: &Vec<String>,
-        address_blacklist: &Vec<String>,
+        address_whitelist: &[String],
+        address_blacklist: &[String],
     ) -> bool {
         // check whitelist
         if !address_whitelist.is_empty() {
@@ -587,8 +587,8 @@ impl JobState {
         log: Option<Log>,
         rates: &Vec<server::RegionalRates>,
         gb_rates: &Vec<GBRateCard>,
-        address_whitelist: &Vec<String>,
-        address_blacklist: &Vec<String>,
+        address_whitelist: &[String],
+        address_blacklist: &[String],
     ) -> i8 {
         let job = self.job;
 
@@ -919,8 +919,8 @@ async fn job_manager_once(
     aws_delay_duration: u64,
     rates: &Vec<server::RegionalRates>,
     gb_rates: &Vec<GBRateCard>,
-    address_whitelist: &Vec<String>,
-    address_blacklist: &Vec<String>,
+    address_whitelist: &[String],
+    address_blacklist: &[String],
 ) -> bool {
     let mut state = JobState::new(job, aws_delay_duration, allowed_regions);
 
@@ -1176,8 +1176,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Vec::new(),
-            Vec::new(),
+            &Vec::new(),
+            &Vec::new(),
         )
         .await;
     }
@@ -1198,8 +1198,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Vec::new(),
-            Vec::new(),
+            &Vec::new(),
+            &Vec::new(),
         )
         .await;
     }
@@ -1220,8 +1220,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Vec::new(),
-            Vec::new(),
+            &Vec::new(),
+            &Vec::new(),
         )
         .await;
     }
@@ -1242,8 +1242,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Vec::new(),
-            Vec::new(),
+            &Vec::new(),
+            &Vec::new(),
         )
         .await;
     }
@@ -1264,8 +1264,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Vec::new(),
-            Vec::new(),
+            &Vec::new(),
+            &Vec::new(),
         )
         .await;
     }
@@ -1286,8 +1286,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Vec::new(),
-            Vec::new(),
+            &Vec::new(),
+            &Vec::new(),
         )
         .await;
     }
@@ -1308,8 +1308,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Vec::new(),
-            Vec::new(),
+            &Vec::new(),
+            &Vec::new(),
         )
         .await;
     }
@@ -1330,8 +1330,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Vec::new(),
-            Vec::new(),
+            &Vec::new(),
+            &Vec::new(),
         )
         .await;
     }
@@ -1352,8 +1352,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Vec::new(),
-            Vec::new(),
+            &Vec::new(),
+            &Vec::new(),
         )
         .await;
     }
@@ -1374,8 +1374,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Vec::new(),
-            Vec::new(),
+            &Vec::new(),
+            &Vec::new(),
         )
         .await;
     }
@@ -1396,8 +1396,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Vec::new(),
-            Vec::new(),
+            &Vec::new(),
+            &Vec::new(),
         )
         .await;
     }
@@ -1418,8 +1418,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Vec::new(),
-            Vec::new(),
+            &Vec::new(),
+            &Vec::new(),
         )
         .await;
     }
@@ -1440,8 +1440,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Vec::new(),
-            Vec::new(),
+            &Vec::new(),
+            &Vec::new(),
         )
         .await;
     }
@@ -1462,8 +1462,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Vec::new(),
-            Vec::new(),
+            &Vec::new(),
+            &Vec::new(),
         )
         .await;
     }
@@ -1484,8 +1484,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Vec::new(),
-            Vec::new(),
+            &Vec::new(),
+            &Vec::new(),
         )
         .await;
     }
@@ -1506,8 +1506,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Vec::from(["0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string()]),
-            Vec::new(),
+            &Vec::from(["0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string()]),
+            &Vec::new(),
         )
         .await;
     }
@@ -1528,8 +1528,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Vec::from(["0x000000000000000000000000000000000000000000000000f020c4f6gc7a56ce".to_string()]),
-            Vec::new(),
+            &Vec::from(["0x000000000000000000000000000000000000000000000000f020c4f6gc7a56ce".to_string()]),
+            &Vec::new(),
         )
         .await;
     }
@@ -1550,8 +1550,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Vec::new(),
-            Vec::from(["0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string()]),
+            &Vec::new(),
+            &Vec::from(["0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string()]),
         )
         .await;
     }
@@ -1572,8 +1572,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
-            Vec::new(),
-            Vec::from(["0x000000000000000000000000000000000000000000000000f020c4f6gc7a56ce".to_string()]),
+            &Vec::new(),
+            &Vec::from(["0x000000000000000000000000000000000000000000000000f020c4f6gc7a56ce".to_string()]),
         )
         .await;
     }

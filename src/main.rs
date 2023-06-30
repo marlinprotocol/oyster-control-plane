@@ -109,10 +109,10 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
         provider: cli.provider,
     };
 
-    let address_whitelist: Vec<String> =
-        parse_file(cli.address_whitelist.unwrap_or("".to_owned())).await?;
-    let address_blacklist: Vec<String> =
-        parse_file(cli.address_blacklist.unwrap_or("".to_owned())).await?;
+    let address_whitelist_vec = parse_file(cli.address_whitelist.unwrap_or("".to_owned())).await?;
+    let address_blacklist_vec = parse_file(cli.address_blacklist.unwrap_or("".to_owned())).await?;
+    let address_whitelist: &'static [String] = Box::leak(address_whitelist_vec.into_boxed_slice());
+    let address_blacklist: &'static [String] = Box::leak(address_blacklist_vec.into_boxed_slice());
 
     market::run(
         aws,
@@ -121,8 +121,8 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
         regions,
         cli.rates,
         cli.bandwidth,
-        &address_whitelist,
-        &address_blacklist,
+        address_whitelist,
+        address_blacklist,
     )
     .await;
 

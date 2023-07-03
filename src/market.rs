@@ -160,6 +160,8 @@ pub async fn run(
     regions: Vec<String>,
     rates_path: String,
     gb_rates_path: String,
+    address_whitelist: &'static [String],
+    address_blacklist: &'static [String],
 ) {
     let mut backoff = 1;
 
@@ -221,6 +223,8 @@ pub async fn run(
             regions.clone(),
             &rates,
             &gb_rates,
+            address_whitelist,
+            address_blacklist,
         )
         .await;
     }
@@ -234,6 +238,8 @@ async fn run_once(
     regions: Vec<String>,
     rates: &Vec<server::RegionalRates>,
     gb_rates: &Vec<GBRateCard>,
+    address_whitelist: &'static [String],
+    address_blacklist: &'static [String],
 ) {
     while let Some((job, removed)) = job_stream.next().await {
         println!("main: New job: {job}, {removed}");
@@ -246,6 +252,8 @@ async fn run_once(
             3,
             rates.clone(),
             gb_rates.clone(),
+            address_whitelist,
+            address_blacklist,
         ));
     }
 
@@ -284,6 +292,8 @@ async fn job_manager(
     aws_delay_duration: u64,
     rates: Vec<server::RegionalRates>,
     gb_rates: Vec<GBRateCard>,
+    address_whitelist: &[String],
+    address_blacklist: &[String],
 ) {
     let mut backoff = 1;
 
@@ -324,6 +334,8 @@ async fn job_manager(
             aws_delay_duration,
             &rates,
             &gb_rates,
+            address_whitelist,
+            address_blacklist,
         )
         .await;
 
@@ -334,6 +346,35 @@ async fn job_manager(
     }
 }
 
+fn whitelist_blacklist_check(
+    log: Log,
+    address_whitelist: &[String],
+    address_blacklist: &[String],
+) -> bool {
+    // check whitelist
+    if !address_whitelist.is_empty() {
+        println!("Checking address whitelist...");
+        if address_whitelist.iter().any(|s| s == &log.topics[2].encode_hex()) {
+            println!("ADDRESS ALLOWED!");
+        } else {
+            println!("ADDRESS NOT ALLOWED!");
+            return false;
+        }
+    }
+
+    // check blacklist
+    if !address_blacklist.is_empty() {
+        println!("Checking address blacklist...");
+        if address_blacklist.iter().any(|s| s == &log.topics[2].encode_hex()) {
+            println!("ADDRESS NOT ALLOWED!");
+            return false;
+        } else {
+            println!("ADDRESS ALLOWED!");
+        }
+    }
+
+    return true;
+}
 struct JobState {
     job: H256,
     launch_delay: u64,
@@ -538,11 +579,14 @@ impl JobState {
     // return 0 on success
     // -1 on recoverable errors (can retry)
     // -2 on unrecoverable errors (no point retrying)
+    // -3 when blacklist/whitelist check fails
     fn process_log(
         &mut self,
         log: Option<Log>,
         rates: &Vec<server::RegionalRates>,
         gb_rates: &Vec<GBRateCard>,
+        address_whitelist: &[String],
+        address_blacklist: &[String],
     ) -> i8 {
         let job = self.job;
 
@@ -664,6 +708,14 @@ impl JobState {
                     return -2;
                 }
                 self.eif_url = url.unwrap().to_string();
+
+                // blacklist whitelist check
+                let allowed = whitelist_blacklist_check(log.clone(), address_whitelist, address_blacklist);
+                if !allowed {
+                    // blacklisted or not whitelisted address
+                    self.schedule_termination(0);
+                    return -3;
+                }
 
                 let mut supported = false;
                 for entry in rates {
@@ -863,6 +915,8 @@ async fn job_manager_once(
     aws_delay_duration: u64,
     rates: &Vec<server::RegionalRates>,
     gb_rates: &Vec<GBRateCard>,
+    address_whitelist: &[String],
+    address_blacklist: &[String],
 ) -> bool {
     let mut state = JobState::new(job, aws_delay_duration, allowed_regions);
 
@@ -886,7 +940,7 @@ async fn job_manager_once(
             biased;
 
             log = job_stream.next() => {
-                let res = state.process_log(log, rates, gb_rates);
+                let res = state.process_log(log, rates, gb_rates, address_whitelist, address_blacklist);
                 if res == -2 {
                     break 'event true;
                 } else if res == -1 {
@@ -1075,6 +1129,7 @@ impl InfraProvider for TestAws {
 mod tests {
     use crate::market;
     use crate::server;
+    use crate::test;
     use ethers::prelude::*;
     use std::fs;
 
@@ -1122,6 +1177,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
+            &Vec::new(),
+            &Vec::new(),
         )
         .await;
     }
@@ -1142,6 +1199,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
+            &Vec::new(),
+            &Vec::new(),
         )
         .await;
     }
@@ -1162,6 +1221,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
+            &Vec::new(),
+            &Vec::new(),
         )
         .await;
     }
@@ -1182,6 +1243,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
+            &Vec::new(),
+            &Vec::new(),
         )
         .await;
     }
@@ -1202,6 +1265,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
+            &Vec::new(),
+            &Vec::new(),
         )
         .await;
     }
@@ -1222,6 +1287,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
+            &Vec::new(),
+            &Vec::new(),
         )
         .await;
     }
@@ -1242,6 +1309,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
+            &Vec::new(),
+            &Vec::new(),
         )
         .await;
     }
@@ -1262,6 +1331,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
+            &Vec::new(),
+            &Vec::new(),
         )
         .await;
     }
@@ -1282,6 +1353,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
+            &Vec::new(),
+            &Vec::new(),
         )
         .await;
     }
@@ -1302,6 +1375,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
+            &Vec::new(),
+            &Vec::new(),
         )
         .await;
     }
@@ -1322,6 +1397,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
+            &Vec::new(),
+            &Vec::new(),
         )
         .await;
     }
@@ -1342,6 +1419,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
+            &Vec::new(),
+            &Vec::new(),
         )
         .await;
     }
@@ -1362,6 +1441,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
+            &Vec::new(),
+            &Vec::new(),
         )
         .await;
     }
@@ -1382,6 +1463,8 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
+            &Vec::new(),
+            &Vec::new(),
         )
         .await;
     }
@@ -1402,7 +1485,186 @@ mod tests {
             1,
             get_rates().unwrap_or_default(),
             get_gb_rates().unwrap_or_default(),
+            &Vec::new(),
+            &Vec::new(),
         )
         .await;
     }
+
+    #[tokio::test]
+    async fn test_16() {
+        market::job_manager(
+            market::TestAws {
+                outcomes: vec!['U', 'D'],
+                cur_idx: 0,
+                max_idx: 2,
+                outfile: "".into(),
+            },
+            market::TestLogger {},
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+            H256::from_low_u64_be(1),
+            vec!["ap-south-1".into()],
+            1,
+            get_rates().unwrap_or_default(),
+            get_gb_rates().unwrap_or_default(),
+            &Vec::from(["0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string()]),
+            &Vec::new(),
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn test_17() {
+        market::job_manager(
+            market::TestAws {
+                outcomes: vec![],
+                cur_idx: 0,
+                max_idx: 2,
+                outfile: "".into(),
+            },
+            market::TestLogger {},
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+            H256::from_low_u64_be(1),
+            vec!["ap-south-1".into()],
+            1,
+            get_rates().unwrap_or_default(),
+            get_gb_rates().unwrap_or_default(),
+            &Vec::from(["0x000000000000000000000000000000000000000000000000f020c4f6gc7a56ce".to_string()]),
+            &Vec::new(),
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn test_18() {
+        market::job_manager(
+            market::TestAws {
+                outcomes: vec![],
+                cur_idx: 0,
+                max_idx: 2,
+                outfile: "".into(),
+            },
+            market::TestLogger {},
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+            H256::from_low_u64_be(1),
+            vec!["ap-south-1".into()],
+            1,
+            get_rates().unwrap_or_default(),
+            get_gb_rates().unwrap_or_default(),
+            &Vec::new(),
+            &Vec::from(["0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string()]),
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn test_19() {
+        market::job_manager(
+            market::TestAws {
+                outcomes: vec!['U', 'D'],
+                cur_idx: 0,
+                max_idx: 2,
+                outfile: "".into(),
+            },
+            market::TestLogger {},
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+            H256::from_low_u64_be(1),
+            vec!["ap-south-1".into()],
+            1,
+            get_rates().unwrap_or_default(),
+            get_gb_rates().unwrap_or_default(),
+            &Vec::new(),
+            &Vec::from(["0x000000000000000000000000000000000000000000000000f020c4f6gc7a56ce".to_string()]),
+        )
+        .await;
+    }
+
+    // Tests for whitelist blacklist checks
+    #[tokio::test]
+    async fn test_whitelist_blacklist_check_no_list() {
+        let log = &test::test_logs()[0];
+        let address_whitelist = vec![];
+        let address_blacklist = vec![];
+
+        assert!(market::whitelist_blacklist_check(log.clone(), &address_whitelist, &address_blacklist));
+    }
+
+    #[tokio::test]
+    async fn test_whitelist_blacklist_check_whitelisted() {
+        let log = &test::test_logs()[0];
+        let address_whitelist = vec![
+            "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
+            "0x000000000000000000000000000000000000000000000000f020b3e5fd6sd76d".to_string(),
+        ];
+        let address_blacklist = vec![];
+
+        assert!(market::whitelist_blacklist_check(log.clone(), &address_whitelist, &address_blacklist));
+    }
+
+    #[tokio::test]
+    async fn test_whitelist_blacklist_check_not_whitelisted() {
+        let log = &test::test_logs()[0];
+        let address_whitelist = vec![
+            "0x000000000000000000000000000000000000000000000000f020b3e5fc7a48as".to_string(),
+            "0x000000000000000000000000000000000000000000000000f020b3e5fd6sd76d".to_string(),
+        ];
+        let address_blacklist = vec![];
+
+        assert!(!market::whitelist_blacklist_check(log.clone(), &address_whitelist, &address_blacklist));
+    }
+
+    #[tokio::test]
+    async fn test_whitelist_blacklist_check_blacklisted() {
+        let log = &test::test_logs()[0];
+        let address_whitelist = vec![];
+        let address_blacklist = vec![
+            "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
+            "0x000000000000000000000000000000000000000000000000f020b3e5fd6sdsd6".to_string(),
+        ];
+
+        assert!(!market::whitelist_blacklist_check(log.clone(), &address_whitelist, &address_blacklist));
+    }
+
+    #[tokio::test]
+    async fn test_whitelist_blacklist_check_not_blacklisted() {
+        let log = &test::test_logs()[0];
+        let address_whitelist = vec![];
+        let address_blacklist = vec![
+            "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49fe".to_string(),
+            "0x000000000000000000000000000000000000000000000000f020b3e5fd6sdsd6".to_string(),
+        ];
+
+        assert!(market::whitelist_blacklist_check(log.clone(), &address_whitelist, &address_blacklist));
+    }
+
+    #[tokio::test]
+    async fn test_whitelist_blacklist_check_neither() {
+        let log = &test::test_logs()[0];
+        let address_whitelist = vec![
+            "0x000000000000000000000000000000000000000000000000f020b3e5fc7a48aa".to_string(),
+            "0x000000000000000000000000000000000000000000000000f020b3e5fd6sd76d".to_string(),
+        ];
+        let address_blacklist = vec![
+            "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ed".to_string(),
+            "0x000000000000000000000000000000000000000000000000f020b3e5fd6sdsd6".to_string(),
+        ];
+
+        assert!(!market::whitelist_blacklist_check(log.clone(), &address_whitelist, &address_blacklist));
+    }
+
+    #[tokio::test]
+    async fn test_whitelist_blacklist_check_both() {
+        let log = &test::test_logs()[0];
+        let address_whitelist = vec![
+            "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
+            "0x000000000000000000000000000000000000000000000000f020b3e5fd6sd76d".to_string(),
+        ];
+        let address_blacklist = vec![
+            "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
+            "0x000000000000000000000000000000000000000000000000f020b3e5fd6sdsd6".to_string(),
+        ];
+
+        assert!(!market::whitelist_blacklist_check(log.clone(), &address_whitelist, &address_blacklist));
+    }
+
 }

@@ -93,6 +93,22 @@ fn get_logs_data() -> Vec<(Actions, Bytes, U256)> {
         (Actions::ReviseRateFinalized, (25,0).encode()),
         (Actions::ReviseRateInitiated, (50,0).encode()),
         (Actions::ReviseRateFinalized, (50,0).encode()),
+
+        // test : 16 -> Address is Whitelisted - job open and close
+        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),2,1001,time+1).encode()),
+        (Actions::Close, [].into()),
+
+        // test : 17 -> Address is not Whitelisted - job open and close
+        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),2,1001,time+1).encode()),
+        (Actions::Close, [].into()),
+
+        // test : 18 -> Address is Blacklisted - job open and close
+        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),2,1001,time+1).encode()),
+        (Actions::Close, [].into()),
+
+        // test : 19 -> Address is not Blacklisted - job open and close
+        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),2,1001,time+1).encode()),
+        (Actions::Close, [].into()),
     ];
     let mut res: Vec<(Actions, Bytes, U256)> = Vec::new();
     for v in input {
@@ -139,6 +155,7 @@ fn get_log(topic: Actions, data: Bytes, idx: H256) -> Log {
                     "JobOpened(bytes32,string,address,address,uint256,uint256,uint256)",
                 )),
                 idx,
+                H256::from_low_u64_be(log.address.to_low_u64_be()),
             ];
         }
         Actions::Close => {

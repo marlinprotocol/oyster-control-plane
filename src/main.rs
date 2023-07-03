@@ -3,8 +3,10 @@ mod market;
 mod server;
 mod test;
 
+use anyhow::anyhow;
 use clap::Parser;
 use std::error::Error;
+use std::fs;
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
@@ -49,6 +51,30 @@ struct Cli {
     /// Whitelist location
     #[clap(long, value_parser)]
     whitelist: Option<String>,
+
+    /// Address Blacklist location
+    #[clap(long, value_parser)]
+    address_blacklist: Option<String>,
+
+    /// Address Whitelist location
+    #[clap(long, value_parser)]
+    address_whitelist: Option<String>,
+}
+
+async fn parse_file(filepath: String) -> Result<Vec<String>, anyhow::Error> {
+    if filepath.is_empty() {
+        return Ok(Vec::new());
+    }
+    
+    let file_path = filepath.as_str();
+    let contents = fs::read_to_string(file_path);
+
+    if let Err(err) = contents {
+        return Err(anyhow!("Error reading file: {err}"));
+    } else {
+        let lines: Vec<String> = contents.unwrap().lines().map(|s| s.to_string()).collect();
+        return Ok(lines);
+    }
 }
 
 #[tokio::main]
@@ -83,7 +109,24 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
         provider: cli.provider,
     };
 
-    market::run(aws, ethers, cli.rpc, regions, cli.rates, cli.bandwidth).await;
+    let address_whitelist_vec: Vec<String> = parse_file(cli.address_whitelist.unwrap_or("".to_owned())).await?;
+    let address_blacklist_vec: Vec<String> = parse_file(cli.address_blacklist.unwrap_or("".to_owned())).await?;
+    // Converting Vec<String> to &'static [String]
+    // because market::run_once needs a static [String]
+    let address_whitelist: &'static [String] = Box::leak(address_whitelist_vec.into_boxed_slice());
+    let address_blacklist: &'static [String] = Box::leak(address_blacklist_vec.into_boxed_slice());
+
+    market::run(
+        aws,
+        ethers,
+        cli.rpc,
+        regions,
+        cli.rates,
+        cli.bandwidth,
+        address_whitelist,
+        address_blacklist,
+    )
+    .await;
 
     Ok(())
 }

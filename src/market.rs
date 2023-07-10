@@ -638,6 +638,12 @@ impl JobState {
                 self.rate = _rate;
                 self.original_rate = _rate;
                 self.last_settled = Duration::from_secs(timestamp.low_u64());
+
+                if self.rate > self.balance {
+                    println!("job {job}: Rate higher than job balance");
+                    return -2;
+                }
+
                 let v = serde_json::from_str(&metadata);
                 if let Err(err) = v {
                     println!("job {job}: Error reading metadata: {err}");

@@ -339,7 +339,7 @@ async fn job_manager(
         )
         .await;
 
-        if res == -2 || res == 0 || res == -3{
+        if res == -2 || res == 0{
             // full exit
             break;
         }
@@ -947,7 +947,7 @@ async fn job_manager_once(
 
             log = job_stream.next() => {
                 let res = state.process_log(log, rates, gb_rates, address_whitelist, address_blacklist);
-                if res == -2 || res == -1 || res == -3 {
+                if res == -2 || res == -1 {
                     break 'event res;
                 } 
                 
@@ -1609,7 +1609,7 @@ mod tests {
             1,
             &get_rates().unwrap_or_default(),
             &get_gb_rates().unwrap_or_default(),
-            &Vec::new(),
+            &Vec::from(["0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string()]),
             &Vec::new(),
         )
         .await;
@@ -1637,11 +1637,11 @@ mod tests {
             1,
             &get_rates().unwrap_or_default(),
             &get_gb_rates().unwrap_or_default(),
-            &Vec::new(),
+            &Vec::from(["0x000000000000000000000000000000000000000000000000f020c4f6gc7a56ce".to_string()]),
             &Vec::new(),
         )
         .await;
-        assert_eq!(res, -3);
+        assert_eq!(res, 0);
     }
 
     #[tokio::test]
@@ -1666,10 +1666,10 @@ mod tests {
             &get_rates().unwrap_or_default(),
             &get_gb_rates().unwrap_or_default(),
             &Vec::new(),
-            &Vec::new(),
+            &Vec::from(["0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string()]),
         )
         .await;
-        assert_eq!(res, -3);
+        assert_eq!(res, 0);
     }
 
     #[tokio::test]
@@ -1694,7 +1694,7 @@ mod tests {
             &get_rates().unwrap_or_default(),
             &get_gb_rates().unwrap_or_default(),
             &Vec::new(),
-            &Vec::new(),
+            &Vec::from(["0x000000000000000000000000000000000000000000000000f020c4f6gc7a56ce".to_string()]),
         )
         .await;
         assert_eq!(res, 0);

@@ -1,7 +1,9 @@
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use aws_types::region::Region;
+use serde_json::Value;
 use ssh2::Session;
+use std::collections::HashMap;
 use std::fs;
 use std::fs::File;
 use std::io::{BufReader, Read};
@@ -655,6 +657,39 @@ impl Aws {
             .into())
     }
 
+    pub async fn get_enclave_state(&self, instance_id: &str, region: String) -> Result<String> {
+        let res = self.get_instance_ip(&instance_id, region.clone()).await;
+        let mut public_ip_address = res.unwrap();
+        if public_ip_address.is_empty() {
+            return Err(anyhow!("error fetching instance ip address"));
+        }
+        public_ip_address.push_str(":22");
+
+        let sess = self.ssh_connect(&public_ip_address).await;
+        match sess {
+            Ok(sess) => {
+                let mut channel = sess.channel_session().unwrap();
+                channel.exec("nitro-cli describe-enclaves").unwrap();
+                let mut command_output = String::new();
+                channel.read_to_string(&mut command_output).unwrap();
+
+                let enclave_data: Vec<HashMap<String, Value>> = serde_json::from_str(&command_output).unwrap();
+                let _ = channel.close();
+                channel.wait_close().unwrap();
+                let enclave_status: String;
+                if let Some(status) = enclave_data[0].get(&String::from("State")).and_then(Value::as_str) {
+                    enclave_status = status.to_owned();
+                } else {
+                    enclave_status = "No state found".to_owned();
+                }
+                Ok(enclave_status)
+            }
+            Err(_) => {
+                Err(anyhow!("error establishing ssh connection"))
+            }
+        }
+    }
+
     async fn allocate_ip_addr(&self, job: String, region: String) -> Result<(String, String)> {
         let (exist, alloc_id, public_ip) = self.get_job_elastic_ip(&job, region.clone()).await?;
 
@@ -1023,5 +1058,15 @@ impl InfraProvider for Aws {
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
         let res = self.get_instance_state(instance_id, region).await?;
         Ok(res == "running" || res == "pending")
+    }
+
+    async fn check_enclave_running(
+        &mut self,
+        instance_id: &str,
+        region: String,
+    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        let res = self.get_enclave_state(instance_id, region).await?;
+        // There can be 2 states - RUNNING or TERMINATING
+        Ok(res == "RUNNING")
     }
 }

@@ -52,6 +52,12 @@ pub trait InfraProvider {
         instance_id: &str,
         region: String,
     ) -> Result<bool, Box<dyn Error + Send + Sync>>;
+
+    async fn check_enclave_running(
+        &mut self,
+        instance_id: &str,
+        region: String,
+    ) -> Result<bool, Box<dyn Error + Send + Sync>>;
 }
 
 #[async_trait]
@@ -105,6 +111,14 @@ where
         region: String,
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
         (**self).check_instance_running(instance_id, region).await
+    }
+
+    async fn check_enclave_running(
+        &mut self,
+        instance_id: &str,
+        region: String,
+    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        (**self).check_enclave_running(instance_id, region).await
     }
 }
 
@@ -1126,6 +1140,15 @@ impl InfraProvider for TestAws {
         _region: String,
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
         // println!("TEST: check_instance_running | instance_id: {}, region: {}", instance_id, region);
+        Ok(true)
+    }
+
+    async fn check_enclave_running(
+        &mut self,
+        _instance_id: &str,
+        _region: String,
+    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        // println!("TEST: check_enclave_running | instance_id: {}, region: {}", instance_id, region);
         Ok(true)
     }
 }

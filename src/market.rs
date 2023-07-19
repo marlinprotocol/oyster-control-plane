@@ -475,7 +475,22 @@ impl JobState {
                 println!("job {job}: failed to retrieve instance state, {err}");
             }
             Ok(is_running) => {
-                if !is_running && self.rate >= self.min_rate {
+                if is_running {
+                    let is_enclave_running = infra_provider
+                        .check_enclave_running(&self.instance_id, self.region.clone())
+                        .await;
+
+                    match is_enclave_running {
+                        Ok(is_enclave_running) => {
+                            if !is_enclave_running {
+                                println!("job {job}: enclave not running on the instance");
+                            }
+                        }
+                        Err(err) => {
+                            println!("job {job}: failed to retrieve enclave state, {err}");
+                        }
+                    }
+                } else if !is_running && self.rate >= self.min_rate {
                     println!("job {job}: instance not running, scheduling new launch");
                     self.schedule_launch(0);
                 }

@@ -673,20 +673,22 @@ impl Aws {
                 let mut command_output = String::new();
                 channel.read_to_string(&mut command_output).unwrap();
 
-                let enclave_data: Vec<HashMap<String, Value>> = serde_json::from_str(&command_output).unwrap();
+                let enclave_data: Vec<HashMap<String, Value>> =
+                    serde_json::from_str(&command_output).unwrap();
                 let _ = channel.close();
                 channel.wait_close().unwrap();
                 let enclave_status: String;
-                if let Some(status) = enclave_data[0].get(&String::from("State")).and_then(Value::as_str) {
+                if let Some(status) = enclave_data[0]
+                    .get(&String::from("State"))
+                    .and_then(Value::as_str)
+                {
                     enclave_status = status.to_owned();
                 } else {
                     enclave_status = "No state found".to_owned();
                 }
                 Ok(enclave_status)
             }
-            Err(_) => {
-                Err(anyhow!("error establishing ssh connection"))
-            }
+            Err(_) => Err(anyhow!("error establishing ssh connection")),
         }
     }
 

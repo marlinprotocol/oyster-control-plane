@@ -1,2 +1,6 @@
 .gitsigners
 /target
+
+# Rates JSONs
+GB_rates.json
+rates.json

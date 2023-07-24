@@ -668,24 +668,22 @@ impl Aws {
         let sess = self.ssh_connect(&public_ip_address).await;
         match sess {
             Ok(sess) => {
-                let mut channel = sess.channel_session().unwrap();
-                channel.exec("nitro-cli describe-enclaves").unwrap();
+                let mut channel = sess.channel_session()?;
+                channel.exec("nitro-cli describe-enclaves")?;
                 let mut command_output = String::new();
-                channel.read_to_string(&mut command_output).unwrap();
+                channel.read_to_string(&mut command_output)?;
 
                 let enclave_data: Vec<HashMap<String, Value>> =
-                    serde_json::from_str(&command_output).unwrap();
+                    serde_json::from_str(&command_output)?;
                 let _ = channel.close();
-                channel.wait_close().unwrap();
-                let enclave_status: String;
-                if let Some(status) = enclave_data[0]
-                    .get(&String::from("State"))
-                    .and_then(Value::as_str)
+
+                let enclave_status = match enclave_data
+                    .get(0)
+                    .and_then(|data| data.get("State").and_then(Value::as_str))
                 {
-                    enclave_status = status.to_owned();
-                } else {
-                    enclave_status = "No state found".to_owned();
-                }
+                    Some(status) => status.to_owned(),
+                    None => "No state found".to_owned(),
+                };
                 Ok(enclave_status)
             }
             Err(_) => Err(anyhow!("error establishing ssh connection")),

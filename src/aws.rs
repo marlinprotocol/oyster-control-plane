@@ -175,7 +175,7 @@ impl Aws {
                 + &((mem).to_string())
                 + "\\ncpu_count: "
                 + &((v_cpus).to_string())
-                + "' >> /home/ubuntu/allocator_new.yaml"),
+                + "' > /home/ubuntu/allocator_new.yaml"),
         )?;
         let _ = channel.stderr().read_to_string(&mut s);
         let _ = channel.wait_close();

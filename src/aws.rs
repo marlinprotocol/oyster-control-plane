@@ -290,6 +290,7 @@ impl Aws {
             println!("{s}");
             return Err(anyhow!("Error fetching network interface name"));
         }
+        s.clear();
         let mut interface = String::new();
         let entries: Vec<&str> = output.split('\n').collect();
         for line in entries {
@@ -299,25 +300,55 @@ impl Aws {
                 break;
             }
         }
+        output.clear();
 
         if !interface.is_empty() {
             channel = sess.channel_session()?;
-            channel.exec(
-                &("sudo tc qdisc add dev ".to_owned()
-                    + &interface
-                    + " root tbf rate "
-                    + &bandwidth.to_string()
-                    + "mbit burst 4000Mb latency 100ms"),
-            )?;
-
+            channel.exec(&("sudo tc qdisc show dev ".to_owned() + &interface + " root"))?;
             let _ = channel.stderr().read_to_string(&mut s);
+            let _ = channel.read_to_string(&mut output);
             let _ = channel.wait_close();
-
-            if !s.is_empty() {
+            if !s.is_empty() || output.is_empty() {
                 println!("{s}");
-                return Err(anyhow!("Error setting up bandwidth limit"));
+                return Err(anyhow!(
+                    "Error fetching network interface qdisc configuration."
+                ));
             }
             s.clear();
+            let entries: Vec<&str> = output.trim().split('\n').collect();
+            let mut is_qdisc_config_set = false;
+            for entry in entries {
+                if entry.contains("tbf")
+                    && entry
+                        .to_lowercase()
+                        .contains(&format!("rate {}mbit burst 4000mb lat 100ms", bandwidth))
+                {
+                    println!("Bandwidth limit already set");
+                    is_qdisc_config_set = true;
+                    break;
+                }
+            }
+            output.clear();
+
+            if !is_qdisc_config_set {
+                channel = sess.channel_session()?;
+                channel.exec(
+                    &("sudo tc qdisc add dev ".to_owned()
+                        + &interface
+                        + " root tbf rate "
+                        + &bandwidth.to_string()
+                        + "mbit burst 4000Mb latency 100ms"),
+                )?;
+
+                let _ = channel.stderr().read_to_string(&mut s);
+                let _ = channel.wait_close();
+
+                if !s.is_empty() {
+                    println!("{s}");
+                    return Err(anyhow!("Error setting up bandwidth limit"));
+                }
+                s.clear();
+            }
         } else {
             return Err(anyhow!("Error fetching network interface name"));
         }

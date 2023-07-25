@@ -1041,7 +1041,6 @@ async fn job_manager_once(
                 if res == -2 || res == -1 {
                     break 'event res;
                 }
-
             }
 
             // running instance heartbeat check

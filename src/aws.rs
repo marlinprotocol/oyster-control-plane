@@ -439,6 +439,56 @@ impl Aws {
         Ok(())
     }
 
+    pub async fn run_enclave_on_instance(
+        &self,
+        job: String,
+        instance_id: &str,
+        region: String,
+        image_url: &str,
+        req_vcpu: i32,
+        req_mem: i64,
+        bandwidth: u64,
+    ) -> Result<()> {
+        let res = self.get_instance_ip(&instance_id, region.clone()).await;
+        if let Err(err) = res {
+            self.spin_down_instance(&instance_id, &job, region.clone())
+                .await?;
+            return Err(anyhow!("error launching instance, {err}"));
+        }
+        let mut public_ip_address = res.unwrap();
+        if public_ip_address.is_empty() {
+            self.spin_down_instance(&instance_id, &job, region.clone())
+                .await?;
+            return Err(anyhow!("error fetching instance ip address"));
+        }
+        public_ip_address.push_str(":22");
+        let sess = self.ssh_connect(&public_ip_address).await;
+        match sess {
+            Ok(r) => {
+                let res = self
+                    .run_enclave(&r, image_url, req_vcpu, req_mem, bandwidth)
+                    .await;
+                match res {
+                    Ok(_) => {}
+                    Err(e) => {
+                        self.spin_down_instance(&instance_id, &job, region.clone())
+                            .await?;
+                        println!("Error running enclave: {e}");
+                        return Err(anyhow!(
+                            "error running enclave, terminating launched instance"
+                        ));
+                    }
+                }
+            }
+            Err(_) => {
+                self.spin_down_instance(&instance_id, &job, region.clone())
+                    .await?;
+                return Err(anyhow!("error establishing ssh connection"));
+            }
+        }
+        Ok(())
+    }
+
     /* AWS EC2 UTILITY */
 
     pub async fn get_instance_ip(&self, instance_id: &str, region: String) -> Result<String> {
@@ -1002,41 +1052,18 @@ impl Aws {
                 .await?;
             return Err(anyhow!("error launching instance, {err}"));
         }
-        let res = self.get_instance_ip(&instance, region.clone()).await;
-        if let Err(err) = res {
-            self.spin_down_instance(&instance, &job, region.clone())
-                .await?;
-            return Err(anyhow!("error launching instance, {err}"));
-        }
-        let mut public_ip_address = res.unwrap();
-        if public_ip_address.is_empty() {
-            self.spin_down_instance(&instance, &job, region.clone())
-                .await?;
-            return Err(anyhow!("error fetching instance ip address"));
-        }
-        public_ip_address.push_str(":22");
-        let sess = self.ssh_connect(&public_ip_address).await;
-        match sess {
-            Ok(r) => {
-                let res = self
-                    .run_enclave(&r, image_url, req_vcpu, req_mem, bandwidth)
-                    .await;
-                match res {
-                    Ok(_) => Ok(instance),
-                    Err(e) => {
-                        self.spin_down_instance(&instance, &job, region.clone())
-                            .await?;
-                        println!("Error running enclave: {e}");
-                        Err(anyhow!(
-                            "error running enclave, terminating launched instance"
-                        ))
-                    }
-                }
+        let res = self
+            .run_enclave_on_instance(
+                job, &instance, region, image_url, req_vcpu, req_mem, bandwidth,
+            )
+            .await;
+        match res {
+            Ok(_) => {
+                return Ok(instance);
             }
-            Err(_) => {
-                self.spin_down_instance(&instance, &job, region.clone())
-                    .await?;
-                Err(anyhow!("error establishing ssh connection"))
+            Err(err) => {
+                println!("Enclave failed to start, {err}");
+                return Err(anyhow!("error running enclave on instance, {err}"));
             }
         }
     }
@@ -1130,5 +1157,29 @@ impl InfraProvider for Aws {
         let res = self.get_enclave_state(instance_id, region).await?;
         // There can be 2 states - RUNNING or TERMINATING
         Ok(res == "RUNNING")
+    }
+
+    async fn run_enclave_on_instance(
+        &mut self,
+        job: String,
+        instance_id: &str,
+        region: String,
+        image_url: &str,
+        req_vcpu: i32,
+        req_mem: i64,
+        bandwidth: u64,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let _ = self
+            .run_enclave_on_instance(
+                job,
+                instance_id,
+                region,
+                image_url,
+                req_vcpu,
+                req_mem,
+                bandwidth,
+            )
+            .await;
+        Ok(())
     }
 }

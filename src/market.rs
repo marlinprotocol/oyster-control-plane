@@ -58,6 +58,17 @@ pub trait InfraProvider {
         instance_id: &str,
         region: String,
     ) -> Result<bool, Box<dyn Error + Send + Sync>>;
+
+    async fn run_enclave_on_instance(
+        &mut self,
+        job: String,
+        instance_id: &str,
+        region: String,
+        image_url: &str,
+        req_vcpu: i32,
+        req_mem: i64,
+        bandwidth: u64,
+    ) -> Result<(), Box<dyn Error + Send + Sync>>;
 }
 
 #[async_trait]
@@ -119,6 +130,29 @@ where
         region: String,
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
         (**self).check_enclave_running(instance_id, region).await
+    }
+
+    async fn run_enclave_on_instance(
+        &mut self,
+        job: String,
+        instance_id: &str,
+        region: String,
+        image_url: &str,
+        req_vcpu: i32,
+        req_mem: i64,
+        bandwidth: u64,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        (**self)
+            .run_enclave_on_instance(
+                job,
+                instance_id,
+                region,
+                image_url,
+                req_vcpu,
+                req_mem,
+                bandwidth,
+            )
+            .await
     }
 }
 
@@ -483,7 +517,18 @@ impl JobState {
                     match is_enclave_running {
                         Ok(is_enclave_running) => {
                             if !is_enclave_running {
-                                println!("job {job}: enclave not running on the instance");
+                                println!("job {job}: enclave not running on the instance, running the enclave");
+                                let _ = infra_provider
+                                    .run_enclave_on_instance(
+                                        job.encode_hex(),
+                                        &self.instance_id,
+                                        self.region.clone(),
+                                        &self.eif_url,
+                                        self.req_vcpus,
+                                        self.req_mem,
+                                        self.bandwidth,
+                                    )
+                                    .await;
                             }
                         }
                         Err(err) => {
@@ -1172,6 +1217,19 @@ impl InfraProvider for TestAws {
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
         // println!("TEST: check_enclave_running | instance_id: {}, region: {}", instance_id, region);
         Ok(true)
+    }
+
+    async fn run_enclave_on_instance(
+        &mut self,
+        _job: String,
+        _instance_id: &str,
+        _region: String,
+        _image_url: &str,
+        _req_vcpu: i32,
+        _req_mem: i64,
+        _bandwidth: u64,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        Ok(())
     }
 }
 

@@ -353,32 +353,63 @@ impl Aws {
             return Err(anyhow!("Error fetching network interface name"));
         }
 
-        channel = sess.channel_session()?;
-        channel
-            .exec(
-                "sudo iptables -A PREROUTING -t nat -p tcp --dport 80 -i ens5 -j REDIRECT --to-port 1200",
-            )?;
+        let iptables_rules: [&str; 4] = [
+            "-P PREROUTING ACCEPT",
+            "-A PREROUTING -i ens5 -p tcp -m tcp --dport 80 -j REDIRECT --to-ports 1200",
+            "-A PREROUTING -i ens5 -p tcp -m tcp --dport 443 -j REDIRECT --to-ports 1200",
+            "-A PREROUTING -i ens5 -p tcp -m tcp --dport 1025:65535 -j REDIRECT --to-ports 1200",
+        ];
+        let mut channel = sess.channel_session()?;
+        channel.exec("sudo iptables -t nat -S PREROUTING")?;
 
         let _ = channel.stderr().read_to_string(&mut s);
+        let _ = channel.read_to_string(&mut output);
         let _ = channel.wait_close();
 
-        channel = sess.channel_session()?;
-        channel
+        if !s.is_empty() || output.is_empty() {
+            println!("{}", s);
+            return Err(anyhow!("Failed to get iptables rules"));
+        }
+        s.clear();
+
+        let rules: Vec<&str> = output.trim().split('\n').map(|s| s.trim()).collect();
+
+        if rules[0] != iptables_rules[0] {
+            println!("Got '{}' instead of '{}'", rules[0], iptables_rules[0]);
+            return Err(anyhow!("Failed to get PREROUTING ACCEPT rules"));
+        }
+
+        if !rules.contains(&iptables_rules[1]) {
+            channel = sess.channel_session()?;
+            channel
+                .exec(
+                    "sudo iptables -A PREROUTING -t nat -p tcp --dport 80 -i ens5 -j REDIRECT --to-port 1200",
+                )?;
+            let _ = channel.stderr().read_to_string(&mut s);
+            let _ = channel.wait_close();
+        }
+
+        if !rules.contains(&iptables_rules[2]) {
+            channel = sess.channel_session()?;
+            channel
             .exec(
                 "sudo iptables -A PREROUTING -t nat -p tcp --dport 443 -i ens5 -j REDIRECT --to-port 1200",
             )?;
+            let _ = channel.stderr().read_to_string(&mut s);
+            let _ = channel.wait_close();
+        }
 
-        let _ = channel.read_to_string(&mut s);
-        let _ = channel.wait_close();
-
-        channel = sess.channel_session()?;
-        channel
+        if !rules.contains(&iptables_rules[3]) {
+            channel = sess.channel_session()?;
+            channel
             .exec(
                 "sudo iptables -A PREROUTING -t nat -p tcp --dport 1025:65535 -i ens5 -j REDIRECT --to-port 1200",
             )?;
+            let _ = channel.stderr().read_to_string(&mut s);
+            let _ = channel.wait_close();
+        }
 
-        let _ = channel.read_to_string(&mut s);
-        let _ = channel.wait_close();
+        output.clear();
 
         if !s.is_empty() {
             println!("{s}");

@@ -518,7 +518,7 @@ impl JobState {
                         Ok(is_enclave_running) => {
                             if !is_enclave_running {
                                 println!("job {job}: enclave not running on the instance, running the enclave");
-                                let _ = infra_provider
+                                let res = infra_provider
                                     .run_enclave_on_instance(
                                         job.encode_hex(),
                                         &self.instance_id,
@@ -529,6 +529,16 @@ impl JobState {
                                         self.bandwidth,
                                     )
                                     .await;
+                                match res {
+                                    Ok(_) => {
+                                        println!(
+                                            "job {job}: enclave successfully ran on the instance"
+                                        );
+                                    }
+                                    Err(err) => {
+                                        println!("job {job}: failed to run enclave, {err}. Spinning instance down.");
+                                    }
+                                }
                             }
                         }
                         Err(err) => {

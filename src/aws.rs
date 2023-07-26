@@ -160,7 +160,7 @@ impl Aws {
         Ok(sess)
     }
 
-    async fn run_enclave(
+    async fn run_enclave_impl(
         &self,
         sess: &Session,
         url: &str,
@@ -439,7 +439,7 @@ impl Aws {
         Ok(())
     }
 
-    pub async fn run_enclave_on_instance(
+    pub async fn run_enclave(
         &self,
         job: String,
         instance_id: &str,
@@ -466,7 +466,7 @@ impl Aws {
         match sess {
             Ok(r) => {
                 let res = self
-                    .run_enclave(&r, image_url, req_vcpu, req_mem, bandwidth)
+                    .run_enclave_impl(&r, image_url, req_vcpu, req_mem, bandwidth)
                     .await;
                 match res {
                     Ok(_) => {}
@@ -1053,7 +1053,7 @@ impl Aws {
             return Err(anyhow!("error launching instance, {err}"));
         }
         let res = self
-            .run_enclave_on_instance(
+            .run_enclave(
                 job, &instance, region, image_url, req_vcpu, req_mem, bandwidth,
             )
             .await;
@@ -1159,7 +1159,7 @@ impl InfraProvider for Aws {
         Ok(res == "RUNNING")
     }
 
-    async fn run_enclave_on_instance(
+    async fn run_enclave(
         &mut self,
         job: String,
         instance_id: &str,
@@ -1170,7 +1170,7 @@ impl InfraProvider for Aws {
         bandwidth: u64,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let _ = self
-            .run_enclave_on_instance(
+            .run_enclave(
                 job,
                 instance_id,
                 region,

@@ -59,7 +59,7 @@ pub trait InfraProvider {
         region: String,
     ) -> Result<bool, Box<dyn Error + Send + Sync>>;
 
-    async fn run_enclave_on_instance(
+    async fn run_enclave(
         &mut self,
         job: String,
         instance_id: &str,
@@ -132,7 +132,7 @@ where
         (**self).check_enclave_running(instance_id, region).await
     }
 
-    async fn run_enclave_on_instance(
+    async fn run_enclave(
         &mut self,
         job: String,
         instance_id: &str,
@@ -143,7 +143,7 @@ where
         bandwidth: u64,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         (**self)
-            .run_enclave_on_instance(
+            .run_enclave(
                 job,
                 instance_id,
                 region,
@@ -519,7 +519,7 @@ impl JobState {
                             if !is_enclave_running {
                                 println!("job {job}: enclave not running on the instance, running the enclave");
                                 let res = infra_provider
-                                    .run_enclave_on_instance(
+                                    .run_enclave(
                                         job.encode_hex(),
                                         &self.instance_id,
                                         self.region.clone(),
@@ -1228,7 +1228,7 @@ impl InfraProvider for TestAws {
         Ok(true)
     }
 
-    async fn run_enclave_on_instance(
+    async fn run_enclave(
         &mut self,
         _job: String,
         _instance_id: &str,

@@ -52,6 +52,23 @@ pub trait InfraProvider {
         instance_id: &str,
         region: String,
     ) -> Result<bool, Box<dyn Error + Send + Sync>>;
+
+    async fn check_enclave_running(
+        &mut self,
+        instance_id: &str,
+        region: String,
+    ) -> Result<bool, Box<dyn Error + Send + Sync>>;
+
+    async fn run_enclave(
+        &mut self,
+        job: String,
+        instance_id: &str,
+        region: String,
+        image_url: &str,
+        req_vcpu: i32,
+        req_mem: i64,
+        bandwidth: u64,
+    ) -> Result<(), Box<dyn Error + Send + Sync>>;
 }
 
 #[async_trait]
@@ -105,6 +122,37 @@ where
         region: String,
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
         (**self).check_instance_running(instance_id, region).await
+    }
+
+    async fn check_enclave_running(
+        &mut self,
+        instance_id: &str,
+        region: String,
+    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        (**self).check_enclave_running(instance_id, region).await
+    }
+
+    async fn run_enclave(
+        &mut self,
+        job: String,
+        instance_id: &str,
+        region: String,
+        image_url: &str,
+        req_vcpu: i32,
+        req_mem: i64,
+        bandwidth: u64,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        (**self)
+            .run_enclave(
+                job,
+                instance_id,
+                region,
+                image_url,
+                req_vcpu,
+                req_mem,
+                bandwidth,
+            )
+            .await
     }
 }
 
@@ -339,7 +387,7 @@ async fn job_manager(
         )
         .await;
 
-        if res == -2 || res == 0{
+        if res == -2 || res == 0 {
             // full exit
             break;
         }
@@ -354,7 +402,10 @@ fn whitelist_blacklist_check(
     // check whitelist
     if !address_whitelist.is_empty() {
         println!("Checking address whitelist...");
-        if address_whitelist.iter().any(|s| s == &log.topics[2].encode_hex()) {
+        if address_whitelist
+            .iter()
+            .any(|s| s == &log.topics[2].encode_hex())
+        {
             println!("ADDRESS ALLOWED!");
         } else {
             println!("ADDRESS NOT ALLOWED!");
@@ -365,7 +416,10 @@ fn whitelist_blacklist_check(
     // check blacklist
     if !address_blacklist.is_empty() {
         println!("Checking address blacklist...");
-        if address_blacklist.iter().any(|s| s == &log.topics[2].encode_hex()) {
+        if address_blacklist
+            .iter()
+            .any(|s| s == &log.topics[2].encode_hex())
+        {
             println!("ADDRESS NOT ALLOWED!");
             return false;
         } else {
@@ -455,7 +509,43 @@ impl JobState {
                 println!("job {job}: failed to retrieve instance state, {err}");
             }
             Ok(is_running) => {
-                if !is_running && self.rate >= self.min_rate {
+                if is_running {
+                    let is_enclave_running = infra_provider
+                        .check_enclave_running(&self.instance_id, self.region.clone())
+                        .await;
+
+                    match is_enclave_running {
+                        Ok(is_enclave_running) => {
+                            if !is_enclave_running {
+                                println!("job {job}: enclave not running on the instance, running the enclave");
+                                let res = infra_provider
+                                    .run_enclave(
+                                        job.encode_hex(),
+                                        &self.instance_id,
+                                        self.region.clone(),
+                                        &self.eif_url,
+                                        self.req_vcpus,
+                                        self.req_mem,
+                                        self.bandwidth,
+                                    )
+                                    .await;
+                                match res {
+                                    Ok(_) => {
+                                        println!(
+                                            "job {job}: enclave successfully ran on the instance"
+                                        );
+                                    }
+                                    Err(err) => {
+                                        println!("job {job}: failed to run enclave, {err}. Spinning instance down.");
+                                    }
+                                }
+                            }
+                        }
+                        Err(err) => {
+                            println!("job {job}: failed to retrieve enclave state, {err}");
+                        }
+                    }
+                } else if !is_running && self.rate >= self.min_rate {
                     println!("job {job}: instance not running, scheduling new launch");
                     self.schedule_launch(0);
                 }
@@ -716,7 +806,8 @@ impl JobState {
                 self.eif_url = url.unwrap().to_string();
 
                 // blacklist whitelist check
-                let allowed = whitelist_blacklist_check(log.clone(), address_whitelist, address_blacklist);
+                let allowed =
+                    whitelist_blacklist_check(log.clone(), address_whitelist, address_blacklist);
                 if !allowed {
                     // blacklisted or not whitelisted address
                     self.schedule_termination(0);
@@ -756,7 +847,7 @@ impl JobState {
                         if entry.region_code == self.region {
                             let gb_cost = entry.rate;
                             let bandwidth_rate = self.rate - self.min_rate;
-    
+
                             self.bandwidth = ((bandwidth_rate * 1024 * 8 / U256::from(gb_cost))
                                 as U256)
                                 .clamp(U256::zero(), u64::MAX.into())
@@ -949,8 +1040,7 @@ async fn job_manager_once(
                 let res = state.process_log(log, rates, gb_rates, address_whitelist, address_blacklist);
                 if res == -2 || res == -1 {
                     break 'event res;
-                } 
-                
+                }
             }
 
             // running instance heartbeat check
@@ -1128,6 +1218,28 @@ impl InfraProvider for TestAws {
         // println!("TEST: check_instance_running | instance_id: {}, region: {}", instance_id, region);
         Ok(true)
     }
+
+    async fn check_enclave_running(
+        &mut self,
+        _instance_id: &str,
+        _region: String,
+    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        // println!("TEST: check_enclave_running | instance_id: {}, region: {}", instance_id, region);
+        Ok(true)
+    }
+
+    async fn run_enclave(
+        &mut self,
+        _job: String,
+        _instance_id: &str,
+        _region: String,
+        _image_url: &str,
+        _req_vcpu: i32,
+        _req_mem: i64,
+        _bandwidth: u64,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -1166,11 +1278,12 @@ mod tests {
         Some(rates)
     }
 
-
-
     #[tokio::test]
     async fn test_1() {
-        let res = Provider::<Ws>::connect("wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string()).await; 
+        let res = Provider::<Ws>::connect(
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+        )
+        .await;
         let client = res.unwrap();
         let job_num = H256::from_low_u64_be(1);
         let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
@@ -1181,7 +1294,7 @@ mod tests {
             max_idx: 2,
             outfile: "".into(),
         };
-        let res  = market::job_manager_once(
+        let res = market::job_manager_once(
             job_stream,
             aws,
             job_num,
@@ -1198,7 +1311,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_2() {
-        let res = Provider::<Ws>::connect("wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string()).await; 
+        let res = Provider::<Ws>::connect(
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+        )
+        .await;
         let client = res.unwrap();
         let job_num = H256::from_low_u64_be(2);
         let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
@@ -1226,7 +1342,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_3() {
-        let res = Provider::<Ws>::connect("wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string()).await; 
+        let res = Provider::<Ws>::connect(
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+        )
+        .await;
         let client = res.unwrap();
         let job_num = H256::from_low_u64_be(3);
         let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
@@ -1237,7 +1356,7 @@ mod tests {
             max_idx: 2,
             outfile: "".into(),
         };
-        let res  = market::job_manager_once(
+        let res = market::job_manager_once(
             job_stream,
             aws,
             job_num,
@@ -1254,7 +1373,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_4() {
-        let res = Provider::<Ws>::connect("wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string()).await; 
+        let res = Provider::<Ws>::connect(
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+        )
+        .await;
         let client = res.unwrap();
         let job_num = H256::from_low_u64_be(4);
         let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
@@ -1265,7 +1387,7 @@ mod tests {
             max_idx: 2,
             outfile: "".into(),
         };
-        let res  = market::job_manager_once(
+        let res = market::job_manager_once(
             job_stream,
             aws,
             job_num,
@@ -1282,7 +1404,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_5() {
-        let res = Provider::<Ws>::connect("wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string()).await; 
+        let res = Provider::<Ws>::connect(
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+        )
+        .await;
         let client = res.unwrap();
         let job_num = H256::from_low_u64_be(5);
         let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
@@ -1293,7 +1418,7 @@ mod tests {
             max_idx: 2,
             outfile: "".into(),
         };
-        let res  = market::job_manager_once(
+        let res = market::job_manager_once(
             job_stream,
             aws,
             job_num,
@@ -1310,7 +1435,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_6() {
-        let res = Provider::<Ws>::connect("wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string()).await; 
+        let res = Provider::<Ws>::connect(
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+        )
+        .await;
         let client = res.unwrap();
         let job_num = H256::from_low_u64_be(6);
         let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
@@ -1321,7 +1449,7 @@ mod tests {
             max_idx: 2,
             outfile: "".into(),
         };
-        let res  = market::job_manager_once(
+        let res = market::job_manager_once(
             job_stream,
             aws,
             job_num,
@@ -1338,7 +1466,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_7() {
-        let res = Provider::<Ws>::connect("wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string()).await; 
+        let res = Provider::<Ws>::connect(
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+        )
+        .await;
         let client = res.unwrap();
         let job_num = H256::from_low_u64_be(7);
         let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
@@ -1349,7 +1480,7 @@ mod tests {
             max_idx: 0,
             outfile: "".into(),
         };
-        let res  = market::job_manager_once(
+        let res = market::job_manager_once(
             job_stream,
             aws,
             job_num,
@@ -1366,7 +1497,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_8() {
-        let res = Provider::<Ws>::connect("wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string()).await; 
+        let res = Provider::<Ws>::connect(
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+        )
+        .await;
         let client = res.unwrap();
         let job_num = H256::from_low_u64_be(8);
         let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
@@ -1377,7 +1511,7 @@ mod tests {
             max_idx: 0,
             outfile: "".into(),
         };
-        let res  = market::job_manager_once(
+        let res = market::job_manager_once(
             job_stream,
             aws,
             job_num,
@@ -1394,7 +1528,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_9() {
-        let res = Provider::<Ws>::connect("wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string()).await; 
+        let res = Provider::<Ws>::connect(
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+        )
+        .await;
         let client = res.unwrap();
         let job_num = H256::from_low_u64_be(9);
         let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
@@ -1405,7 +1542,7 @@ mod tests {
             max_idx: 0,
             outfile: "".into(),
         };
-        let res  = market::job_manager_once(
+        let res = market::job_manager_once(
             job_stream,
             aws,
             job_num,
@@ -1422,7 +1559,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_10() {
-        let res = Provider::<Ws>::connect("wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string()).await; 
+        let res = Provider::<Ws>::connect(
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+        )
+        .await;
         let client = res.unwrap();
         let job_num = H256::from_low_u64_be(10);
         let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
@@ -1433,7 +1573,7 @@ mod tests {
             max_idx: 0,
             outfile: "".into(),
         };
-        let res  = market::job_manager_once(
+        let res = market::job_manager_once(
             job_stream,
             aws,
             job_num,
@@ -1450,7 +1590,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_11() {
-        let res = Provider::<Ws>::connect("wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string()).await; 
+        let res = Provider::<Ws>::connect(
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+        )
+        .await;
         let client = res.unwrap();
         let job_num = H256::from_low_u64_be(11);
         let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
@@ -1461,7 +1604,7 @@ mod tests {
             max_idx: 0,
             outfile: "".into(),
         };
-        let res  = market::job_manager_once(
+        let res = market::job_manager_once(
             job_stream,
             aws,
             job_num,
@@ -1478,7 +1621,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_12() {
-        let res = Provider::<Ws>::connect("wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string()).await; 
+        let res = Provider::<Ws>::connect(
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+        )
+        .await;
         let client = res.unwrap();
         let job_num = H256::from_low_u64_be(12);
         let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
@@ -1489,7 +1635,7 @@ mod tests {
             max_idx: 0,
             outfile: "".into(),
         };
-        let res  = market::job_manager_once(
+        let res = market::job_manager_once(
             job_stream,
             aws,
             job_num,
@@ -1506,7 +1652,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_13() {
-        let res = Provider::<Ws>::connect("wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string()).await; 
+        let res = Provider::<Ws>::connect(
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+        )
+        .await;
         let client = res.unwrap();
         let job_num = H256::from_low_u64_be(13);
         let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
@@ -1517,7 +1666,7 @@ mod tests {
             max_idx: 0,
             outfile: "".into(),
         };
-        let res  = market::job_manager_once(
+        let res = market::job_manager_once(
             job_stream,
             aws,
             job_num,
@@ -1534,7 +1683,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_14() {
-        let res = Provider::<Ws>::connect("wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string()).await; 
+        let res = Provider::<Ws>::connect(
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+        )
+        .await;
         let client = res.unwrap();
         let job_num = H256::from_low_u64_be(14);
         let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
@@ -1545,7 +1697,7 @@ mod tests {
             max_idx: 2,
             outfile: "".into(),
         };
-        let res  = market::job_manager_once(
+        let res = market::job_manager_once(
             job_stream,
             aws,
             job_num,
@@ -1562,7 +1714,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_15() {
-        let res = Provider::<Ws>::connect("wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string()).await; 
+        let res = Provider::<Ws>::connect(
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+        )
+        .await;
         let client = res.unwrap();
         let job_num = H256::from_low_u64_be(15);
         let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
@@ -1573,7 +1728,7 @@ mod tests {
             max_idx: 2,
             outfile: "".into(),
         };
-        let res  = market::job_manager_once(
+        let res = market::job_manager_once(
             job_stream,
             aws,
             job_num,
@@ -1590,7 +1745,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_16() {
-        let res = Provider::<Ws>::connect("wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string()).await; 
+        let res = Provider::<Ws>::connect(
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+        )
+        .await;
         let client = res.unwrap();
         let job_num = H256::from_low_u64_be(16);
         let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
@@ -1601,7 +1759,7 @@ mod tests {
             max_idx: 2,
             outfile: "".into(),
         };
-        let res  = market::job_manager_once(
+        let res = market::job_manager_once(
             job_stream,
             aws,
             job_num,
@@ -1609,7 +1767,9 @@ mod tests {
             1,
             &get_rates().unwrap_or_default(),
             &get_gb_rates().unwrap_or_default(),
-            &Vec::from(["0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string()]),
+            &Vec::from([
+                "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
+            ]),
             &Vec::new(),
         )
         .await;
@@ -1618,7 +1778,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_17() {
-        let res = Provider::<Ws>::connect("wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string()).await; 
+        let res = Provider::<Ws>::connect(
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+        )
+        .await;
         let client = res.unwrap();
         let job_num = H256::from_low_u64_be(17);
         let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
@@ -1629,7 +1792,7 @@ mod tests {
             max_idx: 0,
             outfile: "".into(),
         };
-        let res  = market::job_manager_once(
+        let res = market::job_manager_once(
             job_stream,
             aws,
             job_num,
@@ -1637,7 +1800,9 @@ mod tests {
             1,
             &get_rates().unwrap_or_default(),
             &get_gb_rates().unwrap_or_default(),
-            &Vec::from(["0x000000000000000000000000000000000000000000000000f020c4f6gc7a56ce".to_string()]),
+            &Vec::from([
+                "0x000000000000000000000000000000000000000000000000f020c4f6gc7a56ce".to_string(),
+            ]),
             &Vec::new(),
         )
         .await;
@@ -1646,7 +1811,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_18() {
-        let res = Provider::<Ws>::connect("wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string()).await; 
+        let res = Provider::<Ws>::connect(
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+        )
+        .await;
         let client = res.unwrap();
         let job_num = H256::from_low_u64_be(18);
         let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
@@ -1657,7 +1825,7 @@ mod tests {
             max_idx: 0,
             outfile: "".into(),
         };
-        let res  = market::job_manager_once(
+        let res = market::job_manager_once(
             job_stream,
             aws,
             job_num,
@@ -1666,7 +1834,9 @@ mod tests {
             &get_rates().unwrap_or_default(),
             &get_gb_rates().unwrap_or_default(),
             &Vec::new(),
-            &Vec::from(["0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string()]),
+            &Vec::from([
+                "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
+            ]),
         )
         .await;
         assert_eq!(res, 0);
@@ -1674,7 +1844,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_19() {
-        let res = Provider::<Ws>::connect("wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string()).await; 
+        let res = Provider::<Ws>::connect(
+            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
+        )
+        .await;
         let client = res.unwrap();
         let job_num = H256::from_low_u64_be(19);
         let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
@@ -1685,7 +1858,7 @@ mod tests {
             max_idx: 2,
             outfile: "".into(),
         };
-        let res  = market::job_manager_once(
+        let res = market::job_manager_once(
             job_stream,
             aws,
             job_num,
@@ -1694,7 +1867,9 @@ mod tests {
             &get_rates().unwrap_or_default(),
             &get_gb_rates().unwrap_or_default(),
             &Vec::new(),
-            &Vec::from(["0x000000000000000000000000000000000000000000000000f020c4f6gc7a56ce".to_string()]),
+            &Vec::from([
+                "0x000000000000000000000000000000000000000000000000f020c4f6gc7a56ce".to_string(),
+            ]),
         )
         .await;
         assert_eq!(res, 0);
@@ -1707,7 +1882,11 @@ mod tests {
         let address_whitelist = vec![];
         let address_blacklist = vec![];
 
-        assert!(market::whitelist_blacklist_check(log.clone(), &address_whitelist, &address_blacklist));
+        assert!(market::whitelist_blacklist_check(
+            log.clone(),
+            &address_whitelist,
+            &address_blacklist
+        ));
     }
 
     #[tokio::test]
@@ -1719,7 +1898,11 @@ mod tests {
         ];
         let address_blacklist = vec![];
 
-        assert!(market::whitelist_blacklist_check(log.clone(), &address_whitelist, &address_blacklist));
+        assert!(market::whitelist_blacklist_check(
+            log.clone(),
+            &address_whitelist,
+            &address_blacklist
+        ));
     }
 
     #[tokio::test]
@@ -1731,7 +1914,11 @@ mod tests {
         ];
         let address_blacklist = vec![];
 
-        assert!(!market::whitelist_blacklist_check(log.clone(), &address_whitelist, &address_blacklist));
+        assert!(!market::whitelist_blacklist_check(
+            log.clone(),
+            &address_whitelist,
+            &address_blacklist
+        ));
     }
 
     #[tokio::test]
@@ -1743,7 +1930,11 @@ mod tests {
             "0x000000000000000000000000000000000000000000000000f020b3e5fd6sdsd6".to_string(),
         ];
 
-        assert!(!market::whitelist_blacklist_check(log.clone(), &address_whitelist, &address_blacklist));
+        assert!(!market::whitelist_blacklist_check(
+            log.clone(),
+            &address_whitelist,
+            &address_blacklist
+        ));
     }
 
     #[tokio::test]
@@ -1755,7 +1946,11 @@ mod tests {
             "0x000000000000000000000000000000000000000000000000f020b3e5fd6sdsd6".to_string(),
         ];
 
-        assert!(market::whitelist_blacklist_check(log.clone(), &address_whitelist, &address_blacklist));
+        assert!(market::whitelist_blacklist_check(
+            log.clone(),
+            &address_whitelist,
+            &address_blacklist
+        ));
     }
 
     #[tokio::test]
@@ -1770,7 +1965,11 @@ mod tests {
             "0x000000000000000000000000000000000000000000000000f020b3e5fd6sdsd6".to_string(),
         ];
 
-        assert!(!market::whitelist_blacklist_check(log.clone(), &address_whitelist, &address_blacklist));
+        assert!(!market::whitelist_blacklist_check(
+            log.clone(),
+            &address_whitelist,
+            &address_blacklist
+        ));
     }
 
     #[tokio::test]
@@ -1785,7 +1984,10 @@ mod tests {
             "0x000000000000000000000000000000000000000000000000f020b3e5fd6sdsd6".to_string(),
         ];
 
-        assert!(!market::whitelist_blacklist_check(log.clone(), &address_whitelist, &address_blacklist));
+        assert!(!market::whitelist_blacklist_check(
+            log.clone(),
+            &address_whitelist,
+            &address_blacklist
+        ));
     }
-
 }

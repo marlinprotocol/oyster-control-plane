@@ -6,11 +6,11 @@ use std::str::FromStr;
 use std::time::SystemTime;
 
 enum Actions {
-    Open,       // metadata(region, url, instance), rate, balance, timestamp
-    Close,      //
-    Settle,     // amount, timestamp
-    Deposit,    // amount
-    Withdraw,   // amount
+    Open,                // metadata(region, url, instance), rate, balance, timestamp
+    Close,               //
+    Settle,              // amount, timestamp
+    Deposit,             // amount
+    Withdraw,            // amount
     ReviseRateInitiated, // new_rate
     ReviseRateCancelled, //
     ReviseRateFinalized, //

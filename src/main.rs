@@ -65,7 +65,7 @@ async fn parse_file(filepath: String) -> Result<Vec<String>, anyhow::Error> {
     if filepath.is_empty() {
         return Ok(Vec::new());
     }
-    
+
     let file_path = filepath.as_str();
     let contents = fs::read_to_string(file_path);
 
@@ -109,8 +109,10 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
         provider: cli.provider,
     };
 
-    let address_whitelist_vec: Vec<String> = parse_file(cli.address_whitelist.unwrap_or("".to_owned())).await?;
-    let address_blacklist_vec: Vec<String> = parse_file(cli.address_blacklist.unwrap_or("".to_owned())).await?;
+    let address_whitelist_vec: Vec<String> =
+        parse_file(cli.address_whitelist.unwrap_or("".to_owned())).await?;
+    let address_blacklist_vec: Vec<String> =
+        parse_file(cli.address_blacklist.unwrap_or("".to_owned())).await?;
     // Converting Vec<String> to &'static [String]
     // because market::run_once needs a static [String]
     let address_whitelist: &'static [String] = Box::leak(address_whitelist_vec.into_boxed_slice());

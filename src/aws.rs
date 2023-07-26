@@ -1,7 +1,9 @@
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use aws_types::region::Region;
+use serde_json::Value;
 use ssh2::Session;
+use std::collections::HashMap;
 use std::fs;
 use std::fs::File;
 use std::io::{BufReader, Read};
@@ -158,7 +160,7 @@ impl Aws {
         Ok(sess)
     }
 
-    async fn run_enclave(
+    async fn run_enclave_impl(
         &self,
         sess: &Session,
         url: &str,
@@ -173,7 +175,7 @@ impl Aws {
                 + &((mem).to_string())
                 + "\\ncpu_count: "
                 + &((v_cpus).to_string())
-                + "' >> /home/ubuntu/allocator_new.yaml"),
+                + "' > /home/ubuntu/allocator_new.yaml"),
         )?;
         let _ = channel.stderr().read_to_string(&mut s);
         let _ = channel.wait_close();
@@ -288,6 +290,7 @@ impl Aws {
             println!("{s}");
             return Err(anyhow!("Error fetching network interface name"));
         }
+        s.clear();
         let mut interface = String::new();
         let entries: Vec<&str> = output.split('\n').collect();
         for line in entries {
@@ -297,55 +300,116 @@ impl Aws {
                 break;
             }
         }
+        output.clear();
 
         if !interface.is_empty() {
             channel = sess.channel_session()?;
-            channel.exec(
-                &("sudo tc qdisc add dev ".to_owned()
-                    + &interface
-                    + " root tbf rate "
-                    + &bandwidth.to_string()
-                    + "mbit burst 4000Mb latency 100ms"),
-            )?;
-
+            channel.exec(&("sudo tc qdisc show dev ".to_owned() + &interface + " root"))?;
             let _ = channel.stderr().read_to_string(&mut s);
+            let _ = channel.read_to_string(&mut output);
             let _ = channel.wait_close();
-
-            if !s.is_empty() {
+            if !s.is_empty() || output.is_empty() {
                 println!("{s}");
-                return Err(anyhow!("Error setting up bandwidth limit"));
+                return Err(anyhow!(
+                    "Error fetching network interface qdisc configuration."
+                ));
             }
             s.clear();
+            let entries: Vec<&str> = output.trim().split('\n').collect();
+            let mut is_qdisc_config_set = false;
+            for entry in entries {
+                if entry.contains("tbf")
+                    && entry
+                        .to_lowercase()
+                        .contains(&format!("rate {}mbit burst 4000mb lat 100ms", bandwidth))
+                {
+                    println!("Bandwidth limit already set");
+                    is_qdisc_config_set = true;
+                    break;
+                }
+            }
+            output.clear();
+
+            if !is_qdisc_config_set {
+                channel = sess.channel_session()?;
+                channel.exec(
+                    &("sudo tc qdisc add dev ".to_owned()
+                        + &interface
+                        + " root tbf rate "
+                        + &bandwidth.to_string()
+                        + "mbit burst 4000Mb latency 100ms"),
+                )?;
+
+                let _ = channel.stderr().read_to_string(&mut s);
+                let _ = channel.wait_close();
+
+                if !s.is_empty() {
+                    println!("{s}");
+                    return Err(anyhow!("Error setting up bandwidth limit"));
+                }
+                s.clear();
+            }
         } else {
             return Err(anyhow!("Error fetching network interface name"));
         }
 
-        channel = sess.channel_session()?;
-        channel
-            .exec(
-                "sudo iptables -A PREROUTING -t nat -p tcp --dport 80 -i ens5 -j REDIRECT --to-port 1200",
-            )?;
+        let iptables_rules: [&str; 4] = [
+            "-P PREROUTING ACCEPT",
+            "-A PREROUTING -i ens5 -p tcp -m tcp --dport 80 -j REDIRECT --to-ports 1200",
+            "-A PREROUTING -i ens5 -p tcp -m tcp --dport 443 -j REDIRECT --to-ports 1200",
+            "-A PREROUTING -i ens5 -p tcp -m tcp --dport 1025:65535 -j REDIRECT --to-ports 1200",
+        ];
+        let mut channel = sess.channel_session()?;
+        channel.exec("sudo iptables -t nat -S PREROUTING")?;
 
         let _ = channel.stderr().read_to_string(&mut s);
+        let _ = channel.read_to_string(&mut output);
         let _ = channel.wait_close();
 
-        channel = sess.channel_session()?;
-        channel
+        if !s.is_empty() || output.is_empty() {
+            println!("{}", s);
+            return Err(anyhow!("Failed to get iptables rules"));
+        }
+        s.clear();
+
+        let rules: Vec<&str> = output.trim().split('\n').map(|s| s.trim()).collect();
+
+        if rules[0] != iptables_rules[0] {
+            println!("Got '{}' instead of '{}'", rules[0], iptables_rules[0]);
+            return Err(anyhow!("Failed to get PREROUTING ACCEPT rules"));
+        }
+
+        if !rules.contains(&iptables_rules[1]) {
+            channel = sess.channel_session()?;
+            channel
+                .exec(
+                    "sudo iptables -A PREROUTING -t nat -p tcp --dport 80 -i ens5 -j REDIRECT --to-port 1200",
+                )?;
+            let _ = channel.stderr().read_to_string(&mut s);
+            let _ = channel.wait_close();
+        }
+
+        if !rules.contains(&iptables_rules[2]) {
+            channel = sess.channel_session()?;
+            channel
             .exec(
                 "sudo iptables -A PREROUTING -t nat -p tcp --dport 443 -i ens5 -j REDIRECT --to-port 1200",
             )?;
+            let _ = channel.stderr().read_to_string(&mut s);
+            let _ = channel.wait_close();
+        }
 
-        let _ = channel.read_to_string(&mut s);
-        let _ = channel.wait_close();
-
-        channel = sess.channel_session()?;
-        channel
+        if !rules.contains(&iptables_rules[3]) {
+            channel = sess.channel_session()?;
+            channel
             .exec(
                 "sudo iptables -A PREROUTING -t nat -p tcp --dport 1025:65535 -i ens5 -j REDIRECT --to-port 1200",
             )?;
+            let _ = channel.stderr().read_to_string(&mut s);
+            let _ = channel.wait_close();
+        }
 
-        let _ = channel.read_to_string(&mut s);
-        let _ = channel.wait_close();
+        output.clear();
 
         if !s.is_empty() {
             println!("{s}");
@@ -372,6 +436,56 @@ impl Aws {
         }
 
         println!("Enclave running");
+        Ok(())
+    }
+
+    pub async fn run_enclave(
+        &self,
+        job: String,
+        instance_id: &str,
+        region: String,
+        image_url: &str,
+        req_vcpu: i32,
+        req_mem: i64,
+        bandwidth: u64,
+    ) -> Result<()> {
+        let res = self.get_instance_ip(instance_id, region.clone()).await;
+        if let Err(err) = res {
+            self.spin_down_instance(instance_id, &job, region.clone())
+                .await?;
+            return Err(anyhow!("error launching instance, {err}"));
+        }
+        let mut public_ip_address = res.unwrap();
+        if public_ip_address.is_empty() {
+            self.spin_down_instance(instance_id, &job, region.clone())
+                .await?;
+            return Err(anyhow!("error fetching instance ip address"));
+        }
+        public_ip_address.push_str(":22");
+        let sess = self.ssh_connect(&public_ip_address).await;
+        match sess {
+            Ok(r) => {
+                let res = self
+                    .run_enclave_impl(&r, image_url, req_vcpu, req_mem, bandwidth)
+                    .await;
+                match res {
+                    Ok(_) => {}
+                    Err(e) => {
+                        self.spin_down_instance(instance_id, &job, region.clone())
+                            .await?;
+                        println!("Error running enclave: {e}");
+                        return Err(anyhow!(
+                            "error running enclave, terminating launched instance"
+                        ));
+                    }
+                }
+            }
+            Err(_) => {
+                self.spin_down_instance(instance_id, &job, region.clone())
+                    .await?;
+                return Err(anyhow!("error establishing ssh connection"));
+            }
+        }
         Ok(())
     }
 
@@ -655,6 +769,39 @@ impl Aws {
             .into())
     }
 
+    pub async fn get_enclave_state(&self, instance_id: &str, region: String) -> Result<String> {
+        let res = self.get_instance_ip(&instance_id, region.clone()).await;
+        let mut public_ip_address = res.unwrap();
+        if public_ip_address.is_empty() {
+            return Err(anyhow!("error fetching instance ip address"));
+        }
+        public_ip_address.push_str(":22");
+
+        let sess = self.ssh_connect(&public_ip_address).await;
+        match sess {
+            Ok(sess) => {
+                let mut channel = sess.channel_session()?;
+                channel.exec("nitro-cli describe-enclaves")?;
+                let mut command_output = String::new();
+                channel.read_to_string(&mut command_output)?;
+
+                let enclave_data: Vec<HashMap<String, Value>> =
+                    serde_json::from_str(&command_output)?;
+                let _ = channel.close();
+
+                let enclave_status = match enclave_data
+                    .get(0)
+                    .and_then(|data| data.get("State").and_then(Value::as_str))
+                {
+                    Some(status) => status.to_owned(),
+                    None => "No state found".to_owned(),
+                };
+                Ok(enclave_status)
+            }
+            Err(_) => Err(anyhow!("error establishing ssh connection")),
+        }
+    }
+
     async fn allocate_ip_addr(&self, job: String, region: String) -> Result<(String, String)> {
         let (exist, alloc_id, public_ip) = self.get_job_elastic_ip(&job, region.clone()).await?;
 
@@ -905,41 +1052,18 @@ impl Aws {
                 .await?;
             return Err(anyhow!("error launching instance, {err}"));
         }
-        let res = self.get_instance_ip(&instance, region.clone()).await;
-        if let Err(err) = res {
-            self.spin_down_instance(&instance, &job, region.clone())
-                .await?;
-            return Err(anyhow!("error launching instance, {err}"));
-        }
-        let mut public_ip_address = res.unwrap();
-        if public_ip_address.is_empty() {
-            self.spin_down_instance(&instance, &job, region.clone())
-                .await?;
-            return Err(anyhow!("error fetching instance ip address"));
-        }
-        public_ip_address.push_str(":22");
-        let sess = self.ssh_connect(&public_ip_address).await;
-        match sess {
-            Ok(r) => {
-                let res = self
-                    .run_enclave(&r, image_url, req_vcpu, req_mem, bandwidth)
-                    .await;
-                match res {
-                    Ok(_) => Ok(instance),
-                    Err(e) => {
-                        self.spin_down_instance(&instance, &job, region.clone())
-                            .await?;
-                        println!("Error running enclave: {e}");
-                        Err(anyhow!(
-                            "error running enclave, terminating launched instance"
-                        ))
-                    }
-                }
+        let res = self
+            .run_enclave(
+                job, &instance, region, image_url, req_vcpu, req_mem, bandwidth,
+            )
+            .await;
+        match res {
+            Ok(_) => {
+                return Ok(instance);
             }
-            Err(_) => {
-                self.spin_down_instance(&instance, &job, region.clone())
-                    .await?;
-                Err(anyhow!("error establishing ssh connection"))
+            Err(err) => {
+                println!("Enclave failed to start, {err}");
+                return Err(anyhow!("error running enclave on instance, {err}"));
             }
         }
     }
@@ -1023,5 +1147,39 @@ impl InfraProvider for Aws {
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
         let res = self.get_instance_state(instance_id, region).await?;
         Ok(res == "running" || res == "pending")
+    }
+
+    async fn check_enclave_running(
+        &mut self,
+        instance_id: &str,
+        region: String,
+    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        let res = self.get_enclave_state(instance_id, region).await?;
+        // There can be 2 states - RUNNING or TERMINATING
+        Ok(res == "RUNNING")
+    }
+
+    async fn run_enclave(
+        &mut self,
+        job: String,
+        instance_id: &str,
+        region: String,
+        image_url: &str,
+        req_vcpu: i32,
+        req_mem: i64,
+        bandwidth: u64,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let _ = self
+            .run_enclave(
+                job,
+                instance_id,
+                region,
+                image_url,
+                req_vcpu,
+                req_mem,
+                bandwidth,
+            )
+            .await;
+        Ok(())
     }
 }

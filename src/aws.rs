@@ -449,15 +449,15 @@ impl Aws {
         req_mem: i64,
         bandwidth: u64,
     ) -> Result<()> {
-        let res = self.get_instance_ip(&instance_id, region.clone()).await;
+        let res = self.get_instance_ip(instance_id, region.clone()).await;
         if let Err(err) = res {
-            self.spin_down_instance(&instance_id, &job, region.clone())
+            self.spin_down_instance(instance_id, &job, region.clone())
                 .await?;
             return Err(anyhow!("error launching instance, {err}"));
         }
         let mut public_ip_address = res.unwrap();
         if public_ip_address.is_empty() {
-            self.spin_down_instance(&instance_id, &job, region.clone())
+            self.spin_down_instance(instance_id, &job, region.clone())
                 .await?;
             return Err(anyhow!("error fetching instance ip address"));
         }
@@ -471,7 +471,7 @@ impl Aws {
                 match res {
                     Ok(_) => {}
                     Err(e) => {
-                        self.spin_down_instance(&instance_id, &job, region.clone())
+                        self.spin_down_instance(instance_id, &job, region.clone())
                             .await?;
                         println!("Error running enclave: {e}");
                         return Err(anyhow!(
@@ -481,7 +481,7 @@ impl Aws {
                 }
             }
             Err(_) => {
-                self.spin_down_instance(&instance_id, &job, region.clone())
+                self.spin_down_instance(instance_id, &job, region.clone())
                     .await?;
                 return Err(anyhow!("error establishing ssh connection"));
             }

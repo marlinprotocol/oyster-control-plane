@@ -632,7 +632,7 @@ impl Aws {
             .build();
         let name_filter = aws_sdk_ec2::model::Filter::builder()
             .name("name")
-            .values("oyster_".to_owned() + architecture)
+            .values("marlin/oyster/worker-".to_owned() + architecture + "-????????")
             .build();
 
         Ok(self

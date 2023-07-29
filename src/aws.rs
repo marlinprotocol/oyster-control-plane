@@ -635,12 +635,44 @@ impl Aws {
             .values("marlin/oyster/worker-".to_owned() + architecture + "-????????")
             .build();
 
-        Ok(self
-            .client(region)
+        let own_ami = self
+            .client(region.clone())
             .await
             .describe_images()
             .owners("self")
             .filters(project_filter)
+            .filters(name_filter)
+            .send()
+            .await?;
+
+        let own_ami = own_ami
+            .images()
+            .ok_or(anyhow!("could not parse images"))?
+            .first();
+
+        if own_ami.is_some() {
+            Ok(own_ami
+                .unwrap()
+                .image_id()
+                .ok_or(anyhow!("could not parse image id"))?
+                .to_string())
+        } else {
+            self.get_community_amis(region, architecture).await
+        }
+    }
+
+    async fn get_community_amis(&self, region: String, architecture: &str) -> Result<String> {
+        let owner = "753722448458";
+        let name_filter = aws_sdk_ec2::model::Filter::builder()
+            .name("name")
+            .values("marlin/oyster/worker-".to_owned() + architecture + "-????????")
+            .build();
+
+        Ok(self
+            .client(region)
+            .await
+            .describe_images()
+            .owners(owner)
             .filters(name_filter)
             .send()
             .await?

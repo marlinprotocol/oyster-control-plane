@@ -152,7 +152,7 @@ async fn handle_client(client: &Aws, stream: TcpStream, regions: Vec<String>, ra
 }
 
 pub async fn serve(client: Aws, regions: Vec<String>, rates_path: String) {
-    let listener = TcpListener::bind("127.0.0.1:8080").unwrap();
+    let listener = TcpListener::bind("0.0.0.0:8080").unwrap();
     println!("Listening for connections on port {}", 8080);
 
     for stream in listener.incoming() {

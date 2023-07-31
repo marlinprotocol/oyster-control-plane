@@ -32,6 +32,8 @@ pub trait InfraProvider {
         req_mem: i64,
         req_vcpu: i32,
         bandwidth: u64,
+        conract_address: String,
+        chain_id: String
     ) -> Result<String, Box<dyn Error + Send + Sync>>;
 
     async fn spin_down(
@@ -85,6 +87,8 @@ where
         req_mem: i64,
         req_vcpu: i32,
         bandwidth: u64,
+        contract_address: String,
+        chain_id: String
     ) -> Result<String, Box<dyn Error + Send + Sync>> {
         (**self)
             .spin_up(
@@ -95,6 +99,8 @@ where
                 req_mem,
                 req_vcpu,
                 bandwidth,
+                contract_address,
+                chain_id
             )
             .await
     }
@@ -210,6 +216,8 @@ pub async fn run(
     gb_rates_path: String,
     address_whitelist: &'static [String],
     address_blacklist: &'static [String],
+    contract_address: String,
+    chain_id: String,
 ) {
     let mut backoff = 1;
 
@@ -273,6 +281,8 @@ pub async fn run(
             &gb_rates,
             address_whitelist,
             address_blacklist,
+            contract_address.clone(),
+            chain_id.clone()
         )
         .await;
     }
@@ -288,6 +298,8 @@ async fn run_once(
     gb_rates: &Vec<GBRateCard>,
     address_whitelist: &'static [String],
     address_blacklist: &'static [String],
+    contract_address: String,
+    chain_id: String
 ) {
     while let Some((job, removed)) = job_stream.next().await {
         println!("main: New job: {job}, {removed}");
@@ -302,6 +314,8 @@ async fn run_once(
             gb_rates.clone(),
             address_whitelist,
             address_blacklist,
+            contract_address.clone(),
+            chain_id.clone(),
         ));
     }
 
@@ -342,6 +356,8 @@ async fn job_manager(
     gb_rates: Vec<GBRateCard>,
     address_whitelist: &[String],
     address_blacklist: &[String],
+    contract_address: String,
+    chain_id: String,
 ) {
     let mut backoff = 1;
 
@@ -384,6 +400,8 @@ async fn job_manager(
             &gb_rates,
             address_whitelist,
             address_blacklist,
+            contract_address.clone(),
+            chain_id.clone(),
         )
         .await;
 
@@ -433,6 +451,8 @@ struct JobState {
     job: H256,
     launch_delay: u64,
     allowed_regions: Vec<String>,
+    contract_address: String,
+    chain_id: String,
 
     balance: U256,
     last_settled: Duration,
@@ -456,13 +476,15 @@ struct JobState {
 }
 
 impl JobState {
-    fn new(job: H256, launch_delay: u64, allowed_regions: Vec<String>) -> JobState {
+    fn new(job: H256, launch_delay: u64, allowed_regions: Vec<String>, contract_address: String, chain_id: String) -> JobState {
         // solvency metrics
         // default of 60s
         JobState {
             job,
             launch_delay,
             allowed_regions,
+            contract_address,
+            chain_id,
             balance: U256::from(360),
             last_settled: SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
@@ -637,6 +659,8 @@ impl JobState {
                     self.req_mem,
                     self.req_vcpus,
                     self.bandwidth,
+                    self.contract_address.clone(),
+                    self.chain_id.clone(),
                 )
                 .await;
             if let Err(err) = res {
@@ -1014,8 +1038,10 @@ async fn job_manager_once(
     gb_rates: &Vec<GBRateCard>,
     address_whitelist: &[String],
     address_blacklist: &[String],
+    contract_address: String,
+    chain_id: String,
 ) -> i8 {
-    let mut state = JobState::new(job, aws_delay_duration, allowed_regions);
+    let mut state = JobState::new(job, aws_delay_duration, allowed_regions, contract_address, chain_id);
 
     let res = 'event: loop {
         // compute time to insolvency
@@ -1155,6 +1181,8 @@ impl InfraProvider for TestAws {
         req_mem: i64,
         req_vcpu: i32,
         bandwidth: u64,
+        contract_address: String,
+        chain_id: String,
     ) -> Result<String, Box<dyn Error + Send + Sync>> {
         if self.outfile.as_str() != "" {
             let mut file = OpenOptions::new()
@@ -1164,7 +1192,7 @@ impl InfraProvider for TestAws {
             file.write_all("SpinUp\n".as_bytes()).expect("write failed");
         }
         println!(
-            "TEST: spin_up | job: {job}, region: {region}, instance_type: {instance_type}, eif_url: {eif_url}, mem: {req_mem}, vcpu: {req_vcpu}, bandwidth: {bandwidth}"
+            "TEST: spin_up | job: {job}, region: {region}, instance_type: {instance_type}, eif_url: {eif_url}, mem: {req_mem}, vcpu: {req_vcpu}, bandwidth: {bandwidth}, contract: {contract_address}, chain_id: {chain_id}"
         );
         if self.cur_idx >= self.max_idx || self.outcomes[self.cur_idx as usize] != 'U' {
             println!("TEST FAIL!\nTEST FAIL!\nTEST FAIL!\n");
@@ -1304,6 +1332,8 @@ mod tests {
             &get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::new(),
+            "xyz".into(),
+            "123".into(),
         )
         .await;
         assert_eq!(res, 0);
@@ -1335,6 +1365,8 @@ mod tests {
             &get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::new(),
+            "xyz".into(),
+            "123".into(),
         )
         .await;
         assert_eq!(res, 0);
@@ -1366,6 +1398,8 @@ mod tests {
             &get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::new(),
+            "xyz".into(),
+            "123".into(),
         )
         .await;
         assert_eq!(res, 0);
@@ -1397,6 +1431,8 @@ mod tests {
             &get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::new(),
+            "xyz".into(),
+            "123".into(),
         )
         .await;
         assert_eq!(res, 0);
@@ -1428,6 +1464,8 @@ mod tests {
             &get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::new(),
+            "xyz".into(),
+            "123".into(),
         )
         .await;
         assert_eq!(res, 0);
@@ -1459,6 +1497,8 @@ mod tests {
             &get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::new(),
+            "xyz".into(),
+            "123".into(),
         )
         .await;
         assert_eq!(res, 0);
@@ -1490,6 +1530,8 @@ mod tests {
             &get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::new(),
+            "xyz".into(),
+            "123".into(),
         )
         .await;
         assert_eq!(res, -2);
@@ -1521,6 +1563,8 @@ mod tests {
             &get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::new(),
+            "xyz".into(),
+            "123".into(),
         )
         .await;
         assert_eq!(res, -2);
@@ -1552,6 +1596,8 @@ mod tests {
             &get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::new(),
+            "xyz".into(),
+            "123".into(),
         )
         .await;
         assert_eq!(res, -2);
@@ -1583,6 +1629,8 @@ mod tests {
             &get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::new(),
+            "xyz".into(),
+            "123".into(),
         )
         .await;
         assert_eq!(res, -2);
@@ -1614,6 +1662,8 @@ mod tests {
             &get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::new(),
+            "xyz".into(),
+            "123".into(),
         )
         .await;
         assert_eq!(res, -2);
@@ -1645,6 +1695,8 @@ mod tests {
             &get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::new(),
+            "xyz".into(),
+            "123".into(),
         )
         .await;
         assert_eq!(res, 0);
@@ -1676,6 +1728,8 @@ mod tests {
             &get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::new(),
+            "xyz".into(),
+            "123".into(),
         )
         .await;
         assert_eq!(res, -2);
@@ -1707,6 +1761,8 @@ mod tests {
             &get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::new(),
+            "xyz".into(),
+            "123".into(),
         )
         .await;
         assert_eq!(res, 0);
@@ -1738,6 +1794,8 @@ mod tests {
             &get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::new(),
+            "xyz".into(),
+            "123".into(),
         )
         .await;
         assert_eq!(res, 0);
@@ -1771,6 +1829,8 @@ mod tests {
                 "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
             ]),
             &Vec::new(),
+            "xyz".into(),
+            "123".into(),
         )
         .await;
         assert_eq!(res, 0);
@@ -1804,6 +1864,8 @@ mod tests {
                 "0x000000000000000000000000000000000000000000000000f020c4f6gc7a56ce".to_string(),
             ]),
             &Vec::new(),
+            "xyz".into(),
+            "123".into(),
         )
         .await;
         assert_eq!(res, 0);
@@ -1837,6 +1899,8 @@ mod tests {
             &Vec::from([
                 "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
             ]),
+            "xyz".into(),
+            "123".into(),
         )
         .await;
         assert_eq!(res, 0);
@@ -1870,6 +1934,8 @@ mod tests {
             &Vec::from([
                 "0x000000000000000000000000000000000000000000000000f020c4f6gc7a56ce".to_string(),
             ]),
+            "xyz".into(),
+            "123".into(),
         )
         .await;
         assert_eq!(res, 0);

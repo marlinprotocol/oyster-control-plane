@@ -525,6 +525,8 @@ impl Aws {
         image_url: &str,
         architecture: &str,
         region: String,
+        contract_address: String,
+        chain_id: String
     ) -> Result<String> {
         let size: i64;
         let req_client = reqwest::Client::builder().no_gzip().build();
@@ -577,12 +579,22 @@ impl Aws {
             .set_key(Some("jobId".to_string()))
             .set_value(Some(job))
             .build();
+        let contract_address_tag = aws_sdk_ec2::model::Tag::builder()
+            .set_key(Some("contractAddress".to_string()))
+            .set_value(Some(contract_address))
+            .build();
+        let chain_id_tag = aws_sdk_ec2::model::Tag::builder()
+            .set_key(Some("chainId".to_string()))
+            .set_value(Some(chain_id))
+            .build();
         let tags = aws_sdk_ec2::model::TagSpecification::builder()
             .set_resource_type(Some(aws_sdk_ec2::model::ResourceType::Instance))
             .tags(name_tag)
             .tags(managed_tag)
             .tags(job_tag)
             .tags(project_tag)
+            .tags(contract_address_tag)
+            .tags(chain_id_tag)
             .build();
         let subnet = self.get_subnet(region.clone()).await?;
         let sec_group = self.get_security_group(region.clone()).await?;
@@ -977,6 +989,8 @@ impl Aws {
         req_mem: i64,
         req_vcpu: i32,
         bandwidth: u64,
+        contract_address: String,
+        chain_id: String
     ) -> Result<String> {
         let ec2_type = aws_sdk_ec2::model::InstanceType::from_str(instance_type)?;
         let resp = self
@@ -1032,6 +1046,8 @@ impl Aws {
                 image_url,
                 &architecture,
                 region.clone(),
+                contract_address,
+                chain_id
             )
             .await?;
         sleep(Duration::from_secs(100)).await;
@@ -1106,6 +1122,8 @@ impl InfraProvider for Aws {
         req_mem: i64,
         req_vcpu: i32,
         bandwidth: u64,
+        contract_address: String,
+        chain_id: String
     ) -> Result<String, Box<dyn Error + Send + Sync>> {
         let instance = self
             .spin_up_instance(
@@ -1116,6 +1134,8 @@ impl InfraProvider for Aws {
                 req_mem,
                 req_vcpu,
                 bandwidth,
+                contract_address,
+                chain_id
             )
             .await?;
         Ok(instance)

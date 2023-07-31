@@ -7,6 +7,8 @@ use anyhow::anyhow;
 use clap::Parser;
 use std::error::Error;
 use std::fs;
+use web3::transports::Http;
+use web3::Web3;
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
@@ -73,7 +75,7 @@ async fn parse_file(filepath: String) -> Result<Vec<String>, anyhow::Error> {
         return Err(anyhow!("Error reading file: {err}"));
     } else {
         let lines: Vec<String> = contents.unwrap().lines().map(|s| s.to_string()).collect();
-        return Ok(lines);
+        Ok(lines)
     }
 }
 
@@ -105,7 +107,7 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
     ));
 
     let ethers = market::EthersProvider {
-        address: cli.contract,
+        address: cli.contract.clone(),
         provider: cli.provider,
     };
 
@@ -121,14 +123,27 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
     market::run(
         aws,
         ethers,
-        cli.rpc,
+        cli.rpc.clone(),
         regions,
         cli.rates,
         cli.bandwidth,
         address_whitelist,
         address_blacklist,
+        cli.contract,
+        get_chain_id_from_rpc_url(cli.rpc).await?,
     )
     .await;
-
+    
     Ok(())
+}
+
+
+async fn get_chain_id_from_rpc_url(url: String) -> Result<String, Box<dyn Error>> {
+    let url = url.replace("wss://", "https://");
+    let http = Http::new(&url)?;
+    let web3 = Web3::new(http);
+
+    let chain_id = web3.eth().chain_id().await?;
+
+    Ok(chain_id.to_string())
 }

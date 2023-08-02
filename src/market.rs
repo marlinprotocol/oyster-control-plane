@@ -1,9 +1,11 @@
 use async_trait::async_trait;
 use ethers::abi::{AbiDecode, AbiEncode};
+use ethers::prelude::rand::Rng;
 use ethers::prelude::*;
 use ethers::utils::keccak256;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
 use std::error::Error;
 use std::fs;
 use std::time::SystemTime;
@@ -1154,9 +1156,10 @@ enum TestAwsOutcome {
     SpinDown(SpinDownOutcome),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct TestAws {
     outcomes: Vec<TestAwsOutcome>,
+    instances: HashMap<String, String>,
 }
 
 #[async_trait]
@@ -1173,7 +1176,7 @@ impl InfraProvider for TestAws {
     ) -> Result<String, Box<dyn Error + Send + Sync>> {
         self.outcomes.push(TestAwsOutcome::SpinUp(SpinUpOutcome {
             time: Instant::now(),
-            job,
+            job: job.clone(),
             instance_type: instance_type.to_owned(),
             region,
             req_mem,
@@ -1182,7 +1185,19 @@ impl InfraProvider for TestAws {
             eif_url: eif_url.to_owned(),
         }));
 
-        Ok("12345".to_string())
+        let res = self.instances.get_key_value(&job);
+        if res.is_some() {
+            return Ok(res.unwrap().1.clone());
+        }
+
+        let id: String = rand::thread_rng()
+            .sample_iter(rand::distributions::Alphanumeric)
+            .take(8)
+            .map(char::from)
+            .collect();
+        self.instances.insert(job, id.clone());
+
+        Ok(id)
     }
 
     async fn spin_down(
@@ -1194,10 +1209,12 @@ impl InfraProvider for TestAws {
         self.outcomes
             .push(TestAwsOutcome::SpinDown(SpinDownOutcome {
                 time: Instant::now(),
-                job,
+                job: job.clone(),
                 instance_id: instance_id.to_owned(),
                 region,
             }));
+
+        self.instances.remove(&job);
 
         Ok(true)
     }
@@ -1207,7 +1224,12 @@ impl InfraProvider for TestAws {
         job: &str,
         region: String,
     ) -> Result<(bool, String, String), Box<dyn Error + Send + Sync>> {
-        Ok((true, "12345".to_string(), "running".to_owned()))
+        let res = self.instances.get_key_value(job);
+        if res.is_some() {
+            return Ok((true, res.unwrap().1.clone(), "running".to_owned()));
+        }
+
+        Ok((false, String::new(), String::new()))
     }
 
     async fn check_instance_running(
@@ -1224,7 +1246,6 @@ impl InfraProvider for TestAws {
         _instance_id: &str,
         _region: String,
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
-        // println!("TEST: check_enclave_running | instance_id: {}, region: {}", instance_id, region);
         Ok(true)
     }
 
@@ -1253,6 +1274,7 @@ mod tests {
     use std::borrow::BorrowMut;
     use std::fs;
     use std::str::FromStr;
+    use tokio::time::{sleep, Duration};
 
     use super::GBRateCard;
 
@@ -1358,20 +1380,25 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn test_instance_launch_after_delay_on_spin_up() {
         let job_num = H256::from_low_u64_be(1);
-        let job_logs: Vec<Log> = vec![
-            (Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
-            (Action::Close, [].into()),
-        ].into_iter().map(|x| get_log(x.0, Bytes::from(x.1), job_num)).collect();
+        let job_logs: Vec<(u64, Log)> = vec![
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            (301, Action::Close, [].into()),
+        ].into_iter().map(|x| (x.0, get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
         // pending stream appended so job stream never ends
-        let job_stream = tokio_stream::iter(job_logs.into_iter()).chain(tokio_stream::pending());
-        let mut aws = market::TestAws { outcomes: vec![] };
+        let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
+            .then(|(delay, log)| async move {
+                sleep(Duration::from_secs(delay)).await;
+                log
+            })
+            .chain(tokio_stream::pending()));
+        let mut aws: market::TestAws = Default::default();
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
             job_num,
             vec!["ap-south-1".into()],
-            1,
+            300,
             &get_rates().unwrap_or_default(),
             &get_gb_rates().unwrap_or_default(),
             &Vec::new(),

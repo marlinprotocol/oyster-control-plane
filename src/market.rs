@@ -17,7 +17,6 @@ use ethers::types::Log;
 use tokio_stream::StreamExt;
 
 use crate::server;
-use crate::test;
 
 // Basic architecture:
 // One future listening to new jobs
@@ -646,6 +645,7 @@ impl JobState {
                 return false;
             }
             self.instance_id = res.unwrap();
+            println!("job {job}: Instance launched: {}", self.instance_id);
         } else {
             // terminate mode
             if !exist || state == "shutting-down" || state == "terminated" {
@@ -1095,6 +1095,11 @@ async fn job_logs(
     Ok(Box::new(stream))
 }
 
+// --------------------------------------------------------------------------------------------------------------------------------------------------------
+//                                                                  TESTS
+// --------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
 #[derive(Clone)]
 pub struct TestLogger {}
 
@@ -1104,7 +1109,7 @@ impl LogsProvider for TestLogger {
         &'a self,
         _client: &'a Provider<Ws>,
     ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>, Box<dyn Error + Send + Sync>> {
-        let logs: Vec<Log> = test::test_logs();
+        let logs: Vec<Log> = Vec::new();
         Ok(Box::new(
             tokio_stream::iter(
                 logs.iter()
@@ -1120,12 +1125,13 @@ impl LogsProvider for TestLogger {
         _client: &'a Provider<Ws>,
         job: H256,
     ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>, Box<dyn Error + Send + Sync>> {
-        let logs: Vec<Log> = test::test_logs()
-            .into_iter()
-            .filter(|log| log.topics[1] == job)
-            .collect();
+        let logs: Vec<Log> = Vec::new();
         Ok(Box::new(
-            tokio_stream::iter(logs).throttle(Duration::from_secs(2)),
+            tokio_stream::iter(
+                logs.into_iter()
+                .filter(|log| log.topics[1] == job)
+                .collect::<Vec<_>>())
+                .throttle(Duration::from_secs(2)),
         ))
     }
 }
@@ -1146,7 +1152,7 @@ struct SpinUpOutcome {
 struct SpinDownOutcome {
     time: Instant,
     job: String,
-    instance_id: String,
+    _instance_id: String,
     region: String,
 }
 
@@ -1186,8 +1192,8 @@ impl InfraProvider for TestAws {
         }));
 
         let res = self.instances.get_key_value(&job);
-        if res.is_some() {
-            return Ok(res.unwrap().1.clone());
+        if let Some(x) = res {
+            return Ok(x.1.clone());
         }
 
         let id: String = rand::thread_rng()
@@ -1210,7 +1216,7 @@ impl InfraProvider for TestAws {
             .push(TestAwsOutcome::SpinDown(SpinDownOutcome {
                 time: Instant::now(),
                 job: job.clone(),
-                instance_id: instance_id.to_owned(),
+                _instance_id: instance_id.to_owned(),
                 region,
             }));
 
@@ -1222,11 +1228,11 @@ impl InfraProvider for TestAws {
     async fn get_job_instance(
         &mut self,
         job: &str,
-        region: String,
+        _region: String,
     ) -> Result<(bool, String, String), Box<dyn Error + Send + Sync>> {
         let res = self.instances.get_key_value(job);
-        if res.is_some() {
-            return Ok((true, res.unwrap().1.clone(), "running".to_owned()));
+        if let Some(x) = res {
+            return Ok((true, x.1.clone(), "running".to_owned()));
         }
 
         Ok((false, String::new(), String::new()))
@@ -1266,116 +1272,13 @@ impl InfraProvider for TestAws {
 #[cfg(test)]
 mod tests {
     use crate::market;
-    use crate::server;
-    // use crate::test;
+    use crate::market::TestAwsOutcome;
+    use crate::test::{self, Action};
     use ethers::abi::AbiEncode;
     use ethers::prelude::*;
-    use ethers::utils::keccak256;
-    use std::borrow::BorrowMut;
-    use std::fs;
     use std::str::FromStr;
-    use tokio::time::{sleep, Duration};
+    use tokio::time::{sleep, Duration, Instant};
 
-    use super::GBRateCard;
-
-    #[derive(Clone)]
-    pub enum Action {
-        Open,                // metadata(region, url, instance), rate, balance, timestamp
-        Close,               //
-        Settle,              // amount, timestamp
-        Deposit,             // amount
-        Withdraw,            // amount
-        ReviseRateInitiated, // new_rate
-        ReviseRateCancelled, //
-        ReviseRateFinalized, //
-    }
-
-    fn get_rates() -> Option<Vec<server::RegionalRates>> {
-        let file_path = "./rates.json";
-        let contents = fs::read_to_string(file_path);
-
-        if let Err(err) = contents {
-            println!("Error reading rates file : {err}");
-            return None;
-        }
-        let contents = contents.unwrap();
-        let rates: Vec<server::RegionalRates> = serde_json::from_str(&contents).unwrap_or_default();
-        Some(rates)
-    }
-
-    fn get_gb_rates() -> Option<Vec<GBRateCard>> {
-        let file_path = "./GB_rates.json";
-        let contents = fs::read_to_string(file_path);
-
-        if let Err(err) = contents {
-            println!("Error reading rates file : {err}");
-            return None;
-        }
-        let contents = contents.unwrap();
-        let rates: Vec<GBRateCard> = serde_json::from_str(&contents).unwrap_or_default();
-        Some(rates)
-    }
-
-    fn get_log(topic: Action, data: Bytes, idx: H256) -> Log {
-        let mut log = Log {
-            address: H160::from_str("0x0F5F91BA30a00bD43Bd19466f020B3E5fc7a49ec").unwrap(),
-            removed: Some(false),
-            data,
-            ..Default::default()
-        };
-        match topic {
-            Action::Open => {
-                log.topics = vec![
-                    H256::from(keccak256(
-                        "JobOpened(bytes32,string,address,address,uint256,uint256,uint256)",
-                    )),
-                    idx,
-                    H256::from_low_u64_be(log.address.to_low_u64_be()),
-                ];
-            }
-            Action::Close => {
-                log.topics = vec![H256::from(keccak256("JobClosed(bytes32)")), idx];
-            }
-            Action::Settle => {
-                log.topics = vec![
-                    H256::from(keccak256("JobSettled(bytes32,uint256,uint256)")),
-                    idx,
-                ];
-            }
-            Action::Deposit => {
-                log.topics = vec![
-                    H256::from(keccak256("JobDeposited(bytes32,address,uint256)")),
-                    idx,
-                ];
-            }
-            Action::Withdraw => {
-                log.topics = vec![
-                    H256::from(keccak256("JobWithdrew(bytes32,address,uint256)")),
-                    idx,
-                ];
-            }
-            Action::ReviseRateInitiated => {
-                log.topics = vec![
-                    H256::from(keccak256("JobReviseRateInitiated(bytes32,uint256)")),
-                    idx,
-                ];
-            }
-            Action::ReviseRateCancelled => {
-                log.topics = vec![
-                    H256::from(keccak256("JobReviseRateCancelled(bytes32)")),
-                    idx,
-                ];
-            }
-            Action::ReviseRateFinalized => {
-                log.topics = vec![
-                    H256::from(keccak256("JobReviseRateFinalized(bytes32, uint256)")),
-                    idx,
-                ];
-            }
-        }
-
-        log
-    }
 
     #[tokio::test(start_paused = true)]
     async fn test_instance_launch_after_delay_on_spin_up() {
@@ -1383,7 +1286,7 @@ mod tests {
         let job_logs: Vec<(u64, Log)> = vec![
             (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
             (301, Action::Close, [].into()),
-        ].into_iter().map(|x| (x.0, get_log(x.1, Bytes::from(x.2), job_num))).collect();
+        ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
         // pending stream appended so job stream never ends
         let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
@@ -1399,8 +1302,8 @@ mod tests {
             job_num,
             vec!["ap-south-1".into()],
             300,
-            &get_rates().unwrap_or_default(),
-            &get_gb_rates().unwrap_or_default(),
+            &test::get_rates().unwrap_or_default(),
+            &test::get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::new(),
         )
@@ -1408,104 +1311,95 @@ mod tests {
 
         // job manager should have finished successfully
         assert_eq!(res, 0);
-
-        // TODO: assert on outcomes
         println!("{:?}", aws.outcomes);
+        let spin_up_tv_sec: Instant; 
+        if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
+            spin_up_tv_sec = out.time;
+            assert!(H256::from_str(&out.job).unwrap() == job_num &&
+             out.instance_type == *"c6a.xlarge" &&
+             out.region == *"ap-south-1" &&
+             out.req_mem == 4096 && 
+             out.req_vcpu == 2 && 
+             out.bandwidth == 0 &&
+             out.eif_url == *"https://example.com/enclave.eif"
+            )
+        } else {
+            panic!();
+        };
+
+        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
+            assert_eq!((out.time - spin_up_tv_sec).as_secs(), 1);
+            assert!(H256::from_str(&out.job).unwrap() == job_num &&
+             out.region == *"ap-south-1"
+            )
+        } else {
+            panic!();
+        };
+
+        assert!(!aws.instances.contains_key(&job_num.to_string()))
     }
 
-    // #[tokio::test]
-    // async fn test_2() {
-    //     let res = Provider::<Ws>::connect(
-    //         "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-    //     )
-    //     .await;
-    //     let client = res.unwrap();
-    //     let job_num = H256::from_low_u64_be(2);
-    //     let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
-    //     let job_stream = Box::into_pin(res.unwrap());
-    //     let aws = market::TestAws {
-    //         outcomes: vec!['U', 'D'],
-    //         cur_idx: 0,
-    //         max_idx: 2,
-    //         outfile: "".into(),
-    //     };
-    //     let res = market::job_manager_once(
-    //         job_stream,
-    //         aws,
-    //         job_num,
-    //         vec!["ap-south-1".into()],
-    //         1,
-    //         &get_rates().unwrap_or_default(),
-    //         &get_gb_rates().unwrap_or_default(),
-    //         &Vec::new(),
-    //         &Vec::new(),
-    //     )
-    //     .await;
-    //     assert_eq!(res, 0);
-    // }
-    //
-    // #[tokio::test]
-    // async fn test_3() {
-    //     let res = Provider::<Ws>::connect(
-    //         "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-    //     )
-    //     .await;
-    //     let client = res.unwrap();
-    //     let job_num = H256::from_low_u64_be(3);
-    //     let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
-    //     let job_stream = Box::into_pin(res.unwrap());
-    //     let aws = market::TestAws {
-    //         outcomes: vec!['U', 'D'],
-    //         cur_idx: 0,
-    //         max_idx: 2,
-    //         outfile: "".into(),
-    //     };
-    //     let res = market::job_manager_once(
-    //         job_stream,
-    //         aws,
-    //         job_num,
-    //         vec!["ap-south-1".into()],
-    //         1,
-    //         &get_rates().unwrap_or_default(),
-    //         &get_gb_rates().unwrap_or_default(),
-    //         &Vec::new(),
-    //         &Vec::new(),
-    //     )
-    //     .await;
-    //     assert_eq!(res, 0);
-    // }
-    //
-    // #[tokio::test]
-    // async fn test_4() {
-    //     let res = Provider::<Ws>::connect(
-    //         "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-    //     )
-    //     .await;
-    //     let client = res.unwrap();
-    //     let job_num = H256::from_low_u64_be(4);
-    //     let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
-    //     let job_stream = Box::into_pin(res.unwrap());
-    //     let aws = market::TestAws {
-    //         outcomes: vec!['U', 'D'],
-    //         cur_idx: 0,
-    //         max_idx: 2,
-    //         outfile: "".into(),
-    //     };
-    //     let res = market::job_manager_once(
-    //         job_stream,
-    //         aws,
-    //         job_num,
-    //         vec!["ap-south-1".into()],
-    //         1,
-    //         &get_rates().unwrap_or_default(),
-    //         &get_gb_rates().unwrap_or_default(),
-    //         &Vec::new(),
-    //         &Vec::new(),
-    //     )
-    //     .await;
-    //     assert_eq!(res, 0);
-    // }
-    //
+    #[tokio::test(start_paused = true)]
+    async fn test_deposit_withdraw_settle() {
+        let job_num = H256::from_low_u64_be(1);
+        let job_logs: Vec<(u64, Log)> = vec![
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            (40, Action::Deposit, (500).encode()),
+            (60, Action::Withdraw, (500).encode()),
+            (100, Action::Settle, (2, 6).encode()),
+            (505, Action::Close, [].into()),
+            ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
+
+        // pending stream appended so job stream never ends
+        let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
+            .then(|(delay, log)| async move {
+                sleep(Duration::from_secs(delay)).await;
+                log
+            })
+            .chain(tokio_stream::pending()));
+        let mut aws: market::TestAws = Default::default();
+        let res = market::job_manager_once(
+            job_stream,
+            &mut aws,
+            job_num,
+            vec!["ap-south-1".into()],
+            300,
+            &test::get_rates().unwrap_or_default(),
+            &test::get_gb_rates().unwrap_or_default(),
+            &Vec::new(),
+            &Vec::new(),
+        )
+        .await;
+
+        // job manager should have finished successfully
+        assert_eq!(res, 0);
+        println!("{:?}", aws.outcomes);
+        let spin_up_tv_sec: Instant; 
+        if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
+            spin_up_tv_sec = out.time;
+            assert!(H256::from_str(&out.job).unwrap() == job_num &&
+             out.instance_type == *"c6a.xlarge" &&
+             out.region == *"ap-south-1" &&
+             out.req_mem == 4096 && 
+             out.req_vcpu == 2 && 
+             out.bandwidth == 0 &&
+             out.eif_url == *"https://example.com/enclave.eif"
+            )
+        } else {
+            panic!();
+        };
+
+        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
+            println!("{}", (out.time - spin_up_tv_sec).as_secs());
+            assert!(H256::from_str(&out.job).unwrap() == job_num &&
+             out.region == *"ap-south-1"
+            )
+        } else {
+            panic!();
+        };
+
+        assert!(!aws.instances.contains_key(&job_num.to_string()))
+    }
     // #[tokio::test]
     // async fn test_5() {
     //     let res = Provider::<Ws>::connect(

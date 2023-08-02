@@ -5,7 +5,8 @@ use ethers::utils::keccak256;
 use std::str::FromStr;
 use std::time::SystemTime;
 
-enum Actions {
+#[derive(Clone)]
+pub enum Actions {
     Open,                // metadata(region, url, instance), rate, balance, timestamp
     Close,               //
     Settle,              // amount, timestamp

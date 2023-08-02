@@ -428,7 +428,7 @@ fn whitelist_blacklist_check(
         }
     }
 
-    return true;
+    true
 }
 struct JobState {
     job: H256,
@@ -1400,592 +1400,760 @@ mod tests {
 
         assert!(!aws.instances.contains_key(&job_num.to_string()))
     }
-    // #[tokio::test]
-    // async fn test_5() {
-    //     let res = Provider::<Ws>::connect(
-    //         "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-    //     )
-    //     .await;
-    //     let client = res.unwrap();
-    //     let job_num = H256::from_low_u64_be(5);
-    //     let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
-    //     let job_stream = Box::into_pin(res.unwrap());
-    //     let aws = market::TestAws {
-    //         outcomes: vec!['U', 'D'],
-    //         cur_idx: 0,
-    //         max_idx: 2,
-    //         outfile: "".into(),
-    //     };
-    //     let res = market::job_manager_once(
-    //         job_stream,
-    //         aws,
-    //         job_num,
-    //         vec!["ap-south-1".into()],
-    //         1,
-    //         &get_rates().unwrap_or_default(),
-    //         &get_gb_rates().unwrap_or_default(),
-    //         &Vec::new(),
-    //         &Vec::new(),
-    //     )
-    //     .await;
-    //     assert_eq!(res, 0);
-    // }
-    //
-    // #[tokio::test]
-    // async fn test_6() {
-    //     let res = Provider::<Ws>::connect(
-    //         "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-    //     )
-    //     .await;
-    //     let client = res.unwrap();
-    //     let job_num = H256::from_low_u64_be(6);
-    //     let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
-    //     let job_stream = Box::into_pin(res.unwrap());
-    //     let aws = market::TestAws {
-    //         outcomes: vec!['U', 'D'],
-    //         cur_idx: 0,
-    //         max_idx: 2,
-    //         outfile: "".into(),
-    //     };
-    //     let res = market::job_manager_once(
-    //         job_stream,
-    //         aws,
-    //         job_num,
-    //         vec!["ap-south-1".into()],
-    //         1,
-    //         &get_rates().unwrap_or_default(),
-    //         &get_gb_rates().unwrap_or_default(),
-    //         &Vec::new(),
-    //         &Vec::new(),
-    //     )
-    //     .await;
-    //     assert_eq!(res, 0);
-    // }
-    //
-    // #[tokio::test]
-    // async fn test_7() {
-    //     let res = Provider::<Ws>::connect(
-    //         "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-    //     )
-    //     .await;
-    //     let client = res.unwrap();
-    //     let job_num = H256::from_low_u64_be(7);
-    //     let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
-    //     let job_stream = Box::into_pin(res.unwrap());
-    //     let aws = market::TestAws {
-    //         outcomes: vec![],
-    //         cur_idx: 0,
-    //         max_idx: 0,
-    //         outfile: "".into(),
-    //     };
-    //     let res = market::job_manager_once(
-    //         job_stream,
-    //         aws,
-    //         job_num,
-    //         vec!["ap-south-1".into()],
-    //         1,
-    //         &get_rates().unwrap_or_default(),
-    //         &get_gb_rates().unwrap_or_default(),
-    //         &Vec::new(),
-    //         &Vec::new(),
-    //     )
-    //     .await;
-    //     assert_eq!(res, -2);
-    // }
-    //
-    // #[tokio::test]
-    // async fn test_8() {
-    //     let res = Provider::<Ws>::connect(
-    //         "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-    //     )
-    //     .await;
-    //     let client = res.unwrap();
-    //     let job_num = H256::from_low_u64_be(8);
-    //     let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
-    //     let job_stream = Box::into_pin(res.unwrap());
-    //     let aws = market::TestAws {
-    //         outcomes: vec![],
-    //         cur_idx: 0,
-    //         max_idx: 0,
-    //         outfile: "".into(),
-    //     };
-    //     let res = market::job_manager_once(
-    //         job_stream,
-    //         aws,
-    //         job_num,
-    //         vec!["ap-south-1".into()],
-    //         1,
-    //         &get_rates().unwrap_or_default(),
-    //         &get_gb_rates().unwrap_or_default(),
-    //         &Vec::new(),
-    //         &Vec::new(),
-    //     )
-    //     .await;
-    //     assert_eq!(res, -2);
-    // }
-    //
-    // #[tokio::test]
-    // async fn test_9() {
-    //     let res = Provider::<Ws>::connect(
-    //         "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-    //     )
-    //     .await;
-    //     let client = res.unwrap();
-    //     let job_num = H256::from_low_u64_be(9);
-    //     let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
-    //     let job_stream = Box::into_pin(res.unwrap());
-    //     let aws = market::TestAws {
-    //         outcomes: vec![],
-    //         cur_idx: 0,
-    //         max_idx: 0,
-    //         outfile: "".into(),
-    //     };
-    //     let res = market::job_manager_once(
-    //         job_stream,
-    //         aws,
-    //         job_num,
-    //         vec!["ap-south-1".into()],
-    //         1,
-    //         &get_rates().unwrap_or_default(),
-    //         &get_gb_rates().unwrap_or_default(),
-    //         &Vec::new(),
-    //         &Vec::new(),
-    //     )
-    //     .await;
-    //     assert_eq!(res, -2);
-    // }
-    //
-    // #[tokio::test]
-    // async fn test_10() {
-    //     let res = Provider::<Ws>::connect(
-    //         "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-    //     )
-    //     .await;
-    //     let client = res.unwrap();
-    //     let job_num = H256::from_low_u64_be(10);
-    //     let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
-    //     let job_stream = Box::into_pin(res.unwrap());
-    //     let aws = market::TestAws {
-    //         outcomes: vec![],
-    //         cur_idx: 0,
-    //         max_idx: 0,
-    //         outfile: "".into(),
-    //     };
-    //     let res = market::job_manager_once(
-    //         job_stream,
-    //         aws,
-    //         job_num,
-    //         vec!["ap-south-1".into()],
-    //         1,
-    //         &get_rates().unwrap_or_default(),
-    //         &get_gb_rates().unwrap_or_default(),
-    //         &Vec::new(),
-    //         &Vec::new(),
-    //     )
-    //     .await;
-    //     assert_eq!(res, -2);
-    // }
-    //
-    // #[tokio::test]
-    // async fn test_11() {
-    //     let res = Provider::<Ws>::connect(
-    //         "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-    //     )
-    //     .await;
-    //     let client = res.unwrap();
-    //     let job_num = H256::from_low_u64_be(11);
-    //     let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
-    //     let job_stream = Box::into_pin(res.unwrap());
-    //     let aws = market::TestAws {
-    //         outcomes: vec![],
-    //         cur_idx: 0,
-    //         max_idx: 0,
-    //         outfile: "".into(),
-    //     };
-    //     let res = market::job_manager_once(
-    //         job_stream,
-    //         aws,
-    //         job_num,
-    //         vec!["ap-south-1".into()],
-    //         1,
-    //         &get_rates().unwrap_or_default(),
-    //         &get_gb_rates().unwrap_or_default(),
-    //         &Vec::new(),
-    //         &Vec::new(),
-    //     )
-    //     .await;
-    //     assert_eq!(res, -2);
-    // }
-    //
-    // #[tokio::test]
-    // async fn test_12() {
-    //     let res = Provider::<Ws>::connect(
-    //         "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-    //     )
-    //     .await;
-    //     let client = res.unwrap();
-    //     let job_num = H256::from_low_u64_be(12);
-    //     let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
-    //     let job_stream = Box::into_pin(res.unwrap());
-    //     let aws = market::TestAws {
-    //         outcomes: vec![],
-    //         cur_idx: 0,
-    //         max_idx: 0,
-    //         outfile: "".into(),
-    //     };
-    //     let res = market::job_manager_once(
-    //         job_stream,
-    //         aws,
-    //         job_num,
-    //         vec!["ap-south-1".into()],
-    //         1,
-    //         &get_rates().unwrap_or_default(),
-    //         &get_gb_rates().unwrap_or_default(),
-    //         &Vec::new(),
-    //         &Vec::new(),
-    //     )
-    //     .await;
-    //     assert_eq!(res, 0);
-    // }
-    //
-    // #[tokio::test]
-    // async fn test_13() {
-    //     let res = Provider::<Ws>::connect(
-    //         "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-    //     )
-    //     .await;
-    //     let client = res.unwrap();
-    //     let job_num = H256::from_low_u64_be(13);
-    //     let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
-    //     let job_stream = Box::into_pin(res.unwrap());
-    //     let aws = market::TestAws {
-    //         outcomes: vec![],
-    //         cur_idx: 0,
-    //         max_idx: 0,
-    //         outfile: "".into(),
-    //     };
-    //     let res = market::job_manager_once(
-    //         job_stream,
-    //         aws,
-    //         job_num,
-    //         vec!["ap-south-1".into()],
-    //         1,
-    //         &get_rates().unwrap_or_default(),
-    //         &get_gb_rates().unwrap_or_default(),
-    //         &Vec::new(),
-    //         &Vec::new(),
-    //     )
-    //     .await;
-    //     assert_eq!(res, -2);
-    // }
-    //
-    // #[tokio::test]
-    // async fn test_14() {
-    //     let res = Provider::<Ws>::connect(
-    //         "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-    //     )
-    //     .await;
-    //     let client = res.unwrap();
-    //     let job_num = H256::from_low_u64_be(14);
-    //     let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
-    //     let job_stream = Box::into_pin(res.unwrap());
-    //     let aws = market::TestAws {
-    //         outcomes: vec!['U', 'D'],
-    //         cur_idx: 0,
-    //         max_idx: 2,
-    //         outfile: "".into(),
-    //     };
-    //     let res = market::job_manager_once(
-    //         job_stream,
-    //         aws,
-    //         job_num,
-    //         vec!["ap-south-1".into()],
-    //         1,
-    //         &get_rates().unwrap_or_default(),
-    //         &get_gb_rates().unwrap_or_default(),
-    //         &Vec::new(),
-    //         &Vec::new(),
-    //     )
-    //     .await;
-    //     assert_eq!(res, 0);
-    // }
-    //
-    // #[tokio::test]
-    // async fn test_15() {
-    //     let res = Provider::<Ws>::connect(
-    //         "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-    //     )
-    //     .await;
-    //     let client = res.unwrap();
-    //     let job_num = H256::from_low_u64_be(15);
-    //     let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
-    //     let job_stream = Box::into_pin(res.unwrap());
-    //     let aws = market::TestAws {
-    //         outcomes: vec!['U', 'D'],
-    //         cur_idx: 0,
-    //         max_idx: 2,
-    //         outfile: "".into(),
-    //     };
-    //     let res = market::job_manager_once(
-    //         job_stream,
-    //         aws,
-    //         job_num,
-    //         vec!["ap-south-1".into()],
-    //         1,
-    //         &get_rates().unwrap_or_default(),
-    //         &get_gb_rates().unwrap_or_default(),
-    //         &Vec::new(),
-    //         &Vec::new(),
-    //     )
-    //     .await;
-    //     assert_eq!(res, 0);
-    // }
-    //
-    // #[tokio::test]
-    // async fn test_16() {
-    //     let res = Provider::<Ws>::connect(
-    //         "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-    //     )
-    //     .await;
-    //     let client = res.unwrap();
-    //     let job_num = H256::from_low_u64_be(16);
-    //     let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
-    //     let job_stream = Box::into_pin(res.unwrap());
-    //     let aws = market::TestAws {
-    //         outcomes: vec!['U', 'D'],
-    //         cur_idx: 0,
-    //         max_idx: 2,
-    //         outfile: "".into(),
-    //     };
-    //     let res = market::job_manager_once(
-    //         job_stream,
-    //         aws,
-    //         job_num,
-    //         vec!["ap-south-1".into()],
-    //         1,
-    //         &get_rates().unwrap_or_default(),
-    //         &get_gb_rates().unwrap_or_default(),
-    //         &Vec::from([
-    //             "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
-    //         ]),
-    //         &Vec::new(),
-    //     )
-    //     .await;
-    //     assert_eq!(res, 0);
-    // }
-    //
-    // #[tokio::test]
-    // async fn test_17() {
-    //     let res = Provider::<Ws>::connect(
-    //         "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-    //     )
-    //     .await;
-    //     let client = res.unwrap();
-    //     let job_num = H256::from_low_u64_be(17);
-    //     let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
-    //     let job_stream = Box::into_pin(res.unwrap());
-    //     let aws = market::TestAws {
-    //         outcomes: vec![],
-    //         cur_idx: 0,
-    //         max_idx: 0,
-    //         outfile: "".into(),
-    //     };
-    //     let res = market::job_manager_once(
-    //         job_stream,
-    //         aws,
-    //         job_num,
-    //         vec!["ap-south-1".into()],
-    //         1,
-    //         &get_rates().unwrap_or_default(),
-    //         &get_gb_rates().unwrap_or_default(),
-    //         &Vec::from([
-    //             "0x000000000000000000000000000000000000000000000000f020c4f6gc7a56ce".to_string(),
-    //         ]),
-    //         &Vec::new(),
-    //     )
-    //     .await;
-    //     assert_eq!(res, 0);
-    // }
-    //
-    // #[tokio::test]
-    // async fn test_18() {
-    //     let res = Provider::<Ws>::connect(
-    //         "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-    //     )
-    //     .await;
-    //     let client = res.unwrap();
-    //     let job_num = H256::from_low_u64_be(18);
-    //     let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
-    //     let job_stream = Box::into_pin(res.unwrap());
-    //     let aws = market::TestAws {
-    //         outcomes: vec![],
-    //         cur_idx: 0,
-    //         max_idx: 0,
-    //         outfile: "".into(),
-    //     };
-    //     let res = market::job_manager_once(
-    //         job_stream,
-    //         aws,
-    //         job_num,
-    //         vec!["ap-south-1".into()],
-    //         1,
-    //         &get_rates().unwrap_or_default(),
-    //         &get_gb_rates().unwrap_or_default(),
-    //         &Vec::new(),
-    //         &Vec::from([
-    //             "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
-    //         ]),
-    //     )
-    //     .await;
-    //     assert_eq!(res, 0);
-    // }
-    //
-    // #[tokio::test]
-    // async fn test_19() {
-    //     let res = Provider::<Ws>::connect(
-    //         "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-    //     )
-    //     .await;
-    //     let client = res.unwrap();
-    //     let job_num = H256::from_low_u64_be(19);
-    //     let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
-    //     let job_stream = Box::into_pin(res.unwrap());
-    //     let aws = market::TestAws {
-    //         outcomes: vec!['U', 'D'],
-    //         cur_idx: 0,
-    //         max_idx: 2,
-    //         outfile: "".into(),
-    //     };
-    //     let res = market::job_manager_once(
-    //         job_stream,
-    //         aws,
-    //         job_num,
-    //         vec!["ap-south-1".into()],
-    //         1,
-    //         &get_rates().unwrap_or_default(),
-    //         &get_gb_rates().unwrap_or_default(),
-    //         &Vec::new(),
-    //         &Vec::from([
-    //             "0x000000000000000000000000000000000000000000000000f020c4f6gc7a56ce".to_string(),
-    //         ]),
-    //     )
-    //     .await;
-    //     assert_eq!(res, 0);
-    // }
-    //
-    // // Tests for whitelist blacklist checks
-    // #[tokio::test]
-    // async fn test_whitelist_blacklist_check_no_list() {
-    //     let log = &test::test_logs()[0];
-    //     let address_whitelist = vec![];
-    //     let address_blacklist = vec![];
-    //
-    //     assert!(market::whitelist_blacklist_check(
-    //         log.clone(),
-    //         &address_whitelist,
-    //         &address_blacklist
-    //     ));
-    // }
-    //
-    // #[tokio::test]
-    // async fn test_whitelist_blacklist_check_whitelisted() {
-    //     let log = &test::test_logs()[0];
-    //     let address_whitelist = vec![
-    //         "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
-    //         "0x000000000000000000000000000000000000000000000000f020b3e5fd6sd76d".to_string(),
-    //     ];
-    //     let address_blacklist = vec![];
-    //
-    //     assert!(market::whitelist_blacklist_check(
-    //         log.clone(),
-    //         &address_whitelist,
-    //         &address_blacklist
-    //     ));
-    // }
-    //
-    // #[tokio::test]
-    // async fn test_whitelist_blacklist_check_not_whitelisted() {
-    //     let log = &test::test_logs()[0];
-    //     let address_whitelist = vec![
-    //         "0x000000000000000000000000000000000000000000000000f020b3e5fc7a48as".to_string(),
-    //         "0x000000000000000000000000000000000000000000000000f020b3e5fd6sd76d".to_string(),
-    //     ];
-    //     let address_blacklist = vec![];
-    //
-    //     assert!(!market::whitelist_blacklist_check(
-    //         log.clone(),
-    //         &address_whitelist,
-    //         &address_blacklist
-    //     ));
-    // }
-    //
-    // #[tokio::test]
-    // async fn test_whitelist_blacklist_check_blacklisted() {
-    //     let log = &test::test_logs()[0];
-    //     let address_whitelist = vec![];
-    //     let address_blacklist = vec![
-    //         "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
-    //         "0x000000000000000000000000000000000000000000000000f020b3e5fd6sdsd6".to_string(),
-    //     ];
-    //
-    //     assert!(!market::whitelist_blacklist_check(
-    //         log.clone(),
-    //         &address_whitelist,
-    //         &address_blacklist
-    //     ));
-    // }
-    //
-    // #[tokio::test]
-    // async fn test_whitelist_blacklist_check_not_blacklisted() {
-    //     let log = &test::test_logs()[0];
-    //     let address_whitelist = vec![];
-    //     let address_blacklist = vec![
-    //         "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49fe".to_string(),
-    //         "0x000000000000000000000000000000000000000000000000f020b3e5fd6sdsd6".to_string(),
-    //     ];
-    //
-    //     assert!(market::whitelist_blacklist_check(
-    //         log.clone(),
-    //         &address_whitelist,
-    //         &address_blacklist
-    //     ));
-    // }
-    //
-    // #[tokio::test]
-    // async fn test_whitelist_blacklist_check_neither() {
-    //     let log = &test::test_logs()[0];
-    //     let address_whitelist = vec![
-    //         "0x000000000000000000000000000000000000000000000000f020b3e5fc7a48aa".to_string(),
-    //         "0x000000000000000000000000000000000000000000000000f020b3e5fd6sd76d".to_string(),
-    //     ];
-    //     let address_blacklist = vec![
-    //         "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ed".to_string(),
-    //         "0x000000000000000000000000000000000000000000000000f020b3e5fd6sdsd6".to_string(),
-    //     ];
-    //
-    //     assert!(!market::whitelist_blacklist_check(
-    //         log.clone(),
-    //         &address_whitelist,
-    //         &address_blacklist
-    //     ));
-    // }
-    //
-    // #[tokio::test]
-    // async fn test_whitelist_blacklist_check_both() {
-    //     let log = &test::test_logs()[0];
-    //     let address_whitelist = vec![
-    //         "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
-    //         "0x000000000000000000000000000000000000000000000000f020b3e5fd6sd76d".to_string(),
-    //     ];
-    //     let address_blacklist = vec![
-    //         "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
-    //         "0x000000000000000000000000000000000000000000000000f020b3e5fd6sdsd6".to_string(),
-    //     ];
-    //
-    //     assert!(!market::whitelist_blacklist_check(
-    //         log.clone(),
-    //         &address_whitelist,
-    //         &address_blacklist
-    //     ));
-    // }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_revise_rate_cancel() {
+        let job_num = H256::from_low_u64_be(1);
+        let job_logs: Vec<(u64, Log)> = vec![
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            (50, Action::ReviseRateInitiated, (50,0).encode()),
+            (100, Action::ReviseRateFinalized, (50,0).encode()),
+            (150, Action::ReviseRateInitiated, (75,0).encode()),
+            (200, Action::ReviseRateCancelled, [].into()),
+            (505, Action::Close, [].into()),
+            ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
+
+        // pending stream appended so job stream never ends
+        let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
+            .then(|(delay, log)| async move {
+                sleep(Duration::from_secs(delay)).await;
+                log
+            })
+            .chain(tokio_stream::pending()));
+        let mut aws: market::TestAws = Default::default();
+        let res = market::job_manager_once(
+            job_stream,
+            &mut aws,
+            job_num,
+            vec!["ap-south-1".into()],
+            300,
+            &test::get_rates().unwrap_or_default(),
+            &test::get_gb_rates().unwrap_or_default(),
+            &Vec::new(),
+            &Vec::new(),
+        )
+        .await;
+
+        // job manager should have finished successfully
+        assert_eq!(res, 0);
+        println!("{:?}", aws.outcomes);
+        let spin_up_tv_sec: Instant; 
+        if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
+            spin_up_tv_sec = out.time;
+            assert!(H256::from_str(&out.job).unwrap() == job_num &&
+             out.instance_type == *"c6a.xlarge" &&
+             out.region == *"ap-south-1" &&
+             out.req_mem == 4096 && 
+             out.req_vcpu == 2 && 
+             out.bandwidth == 0 &&
+             out.eif_url == *"https://example.com/enclave.eif"
+            )
+        } else {
+            panic!();
+        };
+
+        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
+            println!("{}", (out.time - spin_up_tv_sec).as_secs());
+            assert!(H256::from_str(&out.job).unwrap() == job_num &&
+             out.region == *"ap-south-1"
+            )
+        } else {
+            panic!();
+        };
+
+        assert!(!aws.instances.contains_key(&job_num.to_string()))
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_unsupported_region() {
+        let job_num = H256::from_low_u64_be(1);
+        let job_logs: Vec<(u64, Log)> = vec![
+            (0, Action::Open, ("{\"region\":\"ap-east-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            (505, Action::Close, [].into()),
+            ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
+
+        // pending stream appended so job stream never ends
+        let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
+            .then(|(delay, log)| async move {
+                sleep(Duration::from_secs(delay)).await;
+                log
+            })
+            .chain(tokio_stream::pending()));
+        let mut aws: market::TestAws = Default::default();
+        let res = market::job_manager_once(
+            job_stream,
+            &mut aws,
+            job_num,
+            vec!["ap-south-1".into()],
+            300,
+            &test::get_rates().unwrap_or_default(),
+            &test::get_gb_rates().unwrap_or_default(),
+            &Vec::new(),
+            &Vec::new(),
+        )
+        .await;
+
+        // job manager should have finished successfully
+        assert_eq!(res, -2);
+        assert!(aws.outcomes.is_empty());
+        assert!(!aws.instances.contains_key(&job_num.to_string()))
+    }
+    
+    #[tokio::test(start_paused = true)]
+    async fn test_region_not_found() {
+        let job_num = H256::from_low_u64_be(1);
+        let job_logs: Vec<(u64, Log)> = vec![
+            (0, Action::Open, ("{\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            (505, Action::Close, [].into()),
+            ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
+
+        // pending stream appended so job stream never ends
+        let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
+            .then(|(delay, log)| async move {
+                sleep(Duration::from_secs(delay)).await;
+                log
+            })
+            .chain(tokio_stream::pending()));
+        let mut aws: market::TestAws = Default::default();
+        let res = market::job_manager_once(
+            job_stream,
+            &mut aws,
+            job_num,
+            vec!["ap-south-1".into()],
+            300,
+            &test::get_rates().unwrap_or_default(),
+            &test::get_gb_rates().unwrap_or_default(),
+            &Vec::new(),
+            &Vec::new(),
+        )
+        .await;
+
+        // job manager should have finished successfully
+        assert_eq!(res, -2);
+        assert!(aws.outcomes.is_empty());
+        assert!(!aws.instances.contains_key(&job_num.to_string()))
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_instance_type_not_found() {
+        let job_num = H256::from_low_u64_be(1);
+        let job_logs: Vec<(u64, Log)> = vec![
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            (505, Action::Close, [].into()),
+            ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
+
+        // pending stream appended so job stream never ends
+        let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
+            .then(|(delay, log)| async move {
+                sleep(Duration::from_secs(delay)).await;
+                log
+            })
+            .chain(tokio_stream::pending()));
+        let mut aws: market::TestAws = Default::default();
+        let res = market::job_manager_once(
+            job_stream,
+            &mut aws,
+            job_num,
+            vec!["ap-south-1".into()],
+            300,
+            &test::get_rates().unwrap_or_default(),
+            &test::get_gb_rates().unwrap_or_default(),
+            &Vec::new(),
+            &Vec::new(),
+        )
+        .await;
+
+        // job manager should have finished successfully
+        assert_eq!(res, -2);
+        assert!(aws.outcomes.is_empty());
+        assert!(!aws.instances.contains_key(&job_num.to_string()))
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_unsupported_instance() {
+        let job_num = H256::from_low_u64_be(1);
+        let job_logs: Vec<(u64, Log)> = vec![
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.vsmall\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            (505, Action::Close, [].into()),
+            ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
+
+        // pending stream appended so job stream never ends
+        let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
+            .then(|(delay, log)| async move {
+                sleep(Duration::from_secs(delay)).await;
+                log
+            })
+            .chain(tokio_stream::pending()));
+        let mut aws: market::TestAws = Default::default();
+        let res = market::job_manager_once(
+            job_stream,
+            &mut aws,
+            job_num,
+            vec!["ap-south-1".into()],
+            300,
+            &test::get_rates().unwrap_or_default(),
+            &test::get_gb_rates().unwrap_or_default(),
+            &Vec::new(),
+            &Vec::new(),
+        )
+        .await;
+
+        // job manager should have finished successfully
+        assert_eq!(res, -2);
+        assert!(aws.outcomes.is_empty());
+        assert!(!aws.instances.contains_key(&job_num.to_string()))
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_eif_url_not_found() {
+        let job_num = H256::from_low_u64_be(1);
+        let job_logs: Vec<(u64, Log)> = vec![
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"instance\":\"c6a.vsmall\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            (505, Action::Close, [].into()),
+            ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
+
+        // pending stream appended so job stream never ends
+        let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
+            .then(|(delay, log)| async move {
+                sleep(Duration::from_secs(delay)).await;
+                log
+            })
+            .chain(tokio_stream::pending()));
+        let mut aws: market::TestAws = Default::default();
+        let res = market::job_manager_once(
+            job_stream,
+            &mut aws,
+            job_num,
+            vec!["ap-south-1".into()],
+            300,
+            &test::get_rates().unwrap_or_default(),
+            &test::get_gb_rates().unwrap_or_default(),
+            &Vec::new(),
+            &Vec::new(),
+        )
+        .await;
+
+        // job manager should have finished successfully
+        assert_eq!(res, -2);
+        assert!(aws.outcomes.is_empty());
+        assert!(!aws.instances.contains_key(&job_num.to_string()))
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_min_rate() {
+        let job_num = H256::from_low_u64_be(1);
+        let job_logs: Vec<(u64, Log)> = vec![
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),1,1001,1).encode()),
+            (505, Action::Close, [].into()),
+            ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
+
+        // pending stream appended so job stream never ends
+        let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
+            .then(|(delay, log)| async move {
+                sleep(Duration::from_secs(delay)).await;
+                log
+            })
+            .chain(tokio_stream::pending()));
+        let mut aws: market::TestAws = Default::default();
+        let res = market::job_manager_once(
+            job_stream,
+            &mut aws,
+            job_num,
+            vec!["ap-south-1".into()],
+            300,
+            &test::get_rates().unwrap_or_default(),
+            &test::get_gb_rates().unwrap_or_default(),
+            &Vec::new(),
+            &Vec::new(),
+        )
+        .await;
+
+        // job manager should have finished successfully
+        assert_eq!(res, 0);
+        assert!(aws.outcomes.is_empty());
+        assert!(!aws.instances.contains_key(&job_num.to_string()))
+    }
+    
+    #[tokio::test(start_paused = true)]
+    async fn test_rate_exceed_balance() {
+        let job_num = H256::from_low_u64_be(1);
+        let job_logs: Vec<(u64, Log)> = vec![
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,0,1).encode()),
+            (505, Action::Close, [].into()),
+            ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
+
+        // pending stream appended so job stream never ends
+        let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
+            .then(|(delay, log)| async move {
+                sleep(Duration::from_secs(delay)).await;
+                log
+            })
+            .chain(tokio_stream::pending()));
+        let mut aws: market::TestAws = Default::default();
+        let res = market::job_manager_once(
+            job_stream,
+            &mut aws,
+            job_num,
+            vec!["ap-south-1".into()],
+            300,
+            &test::get_rates().unwrap_or_default(),
+            &test::get_gb_rates().unwrap_or_default(),
+            &Vec::new(),
+            &Vec::new(),
+        )
+        .await;
+
+        // job manager should have finished successfully
+        assert_eq!(res, 0);
+        assert!(aws.outcomes.is_empty());
+        assert!(!aws.instances.contains_key(&job_num.to_string()))
+    }
+    
+    #[tokio::test(start_paused = true)]
+    async fn test_withdrawal_exceed_rate() {
+        let job_num = H256::from_low_u64_be(1);
+        let job_logs: Vec<(u64, Log)> = vec![
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            (350, Action::Withdraw, (1001).encode()),
+            (500, Action::Close, [].into()),
+        ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
+
+        // pending stream appended so job stream never ends
+        let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
+            .then(|(delay, log)| async move {
+                sleep(Duration::from_secs(delay)).await;
+                log
+            })
+            .chain(tokio_stream::pending()));
+        let mut aws: market::TestAws = Default::default();
+        let res = market::job_manager_once(
+            job_stream,
+            &mut aws,
+            job_num,
+            vec!["ap-south-1".into()],
+            300,
+            &test::get_rates().unwrap_or_default(),
+            &test::get_gb_rates().unwrap_or_default(),
+            &Vec::new(),
+            &Vec::new(),
+        )
+        .await;
+
+        // job manager should have finished successfully
+        assert_eq!(res, 0);
+        println!("{:?}", aws.outcomes);
+        let spin_up_tv_sec: Instant; 
+        if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
+            spin_up_tv_sec = out.time;
+            assert!(H256::from_str(&out.job).unwrap() == job_num &&
+             out.instance_type == *"c6a.xlarge" &&
+             out.region == *"ap-south-1" &&
+             out.req_mem == 4096 && 
+             out.req_vcpu == 2 && 
+             out.bandwidth == 0 &&
+             out.eif_url == *"https://example.com/enclave.eif"
+            )
+        } else {
+            panic!();
+        };
+
+        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
+            println!("{}",(out.time - spin_up_tv_sec).as_secs());
+            assert!(H256::from_str(&out.job).unwrap() == job_num &&
+             out.region == *"ap-south-1"
+            )
+        } else {
+            panic!();
+        };
+
+        assert!(!aws.instances.contains_key(&job_num.to_string()))
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_revise_rate_lower_higher() {
+        let job_num = H256::from_low_u64_be(1);
+        let job_logs: Vec<(u64, Log)> = vec![
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            (350, Action::ReviseRateInitiated, (25,0).encode()),
+            (400, Action::ReviseRateFinalized, (25,0).encode()),
+            (450, Action::ReviseRateInitiated, (50,0).encode()),
+            (500, Action::ReviseRateFinalized, (50,0).encode()),
+        ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
+
+        // pending stream appended so job stream never ends
+        let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
+            .then(|(delay, log)| async move {
+                sleep(Duration::from_secs(delay)).await;
+                log
+            })
+            .chain(tokio_stream::pending()));
+        let mut aws: market::TestAws = Default::default();
+        let res = market::job_manager_once(
+            job_stream,
+            &mut aws,
+            job_num,
+            vec!["ap-south-1".into()],
+            300,
+            &test::get_rates().unwrap_or_default(),
+            &test::get_gb_rates().unwrap_or_default(),
+            &Vec::new(),
+            &Vec::new(),
+        )
+        .await;
+
+        // job manager should have finished successfully
+        assert_eq!(res, 0);
+        println!("{:?}", aws.outcomes);
+        let spin_up_tv_sec: Instant; 
+        if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
+            spin_up_tv_sec = out.time;
+            assert!(H256::from_str(&out.job).unwrap() == job_num &&
+             out.instance_type == *"c6a.xlarge" &&
+             out.region == *"ap-south-1" &&
+             out.req_mem == 4096 && 
+             out.req_vcpu == 2 && 
+             out.bandwidth == 0 &&
+             out.eif_url == *"https://example.com/enclave.eif"
+            )
+        } else {
+            panic!();
+        };
+
+        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
+            println!("{}",(out.time - spin_up_tv_sec).as_secs());
+            assert!(H256::from_str(&out.job).unwrap() == job_num &&
+             out.region == *"ap-south-1"
+            )
+        } else {
+            panic!();
+        };
+
+        assert!(!aws.instances.contains_key(&job_num.to_string()))
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_address_whitelisted() {
+        let job_num = H256::from_low_u64_be(1);
+        let job_logs: Vec<(u64, Log)> = vec![
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            (500, Action::Close, [].into()),
+        ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
+
+        // pending stream appended so job stream never ends
+        let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
+            .then(|(delay, log)| async move {
+                sleep(Duration::from_secs(delay)).await;
+                log
+            })
+            .chain(tokio_stream::pending()));
+        let mut aws: market::TestAws = Default::default();
+        let res = market::job_manager_once(
+            job_stream,
+            &mut aws,
+            job_num,
+            vec!["ap-south-1".into()],
+            300,
+            &test::get_rates().unwrap_or_default(),
+            &test::get_gb_rates().unwrap_or_default(),
+            &Vec::from([
+                "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
+                ]),
+            &Vec::new(),
+        )
+        .await;
+
+        // job manager should have finished successfully
+        assert_eq!(res, 0);
+        println!("{:?}", aws.outcomes);
+        let spin_up_tv_sec: Instant; 
+        if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
+            spin_up_tv_sec = out.time;
+            assert!(H256::from_str(&out.job).unwrap() == job_num &&
+             out.instance_type == *"c6a.xlarge" &&
+             out.region == *"ap-south-1" &&
+             out.req_mem == 4096 && 
+             out.req_vcpu == 2 && 
+             out.bandwidth == 0 &&
+             out.eif_url == *"https://example.com/enclave.eif"
+            )
+        } else {
+            panic!();
+        };
+
+        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
+            println!("{}",(out.time - spin_up_tv_sec).as_secs());
+            assert!(H256::from_str(&out.job).unwrap() == job_num &&
+             out.region == *"ap-south-1"
+            )
+        } else {
+            panic!();
+        };
+
+        assert!(!aws.instances.contains_key(&job_num.to_string()))
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_address_not_whitelisted() {
+        let job_num = H256::from_low_u64_be(1);
+        let job_logs: Vec<(u64, Log)> = vec![
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            (500, Action::Close, [].into()),
+        ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
+
+        // pending stream appended so job stream never ends
+        let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
+            .then(|(delay, log)| async move {
+                sleep(Duration::from_secs(delay)).await;
+                log
+            })
+            .chain(tokio_stream::pending()));
+        let mut aws: market::TestAws = Default::default();
+        let res = market::job_manager_once(
+            job_stream,
+            &mut aws,
+            job_num,
+            vec!["ap-south-1".into()],
+            300,
+            &test::get_rates().unwrap_or_default(),
+            &test::get_gb_rates().unwrap_or_default(),
+            &Vec::from([
+                "0x000000000000000000000000000000000000000000000000f020c4f6gc7a56ce".to_string(),
+                ]),
+            &Vec::new(),
+        )
+        .await;
+
+        // job manager should have finished successfully
+        assert_eq!(res, 0);
+        assert!(aws.outcomes.is_empty());
+        assert!(!aws.instances.contains_key(&job_num.to_string()))
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_address_blacklisted() {
+        let job_num = H256::from_low_u64_be(1);
+        let job_logs: Vec<(u64, Log)> = vec![
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            (500, Action::Close, [].into()),
+        ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
+
+        // pending stream appended so job stream never ends
+        let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
+            .then(|(delay, log)| async move {
+                sleep(Duration::from_secs(delay)).await;
+                log
+            })
+            .chain(tokio_stream::pending()));
+        let mut aws: market::TestAws = Default::default();
+        let res = market::job_manager_once(
+            job_stream,
+            &mut aws,
+            job_num,
+            vec!["ap-south-1".into()],
+            300,
+            &test::get_rates().unwrap_or_default(),
+            &test::get_gb_rates().unwrap_or_default(),
+            &Vec::new(),
+            &Vec::from([
+                "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
+                ]),
+        )
+        .await;
+
+        // job manager should have finished successfully
+        assert_eq!(res, 0);
+        assert!(aws.outcomes.is_empty());
+        assert!(!aws.instances.contains_key(&job_num.to_string()))
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_address_not_blacklisted() {
+        let job_num = H256::from_low_u64_be(1);
+        let job_logs: Vec<(u64, Log)> = vec![
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            (500, Action::Close, [].into()),
+        ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
+
+        // pending stream appended so job stream never ends
+        let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
+            .then(|(delay, log)| async move {
+                sleep(Duration::from_secs(delay)).await;
+                log
+            })
+            .chain(tokio_stream::pending()));
+        let mut aws: market::TestAws = Default::default();
+        let res = market::job_manager_once(
+            job_stream,
+            &mut aws,
+            job_num,
+            vec!["ap-south-1".into()],
+            300,
+            &test::get_rates().unwrap_or_default(),
+            &test::get_gb_rates().unwrap_or_default(),
+            &Vec::new(),
+            &Vec::from([
+                "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ece".to_string(),
+                ]),
+        )
+        .await;
+
+        // job manager should have finished successfully
+        assert_eq!(res, 0);
+        println!("{:?}", aws.outcomes);
+        let spin_up_tv_sec: Instant; 
+        if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
+            spin_up_tv_sec = out.time;
+            assert!(H256::from_str(&out.job).unwrap() == job_num &&
+             out.instance_type == *"c6a.xlarge" &&
+             out.region == *"ap-south-1" &&
+             out.req_mem == 4096 && 
+             out.req_vcpu == 2 && 
+             out.bandwidth == 0 &&
+             out.eif_url == *"https://example.com/enclave.eif"
+            )
+        } else {
+            panic!();
+        };
+
+        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
+            println!("{}",(out.time - spin_up_tv_sec).as_secs());
+            assert!(H256::from_str(&out.job).unwrap() == job_num &&
+             out.region == *"ap-south-1"
+            )
+        } else {
+            panic!();
+        };
+
+        assert!(!aws.instances.contains_key(&job_num.to_string()))
+    }
+    
+    // Tests for whitelist blacklist checks
+    #[tokio::test]
+    async fn test_whitelist_blacklist_check_no_list() {
+        let log = test::get_log(Action::Open,
+            Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            H256::zero());
+        let address_whitelist = vec![];
+        let address_blacklist = vec![];
+    
+        assert!(market::whitelist_blacklist_check(
+            log.clone(),
+            &address_whitelist,
+            &address_blacklist
+        ));
+    }
+    
+    #[tokio::test]
+    async fn test_whitelist_blacklist_check_whitelisted() {
+        let log = test::get_log(Action::Open,
+            Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            H256::zero());
+        let address_whitelist = vec![
+            "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
+            "0x000000000000000000000000000000000000000000000000f020b3e5fd6sd76d".to_string(),
+        ];
+        let address_blacklist = vec![];
+    
+        assert!(market::whitelist_blacklist_check(
+            log.clone(),
+            &address_whitelist,
+            &address_blacklist
+        ));
+    }
+    
+    #[tokio::test]
+    async fn test_whitelist_blacklist_check_not_whitelisted() {
+        let log = test::get_log(Action::Open,
+            Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            H256::zero());
+        let address_whitelist = vec![
+            "0x000000000000000000000000000000000000000000000000f020b3e5fc7a48as".to_string(),
+            "0x000000000000000000000000000000000000000000000000f020b3e5fd6sd76d".to_string(),
+        ];
+        let address_blacklist = vec![];
+    
+        assert!(!market::whitelist_blacklist_check(
+            log.clone(),
+            &address_whitelist,
+            &address_blacklist
+        ));
+    }
+    
+    #[tokio::test]
+    async fn test_whitelist_blacklist_check_blacklisted() {
+        let log = test::get_log(Action::Open,
+            Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            H256::zero());
+        let address_whitelist = vec![];
+        let address_blacklist = vec![
+            "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
+            "0x000000000000000000000000000000000000000000000000f020b3e5fd6sdsd6".to_string(),
+        ];
+    
+        assert!(!market::whitelist_blacklist_check(
+            log.clone(),
+            &address_whitelist,
+            &address_blacklist
+        ));
+    }
+    
+    #[tokio::test]
+    async fn test_whitelist_blacklist_check_not_blacklisted() {
+        let log = test::get_log(Action::Open,
+            Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            H256::zero());
+        let address_whitelist = vec![];
+        let address_blacklist = vec![
+            "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49fe".to_string(),
+            "0x000000000000000000000000000000000000000000000000f020b3e5fd6sdsd6".to_string(),
+        ];
+    
+        assert!(market::whitelist_blacklist_check(
+            log.clone(),
+            &address_whitelist,
+            &address_blacklist
+        ));
+    }
+    
+    #[tokio::test]
+    async fn test_whitelist_blacklist_check_neither() {
+        let log = test::get_log(Action::Open,
+            Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            H256::zero());
+        let address_whitelist = vec![
+            "0x000000000000000000000000000000000000000000000000f020b3e5fc7a48aa".to_string(),
+            "0x000000000000000000000000000000000000000000000000f020b3e5fd6sd76d".to_string(),
+        ];
+        let address_blacklist = vec![
+            "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ed".to_string(),
+            "0x000000000000000000000000000000000000000000000000f020b3e5fd6sdsd6".to_string(),
+        ];
+    
+        assert!(!market::whitelist_blacklist_check(
+            log.clone(),
+            &address_whitelist,
+            &address_blacklist
+        ));
+    }
+    
+    #[tokio::test]
+    async fn test_whitelist_blacklist_check_both() {
+        let log = test::get_log(Action::Open,
+            Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            H256::zero());
+        let address_whitelist = vec![
+            "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
+            "0x000000000000000000000000000000000000000000000000f020b3e5fd6sd76d".to_string(),
+        ];
+        let address_blacklist = vec![
+            "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
+            "0x000000000000000000000000000000000000000000000000f020b3e5fd6sdsd6".to_string(),
+        ];
+    
+        assert!(!market::whitelist_blacklist_check(
+            log.clone(),
+            &address_whitelist,
+            &address_blacklist
+        ));
+    }
 }

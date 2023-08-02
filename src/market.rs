@@ -1408,6 +1408,8 @@ mod tests {
 
         // job manager should have finished successfully
         assert_eq!(res, 0);
+
+        // TODO: assert on outcomes
         println!("{:?}", aws.outcomes);
     }
 

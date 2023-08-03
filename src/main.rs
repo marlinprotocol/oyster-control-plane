@@ -5,8 +5,8 @@ mod server;
 mod test;
 
 use anyhow::anyhow;
+use anyhow::Result;
 use clap::Parser;
-use std::error::Error;
 use std::fs;
 
 #[derive(Parser)]
@@ -62,7 +62,7 @@ struct Cli {
     address_whitelist: Option<String>,
 }
 
-async fn parse_file(filepath: String) -> Result<Vec<String>, anyhow::Error> {
+async fn parse_file(filepath: String) -> Result<Vec<String>> {
     if filepath.is_empty() {
         return Ok(Vec::new());
     }
@@ -79,7 +79,7 @@ async fn parse_file(filepath: String) -> Result<Vec<String>, anyhow::Error> {
 }
 
 #[tokio::main]
-pub async fn main() -> Result<(), Box<dyn Error>> {
+pub async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     let regions: Vec<String> = cli.regions.split(',').map(|r| (r.into())).collect();

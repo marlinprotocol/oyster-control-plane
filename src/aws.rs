@@ -1,15 +1,16 @@
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use aws_types::region::Region;
+use rand_core::OsRng;
 use serde_json::Value;
 use ssh2::Session;
+use ssh_key::{Algorithm, LineEnding, PrivateKey};
 use std::collections::HashMap;
 use std::fs;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::net::TcpStream;
 use std::path::Path;
-use std::process::Command;
 use std::str::FromStr;
 use tokio::time::{sleep, Duration};
 use whoami::username;
@@ -56,41 +57,39 @@ impl Aws {
         aws_sdk_ec2::Client::new(&config)
     }
 
-    /* AWS KEY PAIR UTILITY */
     pub async fn generate_key_pair(&self) -> Result<()> {
         let priv_check = Path::new(&self.key_location).exists();
         let pub_check = Path::new(&self.pub_key_location).exists();
+
         if priv_check && pub_check {
+            // both exist, we are done
             Ok(())
         } else if priv_check {
-            let output = Command::new("ssh-keygen")
-                .arg("-y")
-                .arg("-f")
-                .arg(&self.key_location)
-                .arg(">")
-                .arg(&self.pub_key_location)
-                .output()?;
+            // only private key exists, generate public key
+            let private_key = PrivateKey::read_openssh_file(Path::new(&self.key_location))
+                .context("Failed to read private key file")?;
 
-            if output.status.success() {
-                Ok(())
-            } else {
-                Err(anyhow!("Failed to generate key pair"))
-            }
+            private_key
+                .public_key()
+                .write_openssh_file(Path::new(&self.pub_key_location))
+                .context("Failed to write public key file")?;
+
+            Ok(())
         } else {
-            let output = Command::new("ssh-keygen")
-                .arg("-t")
-                .arg("ed25519")
-                .arg("-f")
-                .arg(&self.key_location)
-                .arg("-N")
-                .arg("")
-                .output()?;
+            // neither exist, generate private key and public key
+            let private_key = PrivateKey::random(OsRng, Algorithm::Ed25519)
+                .context("Failed to generate private key")?;
 
-            if output.status.success() {
-                Ok(())
-            } else {
-                Err(anyhow!("Failed to generate key pair"))
-            }
+            private_key
+                .write_openssh_file(Path::new(&self.key_location), LineEnding::default())
+                .context("Failed to write private key file")?;
+
+            private_key
+                .public_key()
+                .write_openssh_file(Path::new(&self.pub_key_location))
+                .context("Failed to write public key file")?;
+
+            Ok(())
         }
     }
 

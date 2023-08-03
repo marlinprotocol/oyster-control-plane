@@ -103,7 +103,9 @@ impl Aws {
             .context("failed to check key pair")?;
 
         if !key_check {
-            self.import_key_pair(region).await?;
+            self.import_key_pair(region)
+                .await
+                .context("Failed to import key pair in {region}")?;
         } else {
             println!("found existing keypair and pem file, skipping key setup");
         }
@@ -112,11 +114,13 @@ impl Aws {
     }
 
     pub async fn import_key_pair(&self, region: String) -> Result<()> {
-        let f = File::open(&self.pub_key_location)?;
+        let f = File::open(&self.pub_key_location).context("Failed to open pub key file")?;
         let mut reader = BufReader::new(f);
         let mut buffer = Vec::new();
 
-        reader.read_to_end(&mut buffer)?;
+        reader
+            .read_to_end(&mut buffer)
+            .context("Failed to read pub key file")?;
 
         self.client(region)
             .await
@@ -124,7 +128,8 @@ impl Aws {
             .key_name(&self.key_name)
             .public_key_material(aws_sdk_ec2::types::Blob::new(buffer))
             .send()
-            .await?;
+            .await
+            .context("Failed to import key pair")?;
 
         Ok(())
     }

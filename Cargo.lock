@@ -886,6 +886,7 @@ dependencies = [
  "aws-types",
  "clap",
  "ethers",
+ "rand_core 0.6.4",
  "reqwest",
  "serde",
  "serde_json",

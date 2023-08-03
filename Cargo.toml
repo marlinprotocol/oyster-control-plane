@@ -21,6 +21,7 @@ aws-types = "0.54.1"
 anyhow = "1.0.69"
 serde = "1.0.159"
 ssh-key = { version = "0.5.1", features = ["ed25519"] }
+rand_core = { version = "0.6.4", features = ["getrandom"] }
 
 [profile.release]
 lto = true

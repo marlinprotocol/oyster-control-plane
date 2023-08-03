@@ -233,49 +233,54 @@ impl Aws {
                 return Err(anyhow!("Error calculating hash of enclave image: {stderr}"));
             }
 
-            if let Some(line) = stdout.split_whitespace().next() {
-                println!("Hash: {line}");
-                if self.whitelist.as_str() != "" {
-                    println!("Checking whitelist...");
-                    let file_path = self.whitelist.as_str();
-                    let contents =
-                        fs::read_to_string(file_path).context("Error reading whitelist file")?;
+            let line = stdout
+                .split_whitespace()
+                .next()
+                .ok_or(anyhow!("Failed to retrieve image hash: {stdout}"))?;
 
-                    let entries = contents.lines();
-                    let mut allowed = false;
-                    for entry in entries {
-                        if entry.contains(line) {
-                            allowed = true;
-                            break;
-                        }
-                    }
-                    if allowed {
-                        println!("EIF ALLOWED!");
-                    } else {
-                        println!("EIF NOT ALLOWED!");
-                        return Err(anyhow!("EIF NOT ALLOWED"));
+            println!("Hash: {line}");
+
+            if self.whitelist.as_str() != "" {
+                println!("Checking whitelist...");
+                let file_path = self.whitelist.as_str();
+                let contents =
+                    fs::read_to_string(file_path).context("Error reading whitelist file")?;
+
+                let entries = contents.lines();
+                let mut allowed = false;
+                for entry in entries {
+                    if entry.contains(line) {
+                        allowed = true;
+                        break;
                     }
                 }
-                if self.blacklist.as_str() != "" {
-                    println!("Checking blacklist...");
-                    let file_path = self.blacklist.as_str();
-                    let contents =
-                        fs::read_to_string(file_path).context("Error reading blacklist file")?;
+                if allowed {
+                    println!("EIF ALLOWED!");
+                } else {
+                    println!("EIF NOT ALLOWED!");
+                    return Err(anyhow!("EIF NOT ALLOWED"));
+                }
+            }
 
-                    let entries = contents.lines();
-                    let mut allowed = true;
-                    for entry in entries {
-                        if entry.contains(line) {
-                            allowed = false;
-                            break;
-                        }
+            if self.blacklist.as_str() != "" {
+                println!("Checking blacklist...");
+                let file_path = self.blacklist.as_str();
+                let contents =
+                    fs::read_to_string(file_path).context("Error reading blacklist file")?;
+
+                let entries = contents.lines();
+                let mut allowed = true;
+                for entry in entries {
+                    if entry.contains(line) {
+                        allowed = false;
+                        break;
                     }
-                    if allowed {
-                        println!("EIF ALLOWED!");
-                    } else {
-                        println!("EIF NOT ALLOWED!");
-                        return Err(anyhow!("EIF NOT ALLOWED"));
-                    }
+                }
+                if allowed {
+                    println!("EIF ALLOWED!");
+                } else {
+                    println!("EIF NOT ALLOWED!");
+                    return Err(anyhow!("EIF NOT ALLOWED"));
                 }
             }
         }

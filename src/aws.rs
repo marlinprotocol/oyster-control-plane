@@ -191,62 +191,49 @@ impl Aws {
         mem: i64,
         bandwidth: u64,
     ) -> Result<()> {
-        let mut channel = sess.channel_session()?;
-        let mut s = String::new();
-        channel.exec(
+        Self::ssh_exec(
+            sess,
             &("echo -e '---\\nmemory_mib: ".to_owned()
                 + &((mem).to_string())
                 + "\\ncpu_count: "
                 + &((v_cpus).to_string())
                 + "' > /home/ubuntu/allocator_new.yaml"),
-        )?;
-        let _ = channel.stderr().read_to_string(&mut s);
-        let _ = channel.wait_close();
+        )
+        .context("Failed to set allocator file")?;
 
-        channel = sess.channel_session()?;
-        channel.exec("sudo apt-get update -y")?;
-        let _ = channel.stderr().read_to_string(&mut s);
-        let _ = channel.wait_close();
+        Self::ssh_exec(
+            sess,
+            "sudo cp /home/ubuntu/allocator_new.yaml /etc/nitro_enclaves/allocator.yaml",
+        )
+        .context("Failed to copy allocator file")?;
 
-        channel = sess.channel_session()?;
-        channel
-            .exec("sudo cp /home/ubuntu/allocator_new.yaml /etc/nitro_enclaves/allocator.yaml")?;
-
-        let _ = channel.stderr().read_to_string(&mut s);
-        let _ = channel.wait_close();
-
-        s.clear();
-
-        channel = sess.channel_session()?;
-        channel.exec("sudo systemctl restart nitro-enclaves-allocator.service")?;
-        let _ = channel.stderr().read_to_string(&mut s);
-        let _ = channel.wait_close();
-        if !s.is_empty() {
-            println!("{s}");
-            return Err(anyhow!("Error starting nitro-anclaves-allocator service"));
+        let (_, stderr) = Self::ssh_exec(
+            sess,
+            "sudo systemctl restart nitro-enclaves-allocator.service",
+        )
+        .context("Failed to restart allocator service")?;
+        if !stderr.is_empty() {
+            println!("{stderr}");
+            return Err(anyhow!(
+                "Error restarting nitro-enclaves-allocator service: {stderr}"
+            ));
         }
-        s.clear();
 
         println!("Nitro Enclave Service set up with cpus: {v_cpus} and memory: {mem}");
 
-        channel = sess.channel_session()?;
-        channel.exec(&("wget -O enclave.eif ".to_owned() + url))?;
-        let _ = channel.stderr().read_to_string(&mut s);
-        let _ = channel.wait_close();
-        s.clear();
+        Self::ssh_exec(sess, &("wget -O enclave.eif ".to_owned() + url))
+            .context("Failed to download enclave image")?;
 
         if self.whitelist.as_str() != "" || self.blacklist.as_str() != "" {
-            channel = sess.channel_session()?;
-            channel.exec("sha256sum /home/ubuntu/enclave.eif")?;
-            let _ = channel.stderr().read_to_string(&mut s);
-            let _ = channel.wait_close();
-            if !s.is_empty() {
-                println!("{s}");
-                return Err(anyhow!("Error calculating hash of enclave image"));
+            let (_, mut stderr) = Self::ssh_exec(sess, "sha256sum /home/ubuntu/enclave.eif")
+                .context("Failed to calculate image hash")?;
+            if !stderr.is_empty() {
+                println!("{stderr}");
+                return Err(anyhow!("Error calculating hash of enclave image: {stderr}"));
             }
-            s.clear();
+            stderr.clear();
 
-            if let Some(line) = s.split_whitespace().next() {
+            if let Some(line) = stderr.split_whitespace().next() {
                 println!("Hash: {line}");
                 if self.whitelist.as_str() != "" {
                     println!("Checking whitelist...");
@@ -303,19 +290,14 @@ impl Aws {
             }
         }
 
-        let mut output = String::new();
-        channel = sess.channel_session()?;
-        channel.exec("nmcli device status")?;
-        let _ = channel.stderr().read_to_string(&mut s);
-        let _ = channel.read_to_string(&mut output);
-        let _ = channel.wait_close();
-        if !s.is_empty() || output.is_empty() {
-            println!("{s}");
-            return Err(anyhow!("Error fetching network interface name"));
+        let (stdout, stderr) =
+            Self::ssh_exec(sess, "nmcli device status").context("Failed to get nmcli status")?;
+        if !stderr.is_empty() || stdout.is_empty() {
+            println!("{stderr}");
+            return Err(anyhow!("Error fetching network interface name: {stderr}"));
         }
-        s.clear();
         let mut interface = String::new();
-        let entries: Vec<&str> = output.split('\n').collect();
+        let entries: Vec<&str> = stdout.split('\n').collect();
         for line in entries {
             let entry: Vec<&str> = line.split_whitespace().collect();
             if entry.len() > 1 && entry[1] == "ethernet" {
@@ -323,22 +305,20 @@ impl Aws {
                 break;
             }
         }
-        output.clear();
 
         if !interface.is_empty() {
-            channel = sess.channel_session()?;
-            channel.exec(&("sudo tc qdisc show dev ".to_owned() + &interface + " root"))?;
-            let _ = channel.stderr().read_to_string(&mut s);
-            let _ = channel.read_to_string(&mut output);
-            let _ = channel.wait_close();
-            if !s.is_empty() || output.is_empty() {
-                println!("{s}");
+            let (stdout, stderr) = Self::ssh_exec(
+                sess,
+                &("sudo tc qdisc show dev ".to_owned() + &interface + " root"),
+            )
+            .context("Failed to fetch tc config")?;
+            if !stderr.is_empty() || stdout.is_empty() {
+                println!("{stderr}");
                 return Err(anyhow!(
-                    "Error fetching network interface qdisc configuration."
+                    "Error fetching network interface qdisc configuration: {stderr}"
                 ));
             }
-            s.clear();
-            let entries: Vec<&str> = output.trim().split('\n').collect();
+            let entries: Vec<&str> = stdout.trim().split('\n').collect();
             let mut is_qdisc_config_set = false;
             for entry in entries {
                 if entry.contains("tbf")
@@ -351,11 +331,10 @@ impl Aws {
                     break;
                 }
             }
-            output.clear();
 
             if !is_qdisc_config_set {
-                channel = sess.channel_session()?;
-                channel.exec(
+                let (_, stderr) = Self::ssh_exec(
+                    sess,
                     &("sudo tc qdisc add dev ".to_owned()
                         + &interface
                         + " root tbf rate "
@@ -363,14 +342,10 @@ impl Aws {
                         + "mbit burst 4000Mb latency 100ms"),
                 )?;
 
-                let _ = channel.stderr().read_to_string(&mut s);
-                let _ = channel.wait_close();
-
-                if !s.is_empty() {
-                    println!("{s}");
-                    return Err(anyhow!("Error setting up bandwidth limit"));
+                if !stderr.is_empty() {
+                    println!("{stderr}");
+                    return Err(anyhow!("Error setting up bandwidth limit: {stderr}"));
                 }
-                s.clear();
             }
         } else {
             return Err(anyhow!("Error fetching network interface name"));
@@ -382,20 +357,15 @@ impl Aws {
             "-A PREROUTING -i ens5 -p tcp -m tcp --dport 443 -j REDIRECT --to-ports 1200",
             "-A PREROUTING -i ens5 -p tcp -m tcp --dport 1025:65535 -j REDIRECT --to-ports 1200",
         ];
-        let mut channel = sess.channel_session()?;
-        channel.exec("sudo iptables -t nat -S PREROUTING")?;
+        let (stdout, stderr) = Self::ssh_exec(sess, "sudo iptables -t nat -S PREROUTING")
+            .context("Failed to query iptables")?;
 
-        let _ = channel.stderr().read_to_string(&mut s);
-        let _ = channel.read_to_string(&mut output);
-        let _ = channel.wait_close();
-
-        if !s.is_empty() || output.is_empty() {
-            println!("{}", s);
-            return Err(anyhow!("Failed to get iptables rules"));
+        if !stderr.is_empty() || stdout.is_empty() {
+            println!("{stderr}");
+            return Err(anyhow!("Failed to get iptables rules: {stderr}"));
         }
-        s.clear();
 
-        let rules: Vec<&str> = output.trim().split('\n').map(|s| s.trim()).collect();
+        let rules: Vec<&str> = stdout.trim().split('\n').map(|s| s.trim()).collect();
 
         if rules[0] != iptables_rules[0] {
             println!("Got '{}' instead of '{}'", rules[0], iptables_rules[0]);
@@ -403,45 +373,31 @@ impl Aws {
         }
 
         if !rules.contains(&iptables_rules[1]) {
-            channel = sess.channel_session()?;
-            channel
-                .exec(
-                    "sudo iptables -A PREROUTING -t nat -p tcp --dport 80 -i ens5 -j REDIRECT --to-port 1200",
-                )?;
-            let _ = channel.stderr().read_to_string(&mut s);
-            let _ = channel.wait_close();
+            let (_, stderr) = Self::ssh_exec(sess, "sudo iptables -A PREROUTING -t nat -p tcp --dport 80 -i ens5 -j REDIRECT --to-port 1200").context("Failed to set iptables rule")?;
+            if !stderr.is_empty() {
+                println!("{stderr}");
+                return Err(anyhow!("Failed to set iptables rule: {stderr}"));
+            }
         }
 
         if !rules.contains(&iptables_rules[2]) {
-            channel = sess.channel_session()?;
-            channel
-            .exec(
-                "sudo iptables -A PREROUTING -t nat -p tcp --dport 443 -i ens5 -j REDIRECT --to-port 1200",
-            )?;
-            let _ = channel.stderr().read_to_string(&mut s);
-            let _ = channel.wait_close();
+            let (_, stderr) = Self::ssh_exec(sess, "sudo iptables -A PREROUTING -t nat -p tcp --dport 443 -i ens5 -j REDIRECT --to-port 1200").context("Failed to set iptables rule")?;
+            if !stderr.is_empty() {
+                println!("{stderr}");
+                return Err(anyhow!("Failed to set iptables rule: {stderr}"));
+            }
         }
 
         if !rules.contains(&iptables_rules[3]) {
-            channel = sess.channel_session()?;
-            channel
-            .exec(
-                "sudo iptables -A PREROUTING -t nat -p tcp --dport 1025:65535 -i ens5 -j REDIRECT --to-port 1200",
-            )?;
-            let _ = channel.stderr().read_to_string(&mut s);
-            let _ = channel.wait_close();
+            let (_, stderr) = Self::ssh_exec(sess, "sudo iptables -A PREROUTING -t nat -p tcp --dport 1025:65535 -i ens5 -j REDIRECT --to-port 1200").context("Failed to set iptables rule")?;
+            if !stderr.is_empty() {
+                println!("{stderr}");
+                return Err(anyhow!("Failed to set iptables rule: {stderr}"));
+            }
         }
 
-        output.clear();
-
-        if !s.is_empty() {
-            println!("{s}");
-            return Err(anyhow!("Error setting up proxies"));
-        }
-        s.clear();
-
-        channel = sess.channel_session()?;
-        channel.exec(
+        let (_, stderr) = Self::ssh_exec(
+            sess,
             &("nitro-cli run-enclave --cpu-count ".to_owned()
                 + &((v_cpus).to_string())
                 + " --memory "
@@ -449,12 +405,10 @@ impl Aws {
                 + " --eif-path enclave.eif --enclave-cid 88"),
         )?;
 
-        let _ = channel.stderr().read_to_string(&mut s);
-        let _ = channel.wait_close();
-        if !s.is_empty() {
-            println!("{s}");
-            if !s.contains("Started enclave with enclave-cid") {
-                return Err(anyhow!("Error running enclave image"));
+        if !stderr.is_empty() {
+            println!("{stderr}");
+            if !stderr.contains("Started enclave with enclave-cid") {
+                return Err(anyhow!("Error running enclave image: {stderr}"));
             }
         }
 

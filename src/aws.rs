@@ -107,7 +107,7 @@ impl Aws {
                 .await
                 .context("Failed to import key pair in {region}")?;
         } else {
-            println!("found existing keypair and pem file, skipping key setup");
+            println!("found existing keypair and pem file in {region}, skipping key setup");
         }
 
         Ok(())

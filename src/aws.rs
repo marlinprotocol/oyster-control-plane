@@ -167,6 +167,22 @@ impl Aws {
         Ok(sess)
     }
 
+    fn ssh_exec(sess: &Session, command: &str) -> Result<(String, String)> {
+        let mut channel = sess
+            .channel_session()
+            .context("Failed to get channel session")?;
+        let mut stdout = String::new();
+        let mut stderr = String::new();
+        channel
+            .exec(command)
+            .context("Failed to execute command: {command}")?;
+        channel.read_to_string(&mut stdout);
+        channel.stderr().read_to_string(&mut stderr);
+        channel.wait_close();
+
+        Ok((stdout, stderr))
+    }
+
     async fn run_enclave_impl(
         &self,
         sess: &Session,

@@ -46,20 +46,20 @@ struct Cli {
     provider: String,
 
     /// Blacklist location
-    #[clap(long, value_parser)]
-    blacklist: Option<String>,
+    #[clap(long, value_parser, default_value = "")]
+    blacklist: String,
 
     /// Whitelist location
-    #[clap(long, value_parser)]
-    whitelist: Option<String>,
+    #[clap(long, value_parser, default_value = "")]
+    whitelist: String,
 
     /// Address Blacklist location
-    #[clap(long, value_parser)]
-    address_blacklist: Option<String>,
+    #[clap(long, value_parser, default_value = "")]
+    address_blacklist: String,
 
     /// Address Whitelist location
-    #[clap(long, value_parser)]
-    address_whitelist: Option<String>,
+    #[clap(long, value_parser, default_value = "")]
+    address_whitelist: String,
 }
 
 async fn parse_file(filepath: String) -> Result<Vec<String>> {
@@ -80,13 +80,7 @@ pub async fn main() -> Result<()> {
     let regions: Vec<String> = cli.regions.split(',').map(|r| (r.into())).collect();
     println!("Supported regions: {regions:?}");
 
-    let aws = aws::Aws::new(
-        cli.profile,
-        cli.key_name,
-        cli.whitelist.unwrap_or("".to_owned()),
-        cli.blacklist.unwrap_or("".to_owned()),
-    )
-    .await;
+    let aws = aws::Aws::new(cli.profile, cli.key_name, cli.whitelist, cli.blacklist).await;
 
     aws.generate_key_pair().await?;
 
@@ -105,10 +99,8 @@ pub async fn main() -> Result<()> {
         provider: cli.provider,
     };
 
-    let address_whitelist_vec: Vec<String> =
-        parse_file(cli.address_whitelist.unwrap_or("".to_owned())).await?;
-    let address_blacklist_vec: Vec<String> =
-        parse_file(cli.address_blacklist.unwrap_or("".to_owned())).await?;
+    let address_whitelist_vec: Vec<String> = parse_file(cli.address_whitelist).await?;
+    let address_blacklist_vec: Vec<String> = parse_file(cli.address_blacklist).await?;
     // Converting Vec<String> to &'static [String]
     // because market::run_once needs a static [String]
     let address_whitelist: &'static [String] = Box::leak(address_whitelist_vec.into_boxed_slice());

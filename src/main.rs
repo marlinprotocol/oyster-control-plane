@@ -71,7 +71,7 @@ async fn parse_file(filepath: String) -> Result<Vec<String>, anyhow::Error> {
     let contents = fs::read_to_string(file_path);
 
     if let Err(err) = contents {
-        Err(anyhow!("Error reading file: {err}"))
+        Err(anyhow!("Error reading file: {err:?}"))
     } else {
         let lines: Vec<String> = contents.unwrap().lines().map(|s| s.to_string()).collect();
         Ok(lines)

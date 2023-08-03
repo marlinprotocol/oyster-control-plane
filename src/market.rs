@@ -221,7 +221,7 @@ pub async fn run(
     let contents = fs::read_to_string(file_path);
 
     if let Err(err) = contents {
-        println!("Error reading rates file : {err}");
+        println!("Error reading rates file: {err:?}");
         return;
     }
     let contents = contents.unwrap();
@@ -231,7 +231,7 @@ pub async fn run(
     let contents = fs::read_to_string(file_path);
 
     if let Err(err) = contents {
-        println!("Error reading bandwidth rates file : {err}");
+        println!("Error reading bandwidth rates file: {err:?}");
         return;
     }
     let contents = contents.unwrap();
@@ -242,7 +242,7 @@ pub async fn run(
         let res = Provider::<Ws>::connect(url.clone()).await;
         if let Err(err) = res {
             // exponential backoff on connection errors
-            println!("main: Connection error: {err}");
+            println!("main: Connection error: {err:?}");
             sleep(Duration::from_secs(backoff)).await;
             backoff *= 2;
             if backoff > 128 {
@@ -256,7 +256,7 @@ pub async fn run(
         let client = res.unwrap();
         let res = logs_provider.new_jobs(&client).await;
         if let Err(err) = res {
-            println!("main: Subscribe error: {err}");
+            println!("main: Subscribe error: {err:?}");
             sleep(Duration::from_secs(1)).await;
             continue;
         }
@@ -353,7 +353,7 @@ async fn job_manager(
         let res = Provider::<Ws>::connect(url.clone()).await;
         if let Err(err) = res {
             // exponential backoff on connection errors
-            println!("job {job}: Connection error: {err}");
+            println!("job {job}: Connection error: {err:?}");
             sleep(Duration::from_secs(backoff)).await;
             backoff *= 2;
             if backoff > 128 {
@@ -367,7 +367,7 @@ async fn job_manager(
         let client = res.unwrap();
         let res = logs_provider.job_logs(&client, job).await;
         if let Err(err) = res {
-            println!("job {job}: Subscribe error: {err}");
+            println!("job {job}: Subscribe error: {err:?}");
             sleep(Duration::from_secs(1)).await;
             continue;
         }
@@ -505,7 +505,7 @@ impl JobState {
             .await;
         match is_running {
             Err(err) => {
-                println!("job {job}: failed to retrieve instance state, {err}");
+                println!("job {job}: failed to retrieve instance state, {err:?}");
             }
             Ok(is_running) => {
                 if is_running {
@@ -535,13 +535,13 @@ impl JobState {
                                         );
                                     }
                                     Err(err) => {
-                                        println!("job {job}: failed to run enclave, {err}. Spinning instance down.");
+                                        println!("job {job}: failed to run enclave, {err:?}. Spinning instance down.");
                                     }
                                 }
                             }
                         }
                         Err(err) => {
-                            println!("job {job}: failed to retrieve enclave state, {err}");
+                            println!("job {job}: failed to retrieve enclave state, {err:?}");
                         }
                     }
                 } else if !is_running && self.rate >= self.min_rate {
@@ -617,7 +617,7 @@ impl JobState {
                         .spin_down(&instance, job.encode_hex(), self.region.clone())
                         .await;
                     if let Err(err) = res {
-                        println!("job {job}: ERROR failed to terminate instance, {err}");
+                        println!("job {job}: ERROR failed to terminate instance, {err:?}");
                         return false;
                     }
                 }
@@ -639,7 +639,7 @@ impl JobState {
                 )
                 .await;
             if let Err(err) = res {
-                println!("job {job}: Instance launch failed, {err}");
+                println!("job {job}: Instance launch failed, {err:?}");
                 return false;
             }
             self.instance_id = res.unwrap();
@@ -658,7 +658,7 @@ impl JobState {
                 .spin_down(&instance, job.encode_hex(), self.region.clone())
                 .await;
             if let Err(err) = res {
-                println!("job {job}: ERROR failed to terminate instance, {err}");
+                println!("job {job}: ERROR failed to terminate instance, {err:?}");
                 return false;
             }
         }
@@ -731,7 +731,7 @@ impl JobState {
 
                 let v = serde_json::from_str(&metadata);
                 if let Err(err) = v {
-                    println!("job {job}: Error reading metadata: {err}");
+                    println!("job {job}: Error reading metadata: {err:?}");
                     return -2;
                 }
 
@@ -763,7 +763,7 @@ impl JobState {
 
                 if !self.allowed_regions.contains(&self.region) {
                     println!(
-                        "job {job}: region : {} not suppported, exiting job",
+                        "job {job}: region: {} not suppported, exiting job",
                         self.region
                     );
                     return -2;

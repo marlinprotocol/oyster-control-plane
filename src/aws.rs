@@ -224,14 +224,14 @@ impl Aws {
             s.clear();
 
             if let Some(line) = s.split_whitespace().next() {
-                println!("Hash : {line}");
+                println!("Hash: {line}");
                 if self.whitelist.as_str() != "" {
                     println!("Checking whitelist...");
                     let file_path = self.whitelist.as_str();
                     let contents = fs::read_to_string(file_path);
 
                     if let Err(err) = contents {
-                        println!("Error reading whitelist file : {err}");
+                        println!("Error reading whitelist file: {err:?}");
                         return Err(anyhow!("Error reading whitelist file"));
                     } else {
                         let contents = contents.unwrap();
@@ -257,7 +257,7 @@ impl Aws {
                     let contents = fs::read_to_string(file_path);
 
                     if let Err(err) = contents {
-                        println!("Error reading blacklist file : {err}");
+                        println!("Error reading blacklist file: {err:?}");
                         return Err(anyhow!("Error reading blacklist file"));
                     } else {
                         let contents = contents.unwrap();
@@ -453,7 +453,7 @@ impl Aws {
         if let Err(err) = res {
             self.spin_down_instance(instance_id, &job, region.clone())
                 .await?;
-            return Err(anyhow!("error launching instance, {err}"));
+            return Err(anyhow!("error launching instance, {err:?}"));
         }
         let mut public_ip_address = res.unwrap();
         if public_ip_address.is_empty() {
@@ -473,7 +473,7 @@ impl Aws {
                     Err(e) => {
                         self.spin_down_instance(instance_id, &job, region.clone())
                             .await?;
-                        println!("Error running enclave: {e}");
+                        println!("Error running enclave: {e:?}");
                         return Err(anyhow!(
                             "error running enclave, terminating launched instance"
                         ));
@@ -1071,7 +1071,7 @@ impl Aws {
         if let Err(err) = res {
             self.spin_down_instance(&instance, &job, region.clone())
                 .await?;
-            return Err(anyhow!("error launching instance, {err}"));
+            return Err(anyhow!("error launching instance, {err:?}"));
         }
         let (alloc_id, ip) = res.unwrap();
         println!("Elastic Ip allocated: {ip}");
@@ -1082,7 +1082,7 @@ impl Aws {
         if let Err(err) = res {
             self.spin_down_instance(&instance, &job, region.clone())
                 .await?;
-            return Err(anyhow!("error launching instance, {err}"));
+            return Err(anyhow!("error launching instance, {err:?}"));
         }
         let res = self
             .run_enclave(
@@ -1094,8 +1094,8 @@ impl Aws {
                 return Ok(instance);
             }
             Err(err) => {
-                println!("Enclave failed to start, {err}");
-                return Err(anyhow!("error running enclave on instance, {err}"));
+                println!("Enclave failed to start, {err:?}");
+                return Err(anyhow!("error running enclave on instance, {err:?}"));
             }
         }
     }

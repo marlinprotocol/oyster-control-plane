@@ -176,6 +176,7 @@ impl Aws {
         channel
             .exec(command)
             .context("Failed to execute command: {command}")?;
+        // TODO: Handle error cases?
         channel.read_to_string(&mut stdout);
         channel.stderr().read_to_string(&mut stderr);
         channel.wait_close();

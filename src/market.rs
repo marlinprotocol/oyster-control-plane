@@ -1288,10 +1288,12 @@ mod tests {
             (301, Action::Close, [].into()),
         ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
+        let start_time  = Instant::now();
         // pending stream appended so job stream never ends
         let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
-            .then(|(delay, log)| async move {
-                sleep(Duration::from_secs(delay)).await;
+            .then(|(moment, log)| async move {
+                let delay = start_time + Duration::from_secs(moment) - Instant::now();
+                sleep(delay).await;
                 log
             })
             .chain(tokio_stream::pending()));
@@ -1350,10 +1352,12 @@ mod tests {
             (505, Action::Close, [].into()),
             ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
+        let start_time  = Instant::now();
         // pending stream appended so job stream never ends
         let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
-            .then(|(delay, log)| async move {
-                sleep(Duration::from_secs(delay)).await;
+            .then(|(moment, log)| async move {
+                let delay = start_time + Duration::from_secs(moment) - Instant::now();
+                sleep(delay).await;
                 log
             })
             .chain(tokio_stream::pending()));
@@ -1390,7 +1394,7 @@ mod tests {
         };
 
         if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
-            println!("{}", (out.time - spin_up_tv_sec).as_secs());
+            assert_eq!((out.time - spin_up_tv_sec).as_secs(), 205);
             assert!(H256::from_str(&out.job).unwrap() == job_num &&
              out.region == *"ap-south-1"
             )
@@ -1413,10 +1417,12 @@ mod tests {
             (505, Action::Close, [].into()),
             ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
+        let start_time  = Instant::now();
         // pending stream appended so job stream never ends
         let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
-            .then(|(delay, log)| async move {
-                sleep(Duration::from_secs(delay)).await;
+            .then(|(moment, log)| async move {
+                let delay = start_time + Duration::from_secs(moment) - Instant::now();
+                sleep(delay).await;
                 log
             })
             .chain(tokio_stream::pending()));
@@ -1453,7 +1459,7 @@ mod tests {
         };
 
         if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
-            println!("{}", (out.time - spin_up_tv_sec).as_secs());
+            assert_eq!((out.time - spin_up_tv_sec).as_secs(), 205);
             assert!(H256::from_str(&out.job).unwrap() == job_num &&
              out.region == *"ap-south-1"
             )
@@ -1472,10 +1478,12 @@ mod tests {
             (505, Action::Close, [].into()),
             ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
+        let start_time  = Instant::now();
         // pending stream appended so job stream never ends
         let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
-            .then(|(delay, log)| async move {
-                sleep(Duration::from_secs(delay)).await;
+            .then(|(moment, log)| async move {
+                let delay = start_time + Duration::from_secs(moment) - Instant::now();
+                sleep(delay).await;
                 log
             })
             .chain(tokio_stream::pending()));
@@ -1507,10 +1515,12 @@ mod tests {
             (505, Action::Close, [].into()),
             ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
+        let start_time  = Instant::now();
         // pending stream appended so job stream never ends
         let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
-            .then(|(delay, log)| async move {
-                sleep(Duration::from_secs(delay)).await;
+            .then(|(moment, log)| async move {
+                let delay = start_time + Duration::from_secs(moment) - Instant::now();
+                sleep(delay).await;
                 log
             })
             .chain(tokio_stream::pending()));
@@ -1542,10 +1552,12 @@ mod tests {
             (505, Action::Close, [].into()),
             ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
+        let start_time  = Instant::now();
         // pending stream appended so job stream never ends
         let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
-            .then(|(delay, log)| async move {
-                sleep(Duration::from_secs(delay)).await;
+            .then(|(moment, log)| async move {
+                let delay = start_time + Duration::from_secs(moment) - Instant::now();
+                sleep(delay).await;
                 log
             })
             .chain(tokio_stream::pending()));
@@ -1577,10 +1589,12 @@ mod tests {
             (505, Action::Close, [].into()),
             ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
+        let start_time  = Instant::now();
         // pending stream appended so job stream never ends
         let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
-            .then(|(delay, log)| async move {
-                sleep(Duration::from_secs(delay)).await;
+            .then(|(moment, log)| async move {
+                let delay = start_time + Duration::from_secs(moment) - Instant::now();
+                sleep(delay).await;
                 log
             })
             .chain(tokio_stream::pending()));
@@ -1612,10 +1626,12 @@ mod tests {
             (505, Action::Close, [].into()),
             ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
+        let start_time  = Instant::now();
         // pending stream appended so job stream never ends
         let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
-            .then(|(delay, log)| async move {
-                sleep(Duration::from_secs(delay)).await;
+            .then(|(moment, log)| async move {
+                let delay = start_time + Duration::from_secs(moment) - Instant::now();
+                sleep(delay).await;
                 log
             })
             .chain(tokio_stream::pending()));
@@ -1647,10 +1663,12 @@ mod tests {
             (505, Action::Close, [].into()),
             ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
+        let start_time  = Instant::now();
         // pending stream appended so job stream never ends
         let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
-            .then(|(delay, log)| async move {
-                sleep(Duration::from_secs(delay)).await;
+            .then(|(moment, log)| async move {
+                let delay = start_time + Duration::from_secs(moment) - Instant::now();
+                sleep(delay).await;
                 log
             })
             .chain(tokio_stream::pending()));
@@ -1682,10 +1700,12 @@ mod tests {
             (505, Action::Close, [].into()),
             ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
+        let start_time  = Instant::now();
         // pending stream appended so job stream never ends
         let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
-            .then(|(delay, log)| async move {
-                sleep(Duration::from_secs(delay)).await;
+            .then(|(moment, log)| async move {
+                let delay = start_time + Duration::from_secs(moment) - Instant::now();
+                sleep(delay).await;
                 log
             })
             .chain(tokio_stream::pending()));
@@ -1718,10 +1738,12 @@ mod tests {
             (500, Action::Close, [].into()),
         ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
+        let start_time  = Instant::now();
         // pending stream appended so job stream never ends
         let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
-            .then(|(delay, log)| async move {
-                sleep(Duration::from_secs(delay)).await;
+            .then(|(moment, log)| async move {
+                let delay = start_time + Duration::from_secs(moment) - Instant::now();
+                sleep(delay).await;
                 log
             })
             .chain(tokio_stream::pending()));
@@ -1758,7 +1780,7 @@ mod tests {
         };
 
         if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
-            println!("{}",(out.time - spin_up_tv_sec).as_secs());
+            assert_eq!((out.time - spin_up_tv_sec).as_secs(), 50);
             assert!(H256::from_str(&out.job).unwrap() == job_num &&
              out.region == *"ap-south-1"
             )
@@ -1780,10 +1802,12 @@ mod tests {
             (500, Action::ReviseRateFinalized, (50,0).encode()),
         ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
+        let start_time  = Instant::now();
         // pending stream appended so job stream never ends
         let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
-            .then(|(delay, log)| async move {
-                sleep(Duration::from_secs(delay)).await;
+            .then(|(moment, log)| async move {
+                let delay = start_time + Duration::from_secs(moment) - Instant::now();
+                sleep(delay).await;
                 log
             })
             .chain(tokio_stream::pending()));
@@ -1820,7 +1844,7 @@ mod tests {
         };
 
         if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
-            println!("{}",(out.time - spin_up_tv_sec).as_secs());
+            assert_eq!((out.time - spin_up_tv_sec).as_secs(), 50);
             assert!(H256::from_str(&out.job).unwrap() == job_num &&
              out.region == *"ap-south-1"
             )
@@ -1839,10 +1863,12 @@ mod tests {
             (500, Action::Close, [].into()),
         ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
+        let start_time  = Instant::now();
         // pending stream appended so job stream never ends
         let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
-            .then(|(delay, log)| async move {
-                sleep(Duration::from_secs(delay)).await;
+            .then(|(moment, log)| async move {
+                let delay = start_time + Duration::from_secs(moment) - Instant::now();
+                sleep(delay).await;
                 log
             })
             .chain(tokio_stream::pending()));
@@ -1881,7 +1907,7 @@ mod tests {
         };
 
         if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
-            println!("{}",(out.time - spin_up_tv_sec).as_secs());
+            assert_eq!((out.time - spin_up_tv_sec).as_secs(), 200);
             assert!(H256::from_str(&out.job).unwrap() == job_num &&
              out.region == *"ap-south-1"
             )
@@ -1900,10 +1926,12 @@ mod tests {
             (500, Action::Close, [].into()),
         ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
+        let start_time  = Instant::now();
         // pending stream appended so job stream never ends
         let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
-            .then(|(delay, log)| async move {
-                sleep(Duration::from_secs(delay)).await;
+            .then(|(moment, log)| async move {
+                let delay = start_time + Duration::from_secs(moment) - Instant::now();
+                sleep(delay).await;
                 log
             })
             .chain(tokio_stream::pending()));
@@ -1937,10 +1965,12 @@ mod tests {
             (500, Action::Close, [].into()),
         ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
+        let start_time  = Instant::now();
         // pending stream appended so job stream never ends
         let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
-            .then(|(delay, log)| async move {
-                sleep(Duration::from_secs(delay)).await;
+            .then(|(moment, log)| async move {
+                let delay = start_time + Duration::from_secs(moment) - Instant::now();
+                sleep(delay).await;
                 log
             })
             .chain(tokio_stream::pending()));
@@ -1974,10 +2004,12 @@ mod tests {
             (500, Action::Close, [].into()),
         ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
+        let start_time  = Instant::now();
         // pending stream appended so job stream never ends
         let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
-            .then(|(delay, log)| async move {
-                sleep(Duration::from_secs(delay)).await;
+            .then(|(moment, log)| async move {
+                let delay = start_time + Duration::from_secs(moment) - Instant::now();
+                sleep(delay).await;
                 log
             })
             .chain(tokio_stream::pending()));
@@ -2016,7 +2048,7 @@ mod tests {
         };
 
         if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
-            println!("{}",(out.time - spin_up_tv_sec).as_secs());
+            assert_eq!((out.time - spin_up_tv_sec).as_secs(), 200);
             assert!(H256::from_str(&out.job).unwrap() == job_num &&
              out.region == *"ap-south-1"
             )

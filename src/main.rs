@@ -86,10 +86,14 @@ pub async fn main() -> Result<()> {
 
     let aws = aws::Aws::new(cli.profile, cli.key_name, cli.whitelist, cli.blacklist).await;
 
-    aws.generate_key_pair().await?;
+    aws.generate_key_pair()
+        .await
+        .context("Failed to generate key pair")?;
 
     for region in regions.clone() {
-        aws.key_setup(region).await?;
+        aws.key_setup(region)
+            .await
+            .context("Failed to setup key pair in {region}")?;
     }
 
     tokio::spawn(server::serve(
@@ -103,8 +107,12 @@ pub async fn main() -> Result<()> {
         provider: cli.provider,
     };
 
-    let address_whitelist_vec: Vec<String> = parse_file(cli.address_whitelist).await?;
-    let address_blacklist_vec: Vec<String> = parse_file(cli.address_blacklist).await?;
+    let address_whitelist_vec: Vec<String> = parse_file(cli.address_whitelist)
+        .await
+        .context("Failed to parse address whitelist")?;
+    let address_blacklist_vec: Vec<String> = parse_file(cli.address_blacklist)
+        .await
+        .context("Failed to parse address blacklist")?;
     // Converting Vec<String> to &'static [String]
     // because market::run_once needs a static [String]
     let address_whitelist: &'static [String] = Box::leak(address_whitelist_vec.into_boxed_slice());

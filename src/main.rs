@@ -4,7 +4,7 @@ mod server;
 #[cfg(test)]
 mod test;
 
-use anyhow::anyhow;
+use anyhow::Context;
 use anyhow::Result;
 use clap::Parser;
 use std::fs;
@@ -67,15 +67,10 @@ async fn parse_file(filepath: String) -> Result<Vec<String>> {
         return Ok(Vec::new());
     }
 
-    let file_path = filepath.as_str();
-    let contents = fs::read_to_string(file_path);
+    let contents = fs::read_to_string(filepath).context("Error reading file")?;
+    let lines: Vec<String> = contents.lines().map(|s| s.to_string()).collect();
 
-    if let Err(err) = contents {
-        Err(anyhow!("Error reading file: {err:?}"))
-    } else {
-        let lines: Vec<String> = contents.unwrap().lines().map(|s| s.to_string()).collect();
-        Ok(lines)
-    }
+    Ok(lines)
 }
 
 #[tokio::main]

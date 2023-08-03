@@ -238,27 +238,22 @@ impl Aws {
                 if self.whitelist.as_str() != "" {
                     println!("Checking whitelist...");
                     let file_path = self.whitelist.as_str();
-                    let contents = fs::read_to_string(file_path);
+                    let contents =
+                        fs::read_to_string(file_path).context("Error reading whitelist file")?;
 
-                    if let Err(err) = contents {
-                        println!("Error reading whitelist file: {err:?}");
-                        return Err(anyhow!("Error reading whitelist file"));
+                    let entries = contents.lines();
+                    let mut allowed = false;
+                    for entry in entries {
+                        if entry.contains(line) {
+                            allowed = true;
+                            break;
+                        }
+                    }
+                    if allowed {
+                        println!("EIF ALLOWED!");
                     } else {
-                        let contents = contents.unwrap();
-                        let entries = contents.lines();
-                        let mut allowed = false;
-                        for entry in entries {
-                            if entry.contains(line) {
-                                allowed = true;
-                                break;
-                            }
-                        }
-                        if allowed {
-                            println!("EIF ALLOWED!");
-                        } else {
-                            println!("EIF NOT ALLOWED!");
-                            return Err(anyhow!("EIF NOT ALLOWED"));
-                        }
+                        println!("EIF NOT ALLOWED!");
+                        return Err(anyhow!("EIF NOT ALLOWED"));
                     }
                 }
                 if self.blacklist.as_str() != "" {

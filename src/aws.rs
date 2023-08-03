@@ -226,15 +226,14 @@ impl Aws {
             .context("Failed to download enclave image")?;
 
         if self.whitelist.as_str() != "" || self.blacklist.as_str() != "" {
-            let (_, mut stderr) = Self::ssh_exec(sess, "sha256sum /home/ubuntu/enclave.eif")
+            let (stdout, stderr) = Self::ssh_exec(sess, "sha256sum /home/ubuntu/enclave.eif")
                 .context("Failed to calculate image hash")?;
             if !stderr.is_empty() {
                 println!("{stderr}");
                 return Err(anyhow!("Error calculating hash of enclave image: {stderr}"));
             }
-            stderr.clear();
 
-            if let Some(line) = stderr.split_whitespace().next() {
+            if let Some(line) = stdout.split_whitespace().next() {
                 println!("Hash: {line}");
                 if self.whitelist.as_str() != "" {
                     println!("Checking whitelist...");

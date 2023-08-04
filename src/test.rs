@@ -1,19 +1,19 @@
 use async_trait::async_trait;
+use ethers::prelude::rand::Rng;
 use ethers::prelude::*;
 use ethers::types::Log;
 use ethers::utils::keccak256;
-use ethers::prelude::rand::Rng;
-use std::str::FromStr;
-use std::fs;
 use std::collections::HashMap;
 use std::error::Error;
-use tokio::time::{Instant, Duration};
+use std::fs;
+use std::str::FromStr;
+use tokio::time::{Duration, Instant};
 use tokio_stream::{Stream, StreamExt};
 
+use crate::market::{GBRateCard, InfraProvider, LogsProvider};
 use crate::server;
-use crate::market;
-use crate::market::{InfraProvider, LogsProvider};
 
+#[cfg(test)]
 #[derive(Clone, Debug)]
 pub struct SpinUpOutcome {
     pub time: Instant,
@@ -26,6 +26,7 @@ pub struct SpinUpOutcome {
     pub eif_url: String,
 }
 
+#[cfg(test)]
 #[derive(Clone, Debug)]
 pub struct SpinDownOutcome {
     pub time: Instant,
@@ -34,18 +35,20 @@ pub struct SpinDownOutcome {
     pub region: String,
 }
 
+#[cfg(test)]
 #[derive(Clone, Debug)]
 pub enum TestAwsOutcome {
     SpinUp(SpinUpOutcome),
     SpinDown(SpinDownOutcome),
 }
-
+#[cfg(test)]
 #[derive(Clone, Default)]
 pub struct TestAws {
     pub outcomes: Vec<TestAwsOutcome>,
     pub instances: HashMap<String, String>,
 }
 
+#[cfg(test)]
 #[async_trait]
 impl InfraProvider for TestAws {
     async fn spin_up(
@@ -147,9 +150,11 @@ impl InfraProvider for TestAws {
     }
 }
 
+#[cfg(test)]
 #[derive(Clone)]
 pub struct TestLogger {}
 
+#[cfg(test)]
 #[async_trait]
 impl LogsProvider for TestLogger {
     async fn new_jobs<'a>(
@@ -176,14 +181,15 @@ impl LogsProvider for TestLogger {
         Ok(Box::new(
             tokio_stream::iter(
                 logs.into_iter()
-                .filter(|log| log.topics[1] == job)
-                .collect::<Vec<_>>())
-                .throttle(Duration::from_secs(2)),
+                    .filter(|log| log.topics[1] == job)
+                    .collect::<Vec<_>>(),
+            )
+            .throttle(Duration::from_secs(2)),
         ))
     }
 }
 
-
+#[cfg(test)]
 #[derive(Clone)]
 pub enum Action {
     Open,                // metadata(region, url, instance), rate, balance, timestamp
@@ -196,6 +202,7 @@ pub enum Action {
     ReviseRateFinalized, //
 }
 
+#[cfg(test)]
 pub fn get_rates() -> Option<Vec<server::RegionalRates>> {
     let file_path = "./rates.json";
     let contents = fs::read_to_string(file_path);
@@ -209,7 +216,8 @@ pub fn get_rates() -> Option<Vec<server::RegionalRates>> {
     Some(rates)
 }
 
-pub fn get_gb_rates() -> Option<Vec<market::GBRateCard>> {
+#[cfg(test)]
+pub fn get_gb_rates() -> Option<Vec<GBRateCard>> {
     let file_path = "./GB_rates.json";
     let contents = fs::read_to_string(file_path);
 
@@ -218,10 +226,11 @@ pub fn get_gb_rates() -> Option<Vec<market::GBRateCard>> {
         return None;
     }
     let contents = contents.unwrap();
-    let rates: Vec<market::GBRateCard> = serde_json::from_str(&contents).unwrap_or_default();
+    let rates: Vec<GBRateCard> = serde_json::from_str(&contents).unwrap_or_default();
     Some(rates)
 }
 
+#[cfg(test)]
 pub fn get_log(topic: Action, data: Bytes, idx: H256) -> Log {
     let mut log = Log {
         address: H160::from_str("0x0F5F91BA30a00bD43Bd19466f020B3E5fc7a49ec").unwrap(),

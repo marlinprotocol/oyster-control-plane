@@ -1093,11 +1093,9 @@ async fn job_logs(
     Ok(Box::new(stream))
 }
 
-
 // --------------------------------------------------------------------------------------------------------------------------------------------------------
 //                                                                  TESTS
 // --------------------------------------------------------------------------------------------------------------------------------------------------------
-
 
 #[cfg(test)]
 mod tests {
@@ -1107,11 +1105,7 @@ mod tests {
     use tokio::time::{sleep, Duration, Instant};
 
     use crate::market;
-    use crate::test::{self, 
-        Action, 
-        TestAwsOutcome, 
-        TestAws
-    };
+    use crate::test::{self, Action, TestAws, TestAwsOutcome};
 
     #[tokio::test(start_paused = true)]
     async fn test_instance_launch_after_delay_on_spin_up() {
@@ -1121,7 +1115,7 @@ mod tests {
             (301, Action::Close, [].into()),
         ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
-        let start_time  = Instant::now();
+        let start_time = Instant::now();
         // pending stream appended so job stream never ends
         let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
             .then(|(moment, log)| async move {
@@ -1147,16 +1141,17 @@ mod tests {
         // job manager should have finished successfully
         assert_eq!(res, 0);
         println!("{:?}", aws.outcomes);
-        let spin_up_tv_sec: Instant; 
+        let spin_up_tv_sec: Instant;
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
             spin_up_tv_sec = out.time;
-            assert!(H256::from_str(&out.job).unwrap() == job_num &&
-             out.instance_type == *"c6a.xlarge" &&
-             out.region == *"ap-south-1" &&
-             out.req_mem == 4096 && 
-             out.req_vcpu == 2 && 
-             out.bandwidth == 0 &&
-             out.eif_url == *"https://example.com/enclave.eif"
+            assert!(
+                H256::from_str(&out.job).unwrap() == job_num
+                    && out.instance_type == *"c6a.xlarge"
+                    && out.region == *"ap-south-1"
+                    && out.req_mem == 4096
+                    && out.req_vcpu == 2
+                    && out.bandwidth == 0
+                    && out.eif_url == *"https://example.com/enclave.eif"
             )
         } else {
             panic!();
@@ -1164,9 +1159,7 @@ mod tests {
 
         if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
             assert_eq!((out.time - spin_up_tv_sec).as_secs(), 1);
-            assert!(H256::from_str(&out.job).unwrap() == job_num &&
-             out.region == *"ap-south-1"
-            )
+            assert!(H256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
         } else {
             panic!();
         };
@@ -1185,7 +1178,7 @@ mod tests {
             (505, Action::Close, [].into()),
             ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
-        let start_time  = Instant::now();
+        let start_time = Instant::now();
         // pending stream appended so job stream never ends
         let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
             .then(|(moment, log)| async move {
@@ -1211,16 +1204,17 @@ mod tests {
         // job manager should have finished successfully
         assert_eq!(res, 0);
         println!("{:?}", aws.outcomes);
-        let spin_up_tv_sec: Instant; 
+        let spin_up_tv_sec: Instant;
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
             spin_up_tv_sec = out.time;
-            assert!(H256::from_str(&out.job).unwrap() == job_num &&
-             out.instance_type == *"c6a.xlarge" &&
-             out.region == *"ap-south-1" &&
-             out.req_mem == 4096 && 
-             out.req_vcpu == 2 && 
-             out.bandwidth == 0 &&
-             out.eif_url == *"https://example.com/enclave.eif"
+            assert!(
+                H256::from_str(&out.job).unwrap() == job_num
+                    && out.instance_type == *"c6a.xlarge"
+                    && out.region == *"ap-south-1"
+                    && out.req_mem == 4096
+                    && out.req_vcpu == 2
+                    && out.bandwidth == 0
+                    && out.eif_url == *"https://example.com/enclave.eif"
             )
         } else {
             panic!();
@@ -1228,9 +1222,7 @@ mod tests {
 
         if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
             assert_eq!((out.time - spin_up_tv_sec).as_secs(), 205);
-            assert!(H256::from_str(&out.job).unwrap() == job_num &&
-             out.region == *"ap-south-1"
-            )
+            assert!(H256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
         } else {
             panic!();
         };
@@ -1250,7 +1242,7 @@ mod tests {
             (505, Action::Close, [].into()),
             ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
-        let start_time  = Instant::now();
+        let start_time = Instant::now();
         // pending stream appended so job stream never ends
         let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
             .then(|(moment, log)| async move {
@@ -1276,16 +1268,17 @@ mod tests {
         // job manager should have finished successfully
         assert_eq!(res, 0);
         println!("{:?}", aws.outcomes);
-        let spin_up_tv_sec: Instant; 
+        let spin_up_tv_sec: Instant;
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
             spin_up_tv_sec = out.time;
-            assert!(H256::from_str(&out.job).unwrap() == job_num &&
-             out.instance_type == *"c6a.xlarge" &&
-             out.region == *"ap-south-1" &&
-             out.req_mem == 4096 && 
-             out.req_vcpu == 2 && 
-             out.bandwidth == 0 &&
-             out.eif_url == *"https://example.com/enclave.eif"
+            assert!(
+                H256::from_str(&out.job).unwrap() == job_num
+                    && out.instance_type == *"c6a.xlarge"
+                    && out.region == *"ap-south-1"
+                    && out.req_mem == 4096
+                    && out.req_vcpu == 2
+                    && out.bandwidth == 0
+                    && out.eif_url == *"https://example.com/enclave.eif"
             )
         } else {
             panic!();
@@ -1293,9 +1286,7 @@ mod tests {
 
         if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
             assert_eq!((out.time - spin_up_tv_sec).as_secs(), 205);
-            assert!(H256::from_str(&out.job).unwrap() == job_num &&
-             out.region == *"ap-south-1"
-            )
+            assert!(H256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
         } else {
             panic!();
         };
@@ -1311,7 +1302,7 @@ mod tests {
             (505, Action::Close, [].into()),
             ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
-        let start_time  = Instant::now();
+        let start_time = Instant::now();
         // pending stream appended so job stream never ends
         let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
             .then(|(moment, log)| async move {
@@ -1339,7 +1330,7 @@ mod tests {
         assert!(aws.outcomes.is_empty());
         assert!(!aws.instances.contains_key(&job_num.to_string()))
     }
-    
+
     #[tokio::test(start_paused = true)]
     async fn test_region_not_found() {
         let job_num = H256::from_low_u64_be(1);
@@ -1348,7 +1339,7 @@ mod tests {
             (505, Action::Close, [].into()),
             ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
-        let start_time  = Instant::now();
+        let start_time = Instant::now();
         // pending stream appended so job stream never ends
         let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
             .then(|(moment, log)| async move {
@@ -1385,7 +1376,7 @@ mod tests {
             (505, Action::Close, [].into()),
             ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
-        let start_time  = Instant::now();
+        let start_time = Instant::now();
         // pending stream appended so job stream never ends
         let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
             .then(|(moment, log)| async move {
@@ -1422,7 +1413,7 @@ mod tests {
             (505, Action::Close, [].into()),
             ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
-        let start_time  = Instant::now();
+        let start_time = Instant::now();
         // pending stream appended so job stream never ends
         let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
             .then(|(moment, log)| async move {
@@ -1459,7 +1450,7 @@ mod tests {
             (505, Action::Close, [].into()),
             ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
-        let start_time  = Instant::now();
+        let start_time = Instant::now();
         // pending stream appended so job stream never ends
         let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
             .then(|(moment, log)| async move {
@@ -1496,7 +1487,7 @@ mod tests {
             (505, Action::Close, [].into()),
             ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
-        let start_time  = Instant::now();
+        let start_time = Instant::now();
         // pending stream appended so job stream never ends
         let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
             .then(|(moment, log)| async move {
@@ -1524,7 +1515,7 @@ mod tests {
         assert!(aws.outcomes.is_empty());
         assert!(!aws.instances.contains_key(&job_num.to_string()))
     }
-    
+
     #[tokio::test(start_paused = true)]
     async fn test_rate_exceed_balance() {
         let job_num = H256::from_low_u64_be(1);
@@ -1533,7 +1524,7 @@ mod tests {
             (505, Action::Close, [].into()),
             ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
-        let start_time  = Instant::now();
+        let start_time = Instant::now();
         // pending stream appended so job stream never ends
         let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
             .then(|(moment, log)| async move {
@@ -1561,7 +1552,7 @@ mod tests {
         assert!(aws.outcomes.is_empty());
         assert!(!aws.instances.contains_key(&job_num.to_string()))
     }
-    
+
     #[tokio::test(start_paused = true)]
     async fn test_withdrawal_exceed_rate() {
         let job_num = H256::from_low_u64_be(1);
@@ -1571,7 +1562,7 @@ mod tests {
             (500, Action::Close, [].into()),
         ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
-        let start_time  = Instant::now();
+        let start_time = Instant::now();
         // pending stream appended so job stream never ends
         let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
             .then(|(moment, log)| async move {
@@ -1597,16 +1588,17 @@ mod tests {
         // job manager should have finished successfully
         assert_eq!(res, 0);
         println!("{:?}", aws.outcomes);
-        let spin_up_tv_sec: Instant; 
+        let spin_up_tv_sec: Instant;
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
             spin_up_tv_sec = out.time;
-            assert!(H256::from_str(&out.job).unwrap() == job_num &&
-             out.instance_type == *"c6a.xlarge" &&
-             out.region == *"ap-south-1" &&
-             out.req_mem == 4096 && 
-             out.req_vcpu == 2 && 
-             out.bandwidth == 0 &&
-             out.eif_url == *"https://example.com/enclave.eif"
+            assert!(
+                H256::from_str(&out.job).unwrap() == job_num
+                    && out.instance_type == *"c6a.xlarge"
+                    && out.region == *"ap-south-1"
+                    && out.req_mem == 4096
+                    && out.req_vcpu == 2
+                    && out.bandwidth == 0
+                    && out.eif_url == *"https://example.com/enclave.eif"
             )
         } else {
             panic!();
@@ -1614,9 +1606,7 @@ mod tests {
 
         if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
             assert_eq!((out.time - spin_up_tv_sec).as_secs(), 50);
-            assert!(H256::from_str(&out.job).unwrap() == job_num &&
-             out.region == *"ap-south-1"
-            )
+            assert!(H256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
         } else {
             panic!();
         };
@@ -1635,7 +1625,7 @@ mod tests {
             (500, Action::ReviseRateFinalized, (50,0).encode()),
         ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
-        let start_time  = Instant::now();
+        let start_time = Instant::now();
         // pending stream appended so job stream never ends
         let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
             .then(|(moment, log)| async move {
@@ -1661,16 +1651,17 @@ mod tests {
         // job manager should have finished successfully
         assert_eq!(res, 0);
         println!("{:?}", aws.outcomes);
-        let spin_up_tv_sec: Instant; 
+        let spin_up_tv_sec: Instant;
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
             spin_up_tv_sec = out.time;
-            assert!(H256::from_str(&out.job).unwrap() == job_num &&
-             out.instance_type == *"c6a.xlarge" &&
-             out.region == *"ap-south-1" &&
-             out.req_mem == 4096 && 
-             out.req_vcpu == 2 && 
-             out.bandwidth == 0 &&
-             out.eif_url == *"https://example.com/enclave.eif"
+            assert!(
+                H256::from_str(&out.job).unwrap() == job_num
+                    && out.instance_type == *"c6a.xlarge"
+                    && out.region == *"ap-south-1"
+                    && out.req_mem == 4096
+                    && out.req_vcpu == 2
+                    && out.bandwidth == 0
+                    && out.eif_url == *"https://example.com/enclave.eif"
             )
         } else {
             panic!();
@@ -1678,9 +1669,7 @@ mod tests {
 
         if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
             assert_eq!((out.time - spin_up_tv_sec).as_secs(), 50);
-            assert!(H256::from_str(&out.job).unwrap() == job_num &&
-             out.region == *"ap-south-1"
-            )
+            assert!(H256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
         } else {
             panic!();
         };
@@ -1696,7 +1685,7 @@ mod tests {
             (500, Action::Close, [].into()),
         ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
-        let start_time  = Instant::now();
+        let start_time = Instant::now();
         // pending stream appended so job stream never ends
         let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
             .then(|(moment, log)| async move {
@@ -1716,7 +1705,7 @@ mod tests {
             &test::get_gb_rates().unwrap_or_default(),
             &Vec::from([
                 "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
-                ]),
+            ]),
             &Vec::new(),
         )
         .await;
@@ -1724,16 +1713,17 @@ mod tests {
         // job manager should have finished successfully
         assert_eq!(res, 0);
         println!("{:?}", aws.outcomes);
-        let spin_up_tv_sec: Instant; 
+        let spin_up_tv_sec: Instant;
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
             spin_up_tv_sec = out.time;
-            assert!(H256::from_str(&out.job).unwrap() == job_num &&
-             out.instance_type == *"c6a.xlarge" &&
-             out.region == *"ap-south-1" &&
-             out.req_mem == 4096 && 
-             out.req_vcpu == 2 && 
-             out.bandwidth == 0 &&
-             out.eif_url == *"https://example.com/enclave.eif"
+            assert!(
+                H256::from_str(&out.job).unwrap() == job_num
+                    && out.instance_type == *"c6a.xlarge"
+                    && out.region == *"ap-south-1"
+                    && out.req_mem == 4096
+                    && out.req_vcpu == 2
+                    && out.bandwidth == 0
+                    && out.eif_url == *"https://example.com/enclave.eif"
             )
         } else {
             panic!();
@@ -1741,9 +1731,7 @@ mod tests {
 
         if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
             assert_eq!((out.time - spin_up_tv_sec).as_secs(), 200);
-            assert!(H256::from_str(&out.job).unwrap() == job_num &&
-             out.region == *"ap-south-1"
-            )
+            assert!(H256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
         } else {
             panic!();
         };
@@ -1759,7 +1747,7 @@ mod tests {
             (500, Action::Close, [].into()),
         ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
-        let start_time  = Instant::now();
+        let start_time = Instant::now();
         // pending stream appended so job stream never ends
         let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
             .then(|(moment, log)| async move {
@@ -1779,7 +1767,7 @@ mod tests {
             &test::get_gb_rates().unwrap_or_default(),
             &Vec::from([
                 "0x000000000000000000000000000000000000000000000000f020c4f6gc7a56ce".to_string(),
-                ]),
+            ]),
             &Vec::new(),
         )
         .await;
@@ -1798,7 +1786,7 @@ mod tests {
             (500, Action::Close, [].into()),
         ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
-        let start_time  = Instant::now();
+        let start_time = Instant::now();
         // pending stream appended so job stream never ends
         let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
             .then(|(moment, log)| async move {
@@ -1819,7 +1807,7 @@ mod tests {
             &Vec::new(),
             &Vec::from([
                 "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
-                ]),
+            ]),
         )
         .await;
 
@@ -1837,7 +1825,7 @@ mod tests {
             (500, Action::Close, [].into()),
         ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
-        let start_time  = Instant::now();
+        let start_time = Instant::now();
         // pending stream appended so job stream never ends
         let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
             .then(|(moment, log)| async move {
@@ -1858,23 +1846,24 @@ mod tests {
             &Vec::new(),
             &Vec::from([
                 "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ece".to_string(),
-                ]),
+            ]),
         )
         .await;
 
         // job manager should have finished successfully
         assert_eq!(res, 0);
         println!("{:?}", aws.outcomes);
-        let spin_up_tv_sec: Instant; 
+        let spin_up_tv_sec: Instant;
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
             spin_up_tv_sec = out.time;
-            assert!(H256::from_str(&out.job).unwrap() == job_num &&
-             out.instance_type == *"c6a.xlarge" &&
-             out.region == *"ap-south-1" &&
-             out.req_mem == 4096 && 
-             out.req_vcpu == 2 && 
-             out.bandwidth == 0 &&
-             out.eif_url == *"https://example.com/enclave.eif"
+            assert!(
+                H256::from_str(&out.job).unwrap() == job_num
+                    && out.instance_type == *"c6a.xlarge"
+                    && out.region == *"ap-south-1"
+                    && out.req_mem == 4096
+                    && out.req_vcpu == 2
+                    && out.bandwidth == 0
+                    && out.eif_url == *"https://example.com/enclave.eif"
             )
         } else {
             panic!();
@@ -1882,16 +1871,14 @@ mod tests {
 
         if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
             assert_eq!((out.time - spin_up_tv_sec).as_secs(), 200);
-            assert!(H256::from_str(&out.job).unwrap() == job_num &&
-             out.region == *"ap-south-1"
-            )
+            assert!(H256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
         } else {
             panic!();
         };
 
         assert!(!aws.instances.contains_key(&job_num.to_string()))
     }
-    
+
     // Tests for whitelist blacklist checks
     #[tokio::test]
     async fn test_whitelist_blacklist_check_no_list() {
@@ -1900,14 +1887,14 @@ mod tests {
             H256::zero());
         let address_whitelist = vec![];
         let address_blacklist = vec![];
-    
+
         assert!(market::whitelist_blacklist_check(
             log.clone(),
             &address_whitelist,
             &address_blacklist
         ));
     }
-    
+
     #[tokio::test]
     async fn test_whitelist_blacklist_check_whitelisted() {
         let log = test::get_log(Action::Open,
@@ -1918,14 +1905,14 @@ mod tests {
             "0x000000000000000000000000000000000000000000000000f020b3e5fd6sd76d".to_string(),
         ];
         let address_blacklist = vec![];
-    
+
         assert!(market::whitelist_blacklist_check(
             log.clone(),
             &address_whitelist,
             &address_blacklist
         ));
     }
-    
+
     #[tokio::test]
     async fn test_whitelist_blacklist_check_not_whitelisted() {
         let log = test::get_log(Action::Open,
@@ -1936,14 +1923,14 @@ mod tests {
             "0x000000000000000000000000000000000000000000000000f020b3e5fd6sd76d".to_string(),
         ];
         let address_blacklist = vec![];
-    
+
         assert!(!market::whitelist_blacklist_check(
             log.clone(),
             &address_whitelist,
             &address_blacklist
         ));
     }
-    
+
     #[tokio::test]
     async fn test_whitelist_blacklist_check_blacklisted() {
         let log = test::get_log(Action::Open,
@@ -1954,14 +1941,14 @@ mod tests {
             "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
             "0x000000000000000000000000000000000000000000000000f020b3e5fd6sdsd6".to_string(),
         ];
-    
+
         assert!(!market::whitelist_blacklist_check(
             log.clone(),
             &address_whitelist,
             &address_blacklist
         ));
     }
-    
+
     #[tokio::test]
     async fn test_whitelist_blacklist_check_not_blacklisted() {
         let log = test::get_log(Action::Open,
@@ -1972,14 +1959,14 @@ mod tests {
             "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49fe".to_string(),
             "0x000000000000000000000000000000000000000000000000f020b3e5fd6sdsd6".to_string(),
         ];
-    
+
         assert!(market::whitelist_blacklist_check(
             log.clone(),
             &address_whitelist,
             &address_blacklist
         ));
     }
-    
+
     #[tokio::test]
     async fn test_whitelist_blacklist_check_neither() {
         let log = test::get_log(Action::Open,
@@ -1993,14 +1980,14 @@ mod tests {
             "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ed".to_string(),
             "0x000000000000000000000000000000000000000000000000f020b3e5fd6sdsd6".to_string(),
         ];
-    
+
         assert!(!market::whitelist_blacklist_check(
             log.clone(),
             &address_whitelist,
             &address_blacklist
         ));
     }
-    
+
     #[tokio::test]
     async fn test_whitelist_blacklist_check_both() {
         let log = test::get_log(Action::Open,
@@ -2014,7 +2001,7 @@ mod tests {
             "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
             "0x000000000000000000000000000000000000000000000000f020b3e5fd6sdsd6".to_string(),
         ];
-    
+
         assert!(!market::whitelist_blacklist_check(
             log.clone(),
             &address_whitelist,

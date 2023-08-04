@@ -1,12 +1,188 @@
-
+use async_trait::async_trait;
 use ethers::prelude::*;
 use ethers::types::Log;
 use ethers::utils::keccak256;
+use ethers::prelude::rand::Rng;
 use std::str::FromStr;
 use std::fs;
+use std::collections::HashMap;
+use std::error::Error;
+use tokio::time::{Instant, Duration};
+use tokio_stream::{Stream, StreamExt};
 
 use crate::server;
 use crate::market;
+use crate::market::{InfraProvider, LogsProvider};
+
+#[derive(Clone, Debug)]
+pub struct SpinUpOutcome {
+    pub time: Instant,
+    pub job: String,
+    pub instance_type: String,
+    pub region: String,
+    pub req_mem: i64,
+    pub req_vcpu: i32,
+    pub bandwidth: u64,
+    pub eif_url: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct SpinDownOutcome {
+    pub time: Instant,
+    pub job: String,
+    pub _instance_id: String,
+    pub region: String,
+}
+
+#[derive(Clone, Debug)]
+pub enum TestAwsOutcome {
+    SpinUp(SpinUpOutcome),
+    SpinDown(SpinDownOutcome),
+}
+
+#[derive(Clone, Default)]
+pub struct TestAws {
+    pub outcomes: Vec<TestAwsOutcome>,
+    pub instances: HashMap<String, String>,
+}
+
+#[async_trait]
+impl InfraProvider for TestAws {
+    async fn spin_up(
+        &mut self,
+        eif_url: &str,
+        job: String,
+        instance_type: &str,
+        region: String,
+        req_mem: i64,
+        req_vcpu: i32,
+        bandwidth: u64,
+    ) -> Result<String, Box<dyn Error + Send + Sync>> {
+        self.outcomes.push(TestAwsOutcome::SpinUp(SpinUpOutcome {
+            time: Instant::now(),
+            job: job.clone(),
+            instance_type: instance_type.to_owned(),
+            region,
+            req_mem,
+            req_vcpu,
+            bandwidth,
+            eif_url: eif_url.to_owned(),
+        }));
+
+        let res = self.instances.get_key_value(&job);
+        if let Some(x) = res {
+            return Ok(x.1.clone());
+        }
+
+        let id: String = rand::thread_rng()
+            .sample_iter(rand::distributions::Alphanumeric)
+            .take(8)
+            .map(char::from)
+            .collect();
+        self.instances.insert(job, id.clone());
+
+        Ok(id)
+    }
+
+    async fn spin_down(
+        &mut self,
+        instance_id: &str,
+        job: String,
+        region: String,
+    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        self.outcomes
+            .push(TestAwsOutcome::SpinDown(SpinDownOutcome {
+                time: Instant::now(),
+                job: job.clone(),
+                _instance_id: instance_id.to_owned(),
+                region,
+            }));
+
+        self.instances.remove(&job);
+
+        Ok(true)
+    }
+
+    async fn get_job_instance(
+        &mut self,
+        job: &str,
+        _region: String,
+    ) -> Result<(bool, String, String), Box<dyn Error + Send + Sync>> {
+        let res = self.instances.get_key_value(job);
+        if let Some(x) = res {
+            return Ok((true, x.1.clone(), "running".to_owned()));
+        }
+
+        Ok((false, String::new(), String::new()))
+    }
+
+    async fn check_instance_running(
+        &mut self,
+        _instance_id: &str,
+        _region: String,
+    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        // println!("TEST: check_instance_running | instance_id: {}, region: {}", instance_id, region);
+        Ok(true)
+    }
+
+    async fn check_enclave_running(
+        &mut self,
+        _instance_id: &str,
+        _region: String,
+    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        Ok(true)
+    }
+
+    async fn run_enclave(
+        &mut self,
+        _job: String,
+        _instance_id: &str,
+        _region: String,
+        _image_url: &str,
+        _req_vcpu: i32,
+        _req_mem: i64,
+        _bandwidth: u64,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        Ok(())
+    }
+}
+
+#[derive(Clone)]
+pub struct TestLogger {}
+
+#[async_trait]
+impl LogsProvider for TestLogger {
+    async fn new_jobs<'a>(
+        &'a self,
+        _client: &'a Provider<Ws>,
+    ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>, Box<dyn Error + Send + Sync>> {
+        let logs: Vec<Log> = Vec::new();
+        Ok(Box::new(
+            tokio_stream::iter(
+                logs.iter()
+                    .map(|job| (job.topics[1], false))
+                    .collect::<Vec<_>>(),
+            )
+            .throttle(Duration::from_secs(2)),
+        ))
+    }
+
+    async fn job_logs<'a>(
+        &'a self,
+        _client: &'a Provider<Ws>,
+        job: H256,
+    ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>, Box<dyn Error + Send + Sync>> {
+        let logs: Vec<Log> = Vec::new();
+        Ok(Box::new(
+            tokio_stream::iter(
+                logs.into_iter()
+                .filter(|log| log.topics[1] == job)
+                .collect::<Vec<_>>())
+                .throttle(Duration::from_secs(2)),
+        ))
+    }
+}
+
 
 #[derive(Clone)]
 pub enum Action {

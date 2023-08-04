@@ -479,7 +479,8 @@ impl Aws {
                     .build(),
             )
             .send()
-            .await?
+            .await
+            .context("could not describe instances")?
             // response parsing from here
             .reservations()
             .ok_or(anyhow!("could not parse reservations"))?

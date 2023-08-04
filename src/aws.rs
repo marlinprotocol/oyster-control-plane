@@ -771,36 +771,30 @@ impl Aws {
     }
 
     pub async fn get_enclave_state(&self, instance_id: &str, region: String) -> Result<String> {
-        let res = self.get_instance_ip(&instance_id, region.clone()).await;
-        let mut public_ip_address = res.unwrap();
-        if public_ip_address.is_empty() {
-            return Err(anyhow!("error fetching instance ip address"));
+        let public_ip_address = self
+            .get_instance_ip(instance_id, region.clone())
+            .await
+            .context("could not fetch instance ip")?;
+        let sess = self
+            .ssh_connect(&(public_ip_address + ":22"))
+            .await
+            .context("error establishing ssh connection")?;
+
+        let (stdout, stderr) = Self::ssh_exec(&sess, "nitro-cli describe-enclaves")
+            .context("could not describe enclaves")?;
+        if !stderr.is_empty() {
+            println!("{stderr}");
+            return Err(anyhow!("Error describing enclaves: {stderr}"));
         }
-        public_ip_address.push_str(":22");
 
-        let sess = self.ssh_connect(&public_ip_address).await;
-        match sess {
-            Ok(sess) => {
-                let mut channel = sess.channel_session()?;
-                channel.exec("nitro-cli describe-enclaves")?;
-                let mut command_output = String::new();
-                channel.read_to_string(&mut command_output)?;
+        let enclave_data: Vec<HashMap<String, Value>> =
+            serde_json::from_str(&stdout).context("could not parse enclave description")?;
 
-                let enclave_data: Vec<HashMap<String, Value>> =
-                    serde_json::from_str(&command_output)?;
-                let _ = channel.close();
-
-                let enclave_status = match enclave_data
-                    .get(0)
-                    .and_then(|data| data.get("State").and_then(Value::as_str))
-                {
-                    Some(status) => status.to_owned(),
-                    None => "No state found".to_owned(),
-                };
-                Ok(enclave_status)
-            }
-            Err(_) => Err(anyhow!("error establishing ssh connection")),
-        }
+        Ok(enclave_data
+            .get(0)
+            .and_then(|data| data.get("State").and_then(Value::as_str))
+            .unwrap_or("No state found")
+            .to_owned())
     }
 
     async fn allocate_ip_addr(&self, job: String, region: String) -> Result<(String, String)> {

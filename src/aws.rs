@@ -798,7 +798,10 @@ impl Aws {
     }
 
     async fn allocate_ip_addr(&self, job: String, region: String) -> Result<(String, String)> {
-        let (exist, alloc_id, public_ip) = self.get_job_elastic_ip(&job, region.clone()).await?;
+        let (exist, alloc_id, public_ip) = self
+            .get_job_elastic_ip(&job, region.clone())
+            .await
+            .context("could not get elastic ip for job")?;
 
         if exist {
             println!("Elastic Ip already exists");
@@ -831,7 +834,8 @@ impl Aws {
             .domain(aws_sdk_ec2::model::DomainType::Vpc)
             .tag_specifications(tags)
             .send()
-            .await?;
+            .await
+            .context("could not allocate elastic ip")?;
 
         Ok((
             resp.allocation_id()
@@ -866,7 +870,8 @@ impl Aws {
                 .filters(filter_a)
                 .filters(filter_b)
                 .send()
-                .await?
+                .await
+                .context("could not describe elastic ips")?
                 // response parsing starts here
                 .addresses()
                 .ok_or(anyhow!("could not parse addresses"))?
@@ -905,7 +910,8 @@ impl Aws {
                 .describe_addresses()
                 .filters(filter_a)
                 .send()
-                .await?
+                .await
+                .context("could not describe elastic ips")?
                 // response parsing starts here
                 .addresses()
                 .ok_or(anyhow!("could not parse addresses"))?
@@ -939,7 +945,8 @@ impl Aws {
             .allocation_id(alloc_id)
             .instance_id(instance_id)
             .send()
-            .await?;
+            .await
+            .context("could not associate elastic ip")?;
         Ok(())
     }
 
@@ -949,7 +956,8 @@ impl Aws {
             .disassociate_address()
             .association_id(association_id)
             .send()
-            .await?;
+            .await
+            .context("could not disassociate elastic ip")?;
         Ok(())
     }
 
@@ -959,7 +967,8 @@ impl Aws {
             .release_address()
             .allocation_id(alloc_id)
             .send()
-            .await?;
+            .await
+            .context("could not release elastic ip")?;
         Ok(())
     }
 

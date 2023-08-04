@@ -580,7 +580,8 @@ impl Aws {
             .terminate_instances()
             .instance_ids(instance_id)
             .send()
-            .await?;
+            .await
+            .context("could not terminate instance")?;
 
         Ok(())
     }
@@ -603,7 +604,8 @@ impl Aws {
             .filters(project_filter)
             .filters(name_filter)
             .send()
-            .await?;
+            .await
+            .context("could not describe images")?;
 
         let own_ami = own_ami
             .images()
@@ -617,7 +619,9 @@ impl Aws {
                 .ok_or(anyhow!("could not parse image id"))?
                 .to_string())
         } else {
-            self.get_community_amis(region, architecture).await
+            self.get_community_amis(region, architecture)
+                .await
+                .context("could not get community ami")
         }
     }
 
@@ -635,7 +639,8 @@ impl Aws {
             .owners(owner)
             .filters(name_filter)
             .send()
-            .await?
+            .await
+            .context("could not describe images")?
             // response parsing from here
             .images()
             .ok_or(anyhow!("could not parse images"))?
@@ -658,7 +663,8 @@ impl Aws {
             .describe_security_groups()
             .filters(filter)
             .send()
-            .await?
+            .await
+            .context("could not describe security groups")?
             // response parsing from here
             .security_groups()
             .ok_or(anyhow!("could not parse security groups"))?
@@ -681,7 +687,8 @@ impl Aws {
             .describe_subnets()
             .filters(filter)
             .send()
-            .await?
+            .await
+            .context("could not describe subnets")?
             // response parsing from here
             .subnets()
             .ok_or(anyhow!("Could not parse subnets"))?
@@ -704,7 +711,8 @@ impl Aws {
                     .build(),
             )
             .send()
-            .await?;
+            .await
+            .context("could not describe instances")?;
         // response parsing from here
         let instance = res
             .reservations()
@@ -743,7 +751,8 @@ impl Aws {
                     .build(),
             )
             .send()
-            .await?
+            .await
+            .context("could not describe instances")?
             // response parsing from here
             .reservations()
             .ok_or(anyhow!("could not parse reservations"))?

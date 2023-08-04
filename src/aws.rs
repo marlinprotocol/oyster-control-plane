@@ -982,14 +982,16 @@ impl Aws {
         req_vcpu: i32,
         bandwidth: u64,
     ) -> Result<String> {
-        let ec2_type = aws_sdk_ec2::model::InstanceType::from_str(instance_type)?;
+        let instance_type = aws_sdk_ec2::model::InstanceType::from_str(instance_type)
+            .context("cannot parse instance type")?;
         let resp = self
             .client(region.clone())
             .await
             .describe_instance_types()
-            .instance_types(ec2_type)
+            .instance_types(instance_type.clone())
             .send()
-            .await?;
+            .await
+            .context("could not describe instance types")?;
         let mut architecture = "amd64".to_string();
         let mut v_cpus: i32 = 4;
         let mut mem: i64 = 8192;
@@ -1028,7 +1030,6 @@ impl Aws {
         if req_mem > mem || req_vcpu > v_cpus {
             return Err(anyhow!("Required memory or vcpus are more than available"));
         }
-        let instance_type = aws_sdk_ec2::model::InstanceType::from_str(instance_type)?;
         let instance = self
             .launch_instance(
                 job.clone(),
@@ -1037,45 +1038,55 @@ impl Aws {
                 &architecture,
                 region.clone(),
             )
-            .await?;
+            .await
+            .context("could not launch instance")?;
         sleep(Duration::from_secs(100)).await;
-        let res = self.allocate_ip_addr(job.clone(), region.clone()).await;
-        if let Err(err) = res {
-            self.spin_down_instance(&instance, &job, region.clone())
-                .await?;
-            return Err(anyhow!("error launching instance, {err:?}"));
-        }
-        let (alloc_id, ip) = res.unwrap();
-        println!("Elastic Ip allocated: {ip}");
 
         let res = self
-            .associate_address(&instance, &alloc_id, region.clone())
-            .await;
-        if let Err(err) = res {
-            self.spin_down_instance(&instance, &job, region.clone())
-                .await?;
-            return Err(anyhow!("error launching instance, {err:?}"));
-        }
-        let res = self
-            .run_enclave(
+            .post_spin_up(
+                image_url,
+                job.clone(),
                 &instance,
                 region.clone(),
-                image_url,
-                req_vcpu,
                 req_mem,
+                req_vcpu,
                 bandwidth,
             )
             .await;
-        match res {
-            Ok(_) => {
-                return Ok(instance);
-            }
-            Err(err) => {
-                println!("Enclave failed to start, {err:?}");
-                self.spin_down_instance(&instance, &job, region).await?;
-                return Err(anyhow!("error running enclave on instance, {err:?}"));
-            }
+
+        if let Err(err) = res {
+            println!("error during post spin up: {err:?}");
+            self.spin_down_instance(&instance, &job, region.clone())
+                .await
+                .context("could not spin down instance after error during post spin up")?;
+            return Err(err).context("error during post spin up");
         }
+        Ok(instance)
+    }
+
+    async fn post_spin_up(
+        &self,
+        image_url: &str,
+        job: String,
+        instance: &str,
+        region: String,
+        req_mem: i64,
+        req_vcpu: i32,
+        bandwidth: u64,
+    ) -> Result<()> {
+        let (alloc_id, ip) = self
+            .allocate_ip_addr(job.clone(), region.clone())
+            .await
+            .context("error allocating ip address")?;
+        println!("Elastic Ip allocated: {ip}");
+
+        self.associate_address(&instance, &alloc_id, region.clone())
+            .await
+            .context("could not associate ip address")?;
+        self.run_enclave(instance, region, image_url, req_vcpu, req_mem, bandwidth)
+            .await
+            .context("could not run enclave")?;
+        Ok(())
     }
 
     pub async fn spin_down_instance(

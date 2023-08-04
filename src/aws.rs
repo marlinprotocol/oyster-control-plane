@@ -417,7 +417,6 @@ impl Aws {
 
     pub async fn run_enclave(
         &self,
-        job: String,
         instance_id: &str,
         region: String,
         image_url: &str,
@@ -425,35 +424,18 @@ impl Aws {
         req_mem: i64,
         bandwidth: u64,
     ) -> Result<()> {
-        let res = self.get_instance_ip(instance_id, region.clone()).await;
-        if let Err(err) = res {
-            return Err(anyhow!("error launching instance, {err:?}"));
-        }
-        let mut public_ip_address = res.unwrap();
-        if public_ip_address.is_empty() {
-            return Err(anyhow!("error fetching instance ip address"));
-        }
-        public_ip_address.push_str(":22");
-        let sess = self.ssh_connect(&public_ip_address).await;
-        match sess {
-            Ok(r) => {
-                let res = self
-                    .run_enclave_impl(&r, image_url, req_vcpu, req_mem, bandwidth)
-                    .await;
-                match res {
-                    Ok(_) => {}
-                    Err(e) => {
-                        println!("Error running enclave: {e:?}");
-                        return Err(anyhow!(
-                            "error running enclave, terminating launched instance"
-                        ));
-                    }
-                }
-            }
-            Err(_) => {
-                return Err(anyhow!("error establishing ssh connection"));
-            }
-        }
+        let public_ip_address = self
+            .get_instance_ip(instance_id, region.clone())
+            .await
+            .context("could not fetch instance ip")?;
+        let sess = self
+            .ssh_connect(&(public_ip_address + ":22"))
+            .await
+            .context("error establishing ssh connection")?;
+        self.run_enclave_impl(&sess, image_url, req_vcpu, req_mem, bandwidth)
+            .await
+            .context("error running enclave")?;
+
         Ok(())
     }
 
@@ -1055,7 +1037,6 @@ impl Aws {
         }
         let res = self
             .run_enclave(
-                job.clone(),
                 &instance,
                 region.clone(),
                 image_url,

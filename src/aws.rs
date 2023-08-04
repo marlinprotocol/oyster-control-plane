@@ -477,36 +477,38 @@ impl Aws {
         architecture: &str,
         region: String,
     ) -> Result<String> {
-        let size: i64;
-        let req_client = reqwest::Client::builder().no_gzip().build();
-        match req_client {
-            Ok(req_client) => {
-                let res = req_client.head(image_url).send().await;
-                match res {
-                    Ok(res) => {
-                        let content_len = res.headers()["content-length"].to_str()?;
-                        size = content_len.parse::<i64>()? / 1000000;
-                    }
-                    Err(e) => return Err(anyhow!("failed to fetch eif file header, {e}")),
-                }
-            }
-            Err(e) => return Err(anyhow!("failed to fetch eif file header, {e}")),
+        let req_client = reqwest::Client::builder()
+            .no_gzip()
+            .build()
+            .context("failed to build reqwest client")?;
+        let size = req_client
+            .head(image_url)
+            .send()
+            .await
+            .context("failed to fetch eif file header")?
+            .headers()["content-length"]
+            .to_str()
+            .context("could not stringify content length")?
+            .parse::<usize>()
+            .context("failed to parse content length")?
+            / 1000000000;
+
+        println!("eif size: {size} GB");
+        // limit enclave image size
+        if size > 8 {
+            return Err(anyhow!("enclave image too big"));
         }
 
-        println!("eif size: {size} MB");
-        let size = size / 1000;
-        let mut sdd = 15;
-        if size > sdd {
-            sdd = size + 10;
-        }
-
-        let instance_ami = self.get_amis(region.clone(), architecture).await?;
+        let instance_ami = self
+            .get_amis(region.clone(), architecture)
+            .await
+            .context("could not get amis")?;
 
         let enclave_options = aws_sdk_ec2::model::EnclaveOptionsRequest::builder()
             .set_enabled(Some(true))
             .build();
         let ebs = aws_sdk_ec2::model::EbsBlockDevice::builder()
-            .volume_size(sdd as i32)
+            .volume_size(12)
             .build();
         let block_device_mapping = aws_sdk_ec2::model::BlockDeviceMapping::builder()
             .set_device_name(Some("/dev/sda1".to_string()))
@@ -535,8 +537,14 @@ impl Aws {
             .tags(job_tag)
             .tags(project_tag)
             .build();
-        let subnet = self.get_subnet(region.clone()).await?;
-        let sec_group = self.get_security_group(region.clone()).await?;
+        let subnet = self
+            .get_subnet(region.clone())
+            .await
+            .context("could not get subnet")?;
+        let sec_group = self
+            .get_security_group(region.clone())
+            .await
+            .context("could not get subnet")?;
 
         Ok(self
             .client(region)
@@ -553,7 +561,8 @@ impl Aws {
             .security_group_ids(sec_group)
             .subnet_id(subnet)
             .send()
-            .await?
+            .await
+            .context("could not run instance")?
             // response parsing from here
             .instances()
             .ok_or(anyhow!("could not parse instances"))?

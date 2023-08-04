@@ -427,14 +427,10 @@ impl Aws {
     ) -> Result<()> {
         let res = self.get_instance_ip(instance_id, region.clone()).await;
         if let Err(err) = res {
-            self.spin_down_instance(instance_id, &job, region.clone())
-                .await?;
             return Err(anyhow!("error launching instance, {err:?}"));
         }
         let mut public_ip_address = res.unwrap();
         if public_ip_address.is_empty() {
-            self.spin_down_instance(instance_id, &job, region.clone())
-                .await?;
             return Err(anyhow!("error fetching instance ip address"));
         }
         public_ip_address.push_str(":22");
@@ -447,8 +443,6 @@ impl Aws {
                 match res {
                     Ok(_) => {}
                     Err(e) => {
-                        self.spin_down_instance(instance_id, &job, region.clone())
-                            .await?;
                         println!("Error running enclave: {e:?}");
                         return Err(anyhow!(
                             "error running enclave, terminating launched instance"
@@ -457,8 +451,6 @@ impl Aws {
                 }
             }
             Err(_) => {
-                self.spin_down_instance(instance_id, &job, region.clone())
-                    .await?;
                 return Err(anyhow!("error establishing ssh connection"));
             }
         }
@@ -1063,7 +1055,13 @@ impl Aws {
         }
         let res = self
             .run_enclave(
-                job, &instance, region, image_url, req_vcpu, req_mem, bandwidth,
+                job.clone(),
+                &instance,
+                region.clone(),
+                image_url,
+                req_vcpu,
+                req_mem,
+                bandwidth,
             )
             .await;
         match res {
@@ -1072,6 +1070,7 @@ impl Aws {
             }
             Err(err) => {
                 println!("Enclave failed to start, {err:?}");
+                self.spin_down_instance(&instance, &job, region).await?;
                 return Err(anyhow!("error running enclave on instance, {err:?}"));
             }
         }

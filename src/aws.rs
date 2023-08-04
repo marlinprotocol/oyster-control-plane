@@ -1097,19 +1097,27 @@ impl Aws {
     ) -> Result<()> {
         let (exist, _, association_id) = self
             .get_instance_elastic_ip(instance_id, region.clone())
-            .await?;
+            .await
+            .context("could not get elastic ip of instance")?;
         if exist {
             self.disassociate_address(association_id.as_str(), region.clone())
-                .await?;
+                .await
+                .context("could not disassociate address")?;
         }
-        let (exist, alloc_id, _) = self.get_job_elastic_ip(job, region.clone()).await?;
+        let (exist, alloc_id, _) = self
+            .get_job_elastic_ip(job, region.clone())
+            .await
+            .context("could not get elastic ip of job")?;
         if exist {
             self.release_address(alloc_id.as_str(), region.clone())
-                .await?;
+                .await
+                .context("could not release address")?;
             println!("Elastic IP released");
         }
 
-        self.terminate_instance(instance_id, region).await?;
+        self.terminate_instance(instance_id, region)
+            .await
+            .context("could not terminate instance")?;
         Ok(())
     }
 }
@@ -1138,7 +1146,8 @@ impl InfraProvider for Aws {
                 req_vcpu,
                 bandwidth,
             )
-            .await?;
+            .await
+            .context("could not spin up instance")?;
         Ok(instance)
     }
 
@@ -1148,7 +1157,10 @@ impl InfraProvider for Aws {
         job: String,
         region: String,
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
-        let _ = self.spin_down_instance(instance_id, &job, region).await?;
+        let _ = self
+            .spin_down_instance(instance_id, &job, region)
+            .await
+            .context("could not spin down instance")?;
         Ok(true)
     }
 
@@ -1157,7 +1169,10 @@ impl InfraProvider for Aws {
         job: &str,
         region: String,
     ) -> Result<(bool, String, String), Box<dyn Error + Send + Sync>> {
-        let instance = self.get_job_instance_id(job, region).await?;
+        let instance = self
+            .get_job_instance_id(job, region)
+            .await
+            .context("could not get instance id for job")?;
         Ok((true, instance.0, instance.1))
     }
 
@@ -1166,7 +1181,10 @@ impl InfraProvider for Aws {
         instance_id: &str,
         region: String,
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
-        let res = self.get_instance_state(instance_id, region).await?;
+        let res = self
+            .get_instance_state(instance_id, region)
+            .await
+            .context("could not get current instance state")?;
         Ok(res == "running" || res == "pending")
     }
 
@@ -1175,7 +1193,10 @@ impl InfraProvider for Aws {
         instance_id: &str,
         region: String,
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
-        let res = self.get_enclave_state(instance_id, region).await?;
+        let res = self
+            .get_enclave_state(instance_id, region)
+            .await
+            .context("could not get current enclace state")?;
         // There can be 2 states - RUNNING or TERMINATING
         Ok(res == "RUNNING")
     }
@@ -1190,17 +1211,17 @@ impl InfraProvider for Aws {
         req_mem: i64,
         bandwidth: u64,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let _ = self
-            .run_enclave(
-                job,
-                instance_id,
-                region,
-                image_url,
-                req_vcpu,
-                req_mem,
-                bandwidth,
-            )
-            .await;
+        self.run_enclave(
+            job,
+            instance_id,
+            region,
+            image_url,
+            req_vcpu,
+            req_mem,
+            bandwidth,
+        )
+        .await
+        .context("could not run enclave")?;
         Ok(())
     }
 }

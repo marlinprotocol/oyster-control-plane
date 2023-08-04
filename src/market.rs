@@ -594,10 +594,15 @@ impl JobState {
     async fn change_infra_impl(&mut self, mut infra_provider: impl InfraProvider) -> bool {
         let job = &self.job;
 
-        let (exist, instance, state) = infra_provider
+        let res = infra_provider
             .get_job_instance(&job.encode_hex(), self.region.clone())
-            .await
-            .unwrap_or((false, "".to_string(), "".to_string()));
+            .await;
+
+        if let Err(err) = res {
+            println!("job {job}: ERROR failed to get job instance, {err:?}");
+            return false;
+        }
+        let (exist, instance, state) = res.unwrap();
 
         if self.infra_state {
             // launch mode

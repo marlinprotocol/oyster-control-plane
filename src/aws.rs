@@ -686,7 +686,11 @@ impl Aws {
             .to_string())
     }
 
-    pub async fn get_job_instance_id(&self, job: &str, region: String) -> Result<(String, String)> {
+    pub async fn get_job_instance_id(
+        &self,
+        job: &str,
+        region: String,
+    ) -> Result<(bool, String, String)> {
         let res = self
             .client(region)
             .await
@@ -701,29 +705,32 @@ impl Aws {
             .await
             .context("could not describe instances")?;
         // response parsing from here
-        let instance = res
+        let instances = res
             .reservations()
             .ok_or(anyhow!("could not parse reservations"))?
             .first()
             .ok_or(anyhow!("reservation not found"))?
             .instances()
-            .ok_or(anyhow!("could not parse instances"))?
-            .first()
-            .ok_or(anyhow!("no instances for the given job"))?;
+            .ok_or(anyhow!("could not parse instances"))?;
 
-        Ok((
-            instance
-                .instance_id()
-                .ok_or(anyhow!("could not parse ip address"))?
-                .to_string(),
-            instance
-                .state()
-                .ok_or(anyhow!("could not parse instance state"))?
-                .name()
-                .ok_or(anyhow!("could not parse instance state name"))?
-                .as_str()
-                .to_owned(),
-        ))
+        if instances.is_empty() {
+            Ok((false, "".to_owned(), "".to_owned()))
+        } else {
+            Ok((
+                true,
+                instances[0]
+                    .instance_id()
+                    .ok_or(anyhow!("could not parse ip address"))?
+                    .to_string(),
+                instances[0]
+                    .state()
+                    .ok_or(anyhow!("could not parse instance state"))?
+                    .name()
+                    .ok_or(anyhow!("could not parse instance state name"))?
+                    .as_str()
+                    .to_owned(),
+            ))
+        }
     }
 
     pub async fn get_instance_state(&self, instance_id: &str, region: String) -> Result<String> {
@@ -1156,11 +1163,10 @@ impl InfraProvider for Aws {
         job: &str,
         region: String,
     ) -> Result<(bool, String, String), Box<dyn Error + Send + Sync>> {
-        let instance = self
+        Ok(self
             .get_job_instance_id(job, region)
             .await
-            .context("could not get instance id for job")?;
-        Ok((true, instance.0, instance.1))
+            .context("could not get instance id for job")?)
     }
 
     async fn check_instance_running(

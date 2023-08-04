@@ -188,20 +188,30 @@ impl Aws {
         Ok((stdout, stderr))
     }
 
-    async fn run_enclave_impl(
+    pub async fn run_enclave_impl(
         &self,
-        sess: &Session,
-        url: &str,
-        v_cpus: i32,
-        mem: i64,
+        instance_id: &str,
+        region: String,
+        image_url: &str,
+        req_vcpu: i32,
+        req_mem: i64,
         bandwidth: u64,
     ) -> Result<()> {
+        let public_ip_address = self
+            .get_instance_ip(instance_id, region.clone())
+            .await
+            .context("could not fetch instance ip")?;
+        let sess = &self
+            .ssh_connect(&(public_ip_address + ":22"))
+            .await
+            .context("error establishing ssh connection")?;
+
         Self::ssh_exec(
             sess,
             &("echo -e '---\\nmemory_mib: ".to_owned()
-                + &((mem).to_string())
+                + &((req_mem).to_string())
                 + "\\ncpu_count: "
-                + &((v_cpus).to_string())
+                + &((req_vcpu).to_string())
                 + "' > /home/ubuntu/allocator_new.yaml"),
         )
         .context("Failed to set allocator file")?;
@@ -224,9 +234,9 @@ impl Aws {
             ));
         }
 
-        println!("Nitro Enclave Service set up with cpus: {v_cpus} and memory: {mem}");
+        println!("Nitro Enclave Service set up with cpus: {req_vcpu} and memory: {req_mem}");
 
-        Self::ssh_exec(sess, &("wget -O enclave.eif ".to_owned() + url))
+        Self::ssh_exec(sess, &("wget -O enclave.eif ".to_owned() + image_url))
             .context("Failed to download enclave image")?;
 
         if self.whitelist.as_str() != "" || self.blacklist.as_str() != "" {
@@ -398,9 +408,9 @@ impl Aws {
         let (_, stderr) = Self::ssh_exec(
             sess,
             &("nitro-cli run-enclave --cpu-count ".to_owned()
-                + &((v_cpus).to_string())
+                + &((req_vcpu).to_string())
                 + " --memory "
-                + &((mem).to_string())
+                + &((req_mem).to_string())
                 + " --eif-path enclave.eif --enclave-cid 88"),
         )?;
 
@@ -412,29 +422,6 @@ impl Aws {
         }
 
         println!("Enclave running");
-        Ok(())
-    }
-
-    pub async fn run_enclave(
-        &self,
-        instance_id: &str,
-        region: String,
-        image_url: &str,
-        req_vcpu: i32,
-        req_mem: i64,
-        bandwidth: u64,
-    ) -> Result<()> {
-        let public_ip_address = self
-            .get_instance_ip(instance_id, region.clone())
-            .await
-            .context("could not fetch instance ip")?;
-        let sess = self
-            .ssh_connect(&(public_ip_address + ":22"))
-            .await
-            .context("error establishing ssh connection")?;
-        self.run_enclave_impl(&sess, image_url, req_vcpu, req_mem, bandwidth)
-            .await
-            .context("error running enclave")?;
 
         Ok(())
     }
@@ -1083,7 +1070,7 @@ impl Aws {
         self.associate_address(&instance, &alloc_id, region.clone())
             .await
             .context("could not associate ip address")?;
-        self.run_enclave(instance, region, image_url, req_vcpu, req_mem, bandwidth)
+        self.run_enclave_impl(instance, region, image_url, req_vcpu, req_mem, bandwidth)
             .await
             .context("could not run enclave")?;
         Ok(())
@@ -1203,7 +1190,7 @@ impl InfraProvider for Aws {
 
     async fn run_enclave(
         &mut self,
-        job: String,
+        _job: String,
         instance_id: &str,
         region: String,
         image_url: &str,
@@ -1211,17 +1198,9 @@ impl InfraProvider for Aws {
         req_mem: i64,
         bandwidth: u64,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        self.run_enclave(
-            job,
-            instance_id,
-            region,
-            image_url,
-            req_vcpu,
-            req_mem,
-            bandwidth,
-        )
-        .await
-        .context("could not run enclave")?;
+        self.run_enclave_impl(instance_id, region, image_url, req_vcpu, req_mem, bandwidth)
+            .await
+            .context("could not run enclave")?;
         Ok(())
     }
 }

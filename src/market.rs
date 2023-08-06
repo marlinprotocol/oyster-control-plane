@@ -13,8 +13,6 @@ use tokio_stream::Stream;
 
 use ethers::types::Log;
 
-use crate::server;
-
 // Basic architecture:
 // One future listening to new jobs
 // Each job has its own future managing its lifetime
@@ -193,6 +191,18 @@ impl LogsProvider for EthersProvider {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct RateCard {
+    pub instance: String,
+    pub min_rate: i64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct RegionalRates {
+    pub region: String,
+    pub rate_cards: Vec<RateCard>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GBRateCard {
     pub region: String,
     pub region_code: String,
@@ -204,7 +214,7 @@ pub async fn run(
     logs_provider: impl LogsProvider + Send + Sync + Clone + 'static,
     url: String,
     regions: Vec<String>,
-    rates: &'static [server::RegionalRates],
+    rates: &'static [RegionalRates],
     gb_rates: &'static [GBRateCard],
     address_whitelist: &'static [String],
     address_blacklist: &'static [String],
@@ -262,7 +272,7 @@ async fn run_once(
     logs_provider: impl LogsProvider + Send + Sync + Clone + 'static,
     url: String,
     regions: Vec<String>,
-    rates: &'static [server::RegionalRates],
+    rates: &'static [RegionalRates],
     gb_rates: &'static [GBRateCard],
     address_whitelist: &'static [String],
     address_blacklist: &'static [String],
@@ -315,7 +325,7 @@ async fn job_manager(
     job: H256,
     allowed_regions: Vec<String>,
     aws_delay_duration: u64,
-    rates: &[server::RegionalRates],
+    rates: &[RegionalRates],
     gb_rates: &[GBRateCard],
     address_whitelist: &[String],
     address_blacklist: &[String],
@@ -656,7 +666,7 @@ impl JobState {
     fn process_log(
         &mut self,
         log: Option<Log>,
-        rates: &[server::RegionalRates],
+        rates: &[RegionalRates],
         gb_rates: &[GBRateCard],
         address_whitelist: &[String],
         address_blacklist: &[String],
@@ -988,7 +998,7 @@ async fn job_manager_once(
     job: H256,
     allowed_regions: Vec<String>,
     aws_delay_duration: u64,
-    rates: &[server::RegionalRates],
+    rates: &[RegionalRates],
     gb_rates: &[GBRateCard],
     address_whitelist: &[String],
     address_blacklist: &[String],

@@ -77,13 +77,13 @@ async fn parse_file(filepath: String) -> Result<Vec<String>> {
     Ok(lines)
 }
 
-async fn parse_compute_rates_file(filepath: String) -> Result<Vec<server::RegionalRates>> {
+async fn parse_compute_rates_file(filepath: String) -> Result<Vec<market::RegionalRates>> {
     if filepath.is_empty() {
         return Ok(Vec::new());
     }
 
     let contents = fs::read_to_string(filepath).context("Error reading file")?;
-    let rates: Vec<server::RegionalRates> =
+    let rates: Vec<market::RegionalRates> =
         serde_json::from_str(&contents).context("failed to parse rates file")?;
 
     Ok(rates)
@@ -148,7 +148,7 @@ pub async fn main() -> Result<()> {
     // leak memory to get static references
     // will be cleaned up once program exits
     // alternative to OnceCell equivalents
-    let compute_rates: &'static [server::RegionalRates] =
+    let compute_rates: &'static [market::RegionalRates] =
         Box::leak(compute_rates.into_boxed_slice());
     let bandwidth_rates: &'static [market::GBRateCard] =
         Box::leak(bandwidth_rates.into_boxed_slice());

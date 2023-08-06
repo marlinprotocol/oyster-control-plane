@@ -10,8 +10,7 @@ use std::str::FromStr;
 use tokio::time::{Duration, Instant};
 use tokio_stream::{Stream, StreamExt};
 
-use crate::market::{GBRateCard, InfraProvider, LogsProvider};
-use crate::server;
+use crate::market::{GBRateCard, InfraProvider, LogsProvider, RegionalRates};
 
 #[cfg(test)]
 #[derive(Clone, Debug)]
@@ -203,7 +202,7 @@ pub enum Action {
 }
 
 #[cfg(test)]
-pub fn get_rates() -> Option<Vec<server::RegionalRates>> {
+pub fn get_rates() -> Option<Vec<RegionalRates>> {
     let file_path = "./rates.json";
     let contents = fs::read_to_string(file_path);
 
@@ -212,7 +211,7 @@ pub fn get_rates() -> Option<Vec<server::RegionalRates>> {
         return None;
     }
     let contents = contents.unwrap();
-    let rates: Vec<server::RegionalRates> = serde_json::from_str(&contents).unwrap_or_default();
+    let rates: Vec<RegionalRates> = serde_json::from_str(&contents).unwrap_or_default();
     Some(rates)
 }
 

@@ -145,8 +145,13 @@ pub async fn main() -> Result<()> {
         .await
         .context("Failed to parse address blacklist")?;
 
-    // Converting Vec<String> to &'static [String]
-    // because market::run_once needs a static [String]
+    // leak memory to get static references
+    // will be cleaned up once program exits
+    // alternative to OnceCell equivalents
+    let compute_rates: &'static [server::RegionalRates] =
+        Box::leak(compute_rates.into_boxed_slice());
+    let bandwidth_rates: &'static [market::GBRateCard] =
+        Box::leak(bandwidth_rates.into_boxed_slice());
     let address_whitelist: &'static [String] = Box::leak(address_whitelist_vec.into_boxed_slice());
     let address_blacklist: &'static [String] = Box::leak(address_blacklist_vec.into_boxed_slice());
 

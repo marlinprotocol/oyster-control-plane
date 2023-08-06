@@ -656,8 +656,8 @@ impl JobState {
     fn process_log(
         &mut self,
         log: Option<Log>,
-        rates: &Vec<server::RegionalRates>,
-        gb_rates: &Vec<GBRateCard>,
+        rates: &[server::RegionalRates],
+        gb_rates: &[GBRateCard],
         address_whitelist: &[String],
         address_blacklist: &[String],
     ) -> i8 {
@@ -988,8 +988,8 @@ async fn job_manager_once(
     job: H256,
     allowed_regions: Vec<String>,
     aws_delay_duration: u64,
-    rates: &Vec<server::RegionalRates>,
-    gb_rates: &Vec<GBRateCard>,
+    rates: &[server::RegionalRates],
+    gb_rates: &[GBRateCard],
     address_whitelist: &[String],
     address_blacklist: &[String],
 ) -> i8 {

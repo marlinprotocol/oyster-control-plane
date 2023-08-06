@@ -103,7 +103,7 @@ pub async fn main() -> Result<()> {
     ));
 
     let ethers = market::EthersProvider {
-        address: cli.contract,
+        contract: cli.contract,
         provider: cli.provider,
     };
 

@@ -171,7 +171,7 @@ pub trait LogsProvider {
 
 #[derive(Clone)]
 pub struct EthersProvider {
-    pub address: String,
+    pub contract: String,
     pub provider: String,
 }
 
@@ -181,7 +181,7 @@ impl LogsProvider for EthersProvider {
         &'a self,
         client: &'a Provider<Ws>,
     ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>, Box<dyn Error + Send + Sync>> {
-        new_jobs(client, self.address.clone(), self.provider.clone()).await
+        new_jobs(client, self.contract.clone(), self.provider.clone()).await
     }
 
     async fn job_logs<'a>(

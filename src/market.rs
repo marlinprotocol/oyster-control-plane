@@ -312,7 +312,6 @@ async fn new_jobs(
     address: String,
     provider: String,
 ) -> Result<Box<dyn Stream<Item = (H256, bool)> + '_>, Box<dyn Error + Send + Sync>> {
-    // TODO: Filter by contract and provider address
     let event_filter = Filter::new()
         .address(address.parse::<Address>()?)
         .select(0..)

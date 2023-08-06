@@ -7,6 +7,7 @@ mod test;
 use anyhow::Context;
 use anyhow::Result;
 use clap::Parser;
+use ethers::prelude::*;
 use std::fs;
 
 #[derive(Parser)]
@@ -127,7 +128,10 @@ pub async fn main() -> Result<()> {
     ));
 
     let ethers = market::EthersProvider {
-        contract: cli.contract,
+        contract: cli
+            .contract
+            .parse::<Address>()
+            .context("failed to parse contract address")?,
         provider: cli.provider,
     };
 

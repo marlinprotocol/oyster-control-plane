@@ -4,6 +4,7 @@ use ethers::prelude::*;
 use ethers::utils::keccak256;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
 use std::error::Error;
 use std::fs;
 use std::time::SystemTime;
@@ -12,10 +13,8 @@ use tokio::time::{Duration, Instant};
 use tokio_stream::Stream;
 
 use ethers::types::Log;
-use tokio_stream::StreamExt;
 
 use crate::server;
-use crate::test;
 
 // Basic architecture:
 // One future listening to new jobs
@@ -427,7 +426,7 @@ fn whitelist_blacklist_check(
         }
     }
 
-    return true;
+    true
 }
 struct JobState {
     job: H256,
@@ -644,6 +643,7 @@ impl JobState {
                 return false;
             }
             self.instance_id = res.unwrap();
+            println!("job {job}: Instance launched: {}", self.instance_id);
         } else {
             // terminate mode
             if !exist || state == "shutting-down" || state == "terminated" {
@@ -1001,7 +1001,7 @@ impl JobState {
 // returns true if "done"
 async fn job_manager_once(
     mut job_stream: impl Stream<Item = Log> + Unpin,
-    mut infra_provider: impl InfraProvider + Send + Sync + Clone,
+    mut infra_provider: impl InfraProvider + Send + Sync,
     job: H256,
     allowed_regions: Vec<String>,
     aws_delay_duration: u64,
@@ -1093,787 +1093,798 @@ async fn job_logs(
     Ok(Box::new(stream))
 }
 
-#[derive(Clone)]
-pub struct TestLogger {}
-
-#[async_trait]
-impl LogsProvider for TestLogger {
-    async fn new_jobs<'a>(
-        &'a self,
-        _client: &'a Provider<Ws>,
-    ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>, Box<dyn Error + Send + Sync>> {
-        let logs: Vec<Log> = test::test_logs();
-        Ok(Box::new(
-            tokio_stream::iter(
-                logs.iter()
-                    .map(|job| (job.topics[1], false))
-                    .collect::<Vec<_>>(),
-            )
-            .throttle(Duration::from_secs(2)),
-        ))
-    }
-
-    async fn job_logs<'a>(
-        &'a self,
-        _client: &'a Provider<Ws>,
-        job: H256,
-    ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>, Box<dyn Error + Send + Sync>> {
-        let logs: Vec<Log> = test::test_logs()
-            .into_iter()
-            .filter(|log| log.topics[1] == job)
-            .collect();
-        Ok(Box::new(
-            tokio_stream::iter(logs).throttle(Duration::from_secs(2)),
-        ))
-    }
-}
-
-#[derive(Clone)]
-pub struct TestAws {
-    outcomes: Vec<char>,
-    pub cur_idx: i32,
-    pub max_idx: i32,
-    outfile: String,
-}
-
-use std::fs::OpenOptions;
-use std::io::Write;
-
-#[async_trait]
-impl InfraProvider for TestAws {
-    async fn spin_up(
-        &mut self,
-        eif_url: &str,
-        job: String,
-        instance_type: &str,
-        region: String,
-        req_mem: i64,
-        req_vcpu: i32,
-        bandwidth: u64,
-    ) -> Result<String, Box<dyn Error + Send + Sync>> {
-        if self.outfile.as_str() != "" {
-            let mut file = OpenOptions::new()
-                .append(true)
-                .open(&self.outfile)
-                .expect("Unable to open out file");
-            file.write_all("SpinUp\n".as_bytes()).expect("write failed");
-        }
-        println!(
-            "TEST: spin_up | job: {job}, region: {region}, instance_type: {instance_type}, eif_url: {eif_url}, mem: {req_mem}, vcpu: {req_vcpu}, bandwidth: {bandwidth}"
-        );
-        if self.cur_idx >= self.max_idx || self.outcomes[self.cur_idx as usize] != 'U' {
-            println!("TEST FAIL!\nTEST FAIL!\nTEST FAIL!\n");
-            return Err("fail".into());
-        }
-        self.cur_idx += 1;
-        Ok("12345".to_string())
-    }
-
-    async fn spin_down(
-        &mut self,
-        instance_id: &str,
-        job: String,
-        region: String,
-    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
-        if self.outfile.as_str() != "" {
-            let mut file = OpenOptions::new()
-                .append(true)
-                .open(&self.outfile)
-                .expect("Unable to open out file");
-            file.write_all("SpinDown\n".as_bytes())
-                .expect("write failed");
-        }
-        println!("TEST: spin_down | job: {job}, instance_id: {instance_id} region: {region}");
-        if self.cur_idx >= self.max_idx || self.outcomes[self.cur_idx as usize] != 'D' {
-            println!("TEST FAIL!\nTEST FAIL!\nTEST FAIL!\n");
-            return Err("fail".into());
-        }
-        self.cur_idx += 1;
-        Ok(true)
-    }
-
-    async fn get_job_instance(
-        &mut self,
-        job: &str,
-        region: String,
-    ) -> Result<(bool, String, String), Box<dyn Error + Send + Sync>> {
-        println!("TEST: get_job_instance | job: {job}, region: {region}");
-        if self.cur_idx == 0 {
-            Ok((false, "".to_string(), "".to_owned()))
-        } else {
-            Ok((true, "12345".to_string(), "running".to_owned()))
-        }
-    }
-
-    async fn check_instance_running(
-        &mut self,
-        _instance_id: &str,
-        _region: String,
-    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
-        // println!("TEST: check_instance_running | instance_id: {}, region: {}", instance_id, region);
-        Ok(true)
-    }
-
-    async fn check_enclave_running(
-        &mut self,
-        _instance_id: &str,
-        _region: String,
-    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
-        // println!("TEST: check_enclave_running | instance_id: {}, region: {}", instance_id, region);
-        Ok(true)
-    }
-
-    async fn run_enclave(
-        &mut self,
-        _job: String,
-        _instance_id: &str,
-        _region: String,
-        _image_url: &str,
-        _req_vcpu: i32,
-        _req_mem: i64,
-        _bandwidth: u64,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        Ok(())
-    }
-}
+// --------------------------------------------------------------------------------------------------------------------------------------------------------
+//                                                                  TESTS
+// --------------------------------------------------------------------------------------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
-    use crate::market;
-    use crate::server;
-    use crate::test;
+    use ethers::abi::AbiEncode;
     use ethers::prelude::*;
-    use std::fs;
+    use std::str::FromStr;
+    use tokio::time::{sleep, Duration, Instant};
 
-    use super::GBRateCard;
+    use crate::market;
+    use crate::test::{self, Action, TestAws, TestAwsOutcome};
 
-    fn get_rates() -> Option<Vec<server::RegionalRates>> {
-        let file_path = "./rates.json";
-        let contents = fs::read_to_string(file_path);
-
-        if let Err(err) = contents {
-            println!("Error reading rates file : {err}");
-            return None;
-        }
-        let contents = contents.unwrap();
-        let rates: Vec<server::RegionalRates> = serde_json::from_str(&contents).unwrap_or_default();
-        Some(rates)
-    }
-
-    fn get_gb_rates() -> Option<Vec<GBRateCard>> {
-        let file_path = "./GB_rates.json";
-        let contents = fs::read_to_string(file_path);
-
-        if let Err(err) = contents {
-            println!("Error reading rates file : {err}");
-            return None;
-        }
-        let contents = contents.unwrap();
-        let rates: Vec<GBRateCard> = serde_json::from_str(&contents).unwrap_or_default();
-        Some(rates)
-    }
-
-    #[tokio::test]
-    async fn test_1() {
-        let res = Provider::<Ws>::connect(
-            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-        )
-        .await;
-        let client = res.unwrap();
+    #[tokio::test(start_paused = true)]
+    async fn test_instance_launch_after_delay_on_spin_up() {
         let job_num = H256::from_low_u64_be(1);
-        let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
-        let job_stream = Box::into_pin(res.unwrap());
-        let aws = market::TestAws {
-            outcomes: vec!['U', 'D'],
-            cur_idx: 0,
-            max_idx: 2,
-            outfile: "".into(),
-        };
+        let job_logs: Vec<(u64, Log)> = vec![
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            (301, Action::Close, [].into()),
+        ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
+
+        let start_time = Instant::now();
+        // pending stream appended so job stream never ends
+        let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
+            .then(|(moment, log)| async move {
+                let delay = start_time + Duration::from_secs(moment) - Instant::now();
+                sleep(delay).await;
+                log
+            })
+            .chain(tokio_stream::pending()));
+        let mut aws: TestAws = Default::default();
         let res = market::job_manager_once(
             job_stream,
-            aws,
+            &mut aws,
             job_num,
             vec!["ap-south-1".into()],
-            1,
-            &get_rates().unwrap_or_default(),
-            &get_gb_rates().unwrap_or_default(),
+            300,
+            &test::get_rates().unwrap_or_default(),
+            &test::get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::new(),
         )
         .await;
+
+        // job manager should have finished successfully
         assert_eq!(res, 0);
+        println!("{:?}", aws.outcomes);
+        let spin_up_tv_sec: Instant;
+        if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
+            spin_up_tv_sec = out.time;
+            assert!(
+                H256::from_str(&out.job).unwrap() == job_num
+                    && out.instance_type == *"c6a.xlarge"
+                    && out.region == *"ap-south-1"
+                    && out.req_mem == 4096
+                    && out.req_vcpu == 2
+                    && out.bandwidth == 0
+                    && out.eif_url == *"https://example.com/enclave.eif"
+            )
+        } else {
+            panic!();
+        };
+
+        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
+            assert_eq!((out.time - spin_up_tv_sec).as_secs(), 1);
+            assert!(H256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
+        } else {
+            panic!();
+        };
+
+        assert!(!aws.instances.contains_key(&job_num.to_string()))
     }
 
-    #[tokio::test]
-    async fn test_2() {
-        let res = Provider::<Ws>::connect(
-            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-        )
-        .await;
-        let client = res.unwrap();
-        let job_num = H256::from_low_u64_be(2);
-        let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
-        let job_stream = Box::into_pin(res.unwrap());
-        let aws = market::TestAws {
-            outcomes: vec!['U', 'D'],
-            cur_idx: 0,
-            max_idx: 2,
-            outfile: "".into(),
-        };
+    #[tokio::test(start_paused = true)]
+    async fn test_deposit_withdraw_settle() {
+        let job_num = H256::from_low_u64_be(1);
+        let job_logs: Vec<(u64, Log)> = vec![
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            (40, Action::Deposit, (500).encode()),
+            (60, Action::Withdraw, (500).encode()),
+            (100, Action::Settle, (2, 6).encode()),
+            (505, Action::Close, [].into()),
+            ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
+
+        let start_time = Instant::now();
+        // pending stream appended so job stream never ends
+        let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
+            .then(|(moment, log)| async move {
+                let delay = start_time + Duration::from_secs(moment) - Instant::now();
+                sleep(delay).await;
+                log
+            })
+            .chain(tokio_stream::pending()));
+        let mut aws: TestAws = Default::default();
         let res = market::job_manager_once(
             job_stream,
-            aws,
+            &mut aws,
             job_num,
             vec!["ap-south-1".into()],
-            1,
-            &get_rates().unwrap_or_default(),
-            &get_gb_rates().unwrap_or_default(),
+            300,
+            &test::get_rates().unwrap_or_default(),
+            &test::get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::new(),
         )
         .await;
+
+        // job manager should have finished successfully
         assert_eq!(res, 0);
+        println!("{:?}", aws.outcomes);
+        let spin_up_tv_sec: Instant;
+        if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
+            spin_up_tv_sec = out.time;
+            assert!(
+                H256::from_str(&out.job).unwrap() == job_num
+                    && out.instance_type == *"c6a.xlarge"
+                    && out.region == *"ap-south-1"
+                    && out.req_mem == 4096
+                    && out.req_vcpu == 2
+                    && out.bandwidth == 0
+                    && out.eif_url == *"https://example.com/enclave.eif"
+            )
+        } else {
+            panic!();
+        };
+
+        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
+            assert_eq!((out.time - spin_up_tv_sec).as_secs(), 205);
+            assert!(H256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
+        } else {
+            panic!();
+        };
+
+        assert!(!aws.instances.contains_key(&job_num.to_string()))
     }
 
-    #[tokio::test]
-    async fn test_3() {
-        let res = Provider::<Ws>::connect(
-            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-        )
-        .await;
-        let client = res.unwrap();
-        let job_num = H256::from_low_u64_be(3);
-        let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
-        let job_stream = Box::into_pin(res.unwrap());
-        let aws = market::TestAws {
-            outcomes: vec!['U', 'D'],
-            cur_idx: 0,
-            max_idx: 2,
-            outfile: "".into(),
-        };
+    #[tokio::test(start_paused = true)]
+    async fn test_revise_rate_cancel() {
+        let job_num = H256::from_low_u64_be(1);
+        let job_logs: Vec<(u64, Log)> = vec![
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            (50, Action::ReviseRateInitiated, (50,0).encode()),
+            (100, Action::ReviseRateFinalized, (50,0).encode()),
+            (150, Action::ReviseRateInitiated, (75,0).encode()),
+            (200, Action::ReviseRateCancelled, [].into()),
+            (505, Action::Close, [].into()),
+            ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
+
+        let start_time = Instant::now();
+        // pending stream appended so job stream never ends
+        let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
+            .then(|(moment, log)| async move {
+                let delay = start_time + Duration::from_secs(moment) - Instant::now();
+                sleep(delay).await;
+                log
+            })
+            .chain(tokio_stream::pending()));
+        let mut aws: TestAws = Default::default();
         let res = market::job_manager_once(
             job_stream,
-            aws,
+            &mut aws,
             job_num,
             vec!["ap-south-1".into()],
-            1,
-            &get_rates().unwrap_or_default(),
-            &get_gb_rates().unwrap_or_default(),
+            300,
+            &test::get_rates().unwrap_or_default(),
+            &test::get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::new(),
         )
         .await;
+
+        // job manager should have finished successfully
         assert_eq!(res, 0);
+        println!("{:?}", aws.outcomes);
+        let spin_up_tv_sec: Instant;
+        if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
+            spin_up_tv_sec = out.time;
+            assert!(
+                H256::from_str(&out.job).unwrap() == job_num
+                    && out.instance_type == *"c6a.xlarge"
+                    && out.region == *"ap-south-1"
+                    && out.req_mem == 4096
+                    && out.req_vcpu == 2
+                    && out.bandwidth == 0
+                    && out.eif_url == *"https://example.com/enclave.eif"
+            )
+        } else {
+            panic!();
+        };
+
+        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
+            assert_eq!((out.time - spin_up_tv_sec).as_secs(), 205);
+            assert!(H256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
+        } else {
+            panic!();
+        };
+
+        assert!(!aws.instances.contains_key(&job_num.to_string()))
     }
 
-    #[tokio::test]
-    async fn test_4() {
-        let res = Provider::<Ws>::connect(
-            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-        )
-        .await;
-        let client = res.unwrap();
-        let job_num = H256::from_low_u64_be(4);
-        let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
-        let job_stream = Box::into_pin(res.unwrap());
-        let aws = market::TestAws {
-            outcomes: vec!['U', 'D'],
-            cur_idx: 0,
-            max_idx: 2,
-            outfile: "".into(),
-        };
-        let res = market::job_manager_once(
-            job_stream,
-            aws,
-            job_num,
-            vec!["ap-south-1".into()],
-            1,
-            &get_rates().unwrap_or_default(),
-            &get_gb_rates().unwrap_or_default(),
-            &Vec::new(),
-            &Vec::new(),
-        )
-        .await;
-        assert_eq!(res, 0);
-    }
+    #[tokio::test(start_paused = true)]
+    async fn test_unsupported_region() {
+        let job_num = H256::from_low_u64_be(1);
+        let job_logs: Vec<(u64, Log)> = vec![
+            (0, Action::Open, ("{\"region\":\"ap-east-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            (505, Action::Close, [].into()),
+            ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
-    #[tokio::test]
-    async fn test_5() {
-        let res = Provider::<Ws>::connect(
-            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-        )
-        .await;
-        let client = res.unwrap();
-        let job_num = H256::from_low_u64_be(5);
-        let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
-        let job_stream = Box::into_pin(res.unwrap());
-        let aws = market::TestAws {
-            outcomes: vec!['U', 'D'],
-            cur_idx: 0,
-            max_idx: 2,
-            outfile: "".into(),
-        };
+        let start_time = Instant::now();
+        // pending stream appended so job stream never ends
+        let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
+            .then(|(moment, log)| async move {
+                let delay = start_time + Duration::from_secs(moment) - Instant::now();
+                sleep(delay).await;
+                log
+            })
+            .chain(tokio_stream::pending()));
+        let mut aws: TestAws = Default::default();
         let res = market::job_manager_once(
             job_stream,
-            aws,
+            &mut aws,
             job_num,
             vec!["ap-south-1".into()],
-            1,
-            &get_rates().unwrap_or_default(),
-            &get_gb_rates().unwrap_or_default(),
+            300,
+            &test::get_rates().unwrap_or_default(),
+            &test::get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::new(),
         )
         .await;
-        assert_eq!(res, 0);
-    }
 
-    #[tokio::test]
-    async fn test_6() {
-        let res = Provider::<Ws>::connect(
-            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-        )
-        .await;
-        let client = res.unwrap();
-        let job_num = H256::from_low_u64_be(6);
-        let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
-        let job_stream = Box::into_pin(res.unwrap());
-        let aws = market::TestAws {
-            outcomes: vec!['U', 'D'],
-            cur_idx: 0,
-            max_idx: 2,
-            outfile: "".into(),
-        };
-        let res = market::job_manager_once(
-            job_stream,
-            aws,
-            job_num,
-            vec!["ap-south-1".into()],
-            1,
-            &get_rates().unwrap_or_default(),
-            &get_gb_rates().unwrap_or_default(),
-            &Vec::new(),
-            &Vec::new(),
-        )
-        .await;
-        assert_eq!(res, 0);
-    }
-
-    #[tokio::test]
-    async fn test_7() {
-        let res = Provider::<Ws>::connect(
-            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-        )
-        .await;
-        let client = res.unwrap();
-        let job_num = H256::from_low_u64_be(7);
-        let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
-        let job_stream = Box::into_pin(res.unwrap());
-        let aws = market::TestAws {
-            outcomes: vec![],
-            cur_idx: 0,
-            max_idx: 0,
-            outfile: "".into(),
-        };
-        let res = market::job_manager_once(
-            job_stream,
-            aws,
-            job_num,
-            vec!["ap-south-1".into()],
-            1,
-            &get_rates().unwrap_or_default(),
-            &get_gb_rates().unwrap_or_default(),
-            &Vec::new(),
-            &Vec::new(),
-        )
-        .await;
+        // job manager should have finished successfully
         assert_eq!(res, -2);
+        assert!(aws.outcomes.is_empty());
+        assert!(!aws.instances.contains_key(&job_num.to_string()))
     }
 
-    #[tokio::test]
-    async fn test_8() {
-        let res = Provider::<Ws>::connect(
-            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-        )
-        .await;
-        let client = res.unwrap();
-        let job_num = H256::from_low_u64_be(8);
-        let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
-        let job_stream = Box::into_pin(res.unwrap());
-        let aws = market::TestAws {
-            outcomes: vec![],
-            cur_idx: 0,
-            max_idx: 0,
-            outfile: "".into(),
-        };
+    #[tokio::test(start_paused = true)]
+    async fn test_region_not_found() {
+        let job_num = H256::from_low_u64_be(1);
+        let job_logs: Vec<(u64, Log)> = vec![
+            (0, Action::Open, ("{\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            (505, Action::Close, [].into()),
+            ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
+
+        let start_time = Instant::now();
+        // pending stream appended so job stream never ends
+        let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
+            .then(|(moment, log)| async move {
+                let delay = start_time + Duration::from_secs(moment) - Instant::now();
+                sleep(delay).await;
+                log
+            })
+            .chain(tokio_stream::pending()));
+        let mut aws: TestAws = Default::default();
         let res = market::job_manager_once(
             job_stream,
-            aws,
+            &mut aws,
             job_num,
             vec!["ap-south-1".into()],
-            1,
-            &get_rates().unwrap_or_default(),
-            &get_gb_rates().unwrap_or_default(),
+            300,
+            &test::get_rates().unwrap_or_default(),
+            &test::get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::new(),
         )
         .await;
+
+        // job manager should have finished successfully
         assert_eq!(res, -2);
+        assert!(aws.outcomes.is_empty());
+        assert!(!aws.instances.contains_key(&job_num.to_string()))
     }
 
-    #[tokio::test]
-    async fn test_9() {
-        let res = Provider::<Ws>::connect(
-            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-        )
-        .await;
-        let client = res.unwrap();
-        let job_num = H256::from_low_u64_be(9);
-        let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
-        let job_stream = Box::into_pin(res.unwrap());
-        let aws = market::TestAws {
-            outcomes: vec![],
-            cur_idx: 0,
-            max_idx: 0,
-            outfile: "".into(),
-        };
+    #[tokio::test(start_paused = true)]
+    async fn test_instance_type_not_found() {
+        let job_num = H256::from_low_u64_be(1);
+        let job_logs: Vec<(u64, Log)> = vec![
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            (505, Action::Close, [].into()),
+            ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
+
+        let start_time = Instant::now();
+        // pending stream appended so job stream never ends
+        let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
+            .then(|(moment, log)| async move {
+                let delay = start_time + Duration::from_secs(moment) - Instant::now();
+                sleep(delay).await;
+                log
+            })
+            .chain(tokio_stream::pending()));
+        let mut aws: TestAws = Default::default();
         let res = market::job_manager_once(
             job_stream,
-            aws,
+            &mut aws,
             job_num,
             vec!["ap-south-1".into()],
-            1,
-            &get_rates().unwrap_or_default(),
-            &get_gb_rates().unwrap_or_default(),
+            300,
+            &test::get_rates().unwrap_or_default(),
+            &test::get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::new(),
         )
         .await;
+
+        // job manager should have finished successfully
         assert_eq!(res, -2);
+        assert!(aws.outcomes.is_empty());
+        assert!(!aws.instances.contains_key(&job_num.to_string()))
     }
 
-    #[tokio::test]
-    async fn test_10() {
-        let res = Provider::<Ws>::connect(
-            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-        )
-        .await;
-        let client = res.unwrap();
-        let job_num = H256::from_low_u64_be(10);
-        let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
-        let job_stream = Box::into_pin(res.unwrap());
-        let aws = market::TestAws {
-            outcomes: vec![],
-            cur_idx: 0,
-            max_idx: 0,
-            outfile: "".into(),
-        };
+    #[tokio::test(start_paused = true)]
+    async fn test_unsupported_instance() {
+        let job_num = H256::from_low_u64_be(1);
+        let job_logs: Vec<(u64, Log)> = vec![
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.vsmall\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            (505, Action::Close, [].into()),
+            ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
+
+        let start_time = Instant::now();
+        // pending stream appended so job stream never ends
+        let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
+            .then(|(moment, log)| async move {
+                let delay = start_time + Duration::from_secs(moment) - Instant::now();
+                sleep(delay).await;
+                log
+            })
+            .chain(tokio_stream::pending()));
+        let mut aws: TestAws = Default::default();
         let res = market::job_manager_once(
             job_stream,
-            aws,
+            &mut aws,
             job_num,
             vec!["ap-south-1".into()],
-            1,
-            &get_rates().unwrap_or_default(),
-            &get_gb_rates().unwrap_or_default(),
+            300,
+            &test::get_rates().unwrap_or_default(),
+            &test::get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::new(),
         )
         .await;
+
+        // job manager should have finished successfully
         assert_eq!(res, -2);
+        assert!(aws.outcomes.is_empty());
+        assert!(!aws.instances.contains_key(&job_num.to_string()))
     }
 
-    #[tokio::test]
-    async fn test_11() {
-        let res = Provider::<Ws>::connect(
-            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-        )
-        .await;
-        let client = res.unwrap();
-        let job_num = H256::from_low_u64_be(11);
-        let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
-        let job_stream = Box::into_pin(res.unwrap());
-        let aws = market::TestAws {
-            outcomes: vec![],
-            cur_idx: 0,
-            max_idx: 0,
-            outfile: "".into(),
-        };
+    #[tokio::test(start_paused = true)]
+    async fn test_eif_url_not_found() {
+        let job_num = H256::from_low_u64_be(1);
+        let job_logs: Vec<(u64, Log)> = vec![
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"instance\":\"c6a.vsmall\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            (505, Action::Close, [].into()),
+            ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
+
+        let start_time = Instant::now();
+        // pending stream appended so job stream never ends
+        let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
+            .then(|(moment, log)| async move {
+                let delay = start_time + Duration::from_secs(moment) - Instant::now();
+                sleep(delay).await;
+                log
+            })
+            .chain(tokio_stream::pending()));
+        let mut aws: TestAws = Default::default();
         let res = market::job_manager_once(
             job_stream,
-            aws,
+            &mut aws,
             job_num,
             vec!["ap-south-1".into()],
-            1,
-            &get_rates().unwrap_or_default(),
-            &get_gb_rates().unwrap_or_default(),
+            300,
+            &test::get_rates().unwrap_or_default(),
+            &test::get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::new(),
         )
         .await;
+
+        // job manager should have finished successfully
         assert_eq!(res, -2);
+        assert!(aws.outcomes.is_empty());
+        assert!(!aws.instances.contains_key(&job_num.to_string()))
     }
 
-    #[tokio::test]
-    async fn test_12() {
-        let res = Provider::<Ws>::connect(
-            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-        )
-        .await;
-        let client = res.unwrap();
-        let job_num = H256::from_low_u64_be(12);
-        let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
-        let job_stream = Box::into_pin(res.unwrap());
-        let aws = market::TestAws {
-            outcomes: vec![],
-            cur_idx: 0,
-            max_idx: 0,
-            outfile: "".into(),
-        };
+    #[tokio::test(start_paused = true)]
+    async fn test_min_rate() {
+        let job_num = H256::from_low_u64_be(1);
+        let job_logs: Vec<(u64, Log)> = vec![
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),1,1001,1).encode()),
+            (505, Action::Close, [].into()),
+            ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
+
+        let start_time = Instant::now();
+        // pending stream appended so job stream never ends
+        let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
+            .then(|(moment, log)| async move {
+                let delay = start_time + Duration::from_secs(moment) - Instant::now();
+                sleep(delay).await;
+                log
+            })
+            .chain(tokio_stream::pending()));
+        let mut aws: TestAws = Default::default();
         let res = market::job_manager_once(
             job_stream,
-            aws,
+            &mut aws,
             job_num,
             vec!["ap-south-1".into()],
-            1,
-            &get_rates().unwrap_or_default(),
-            &get_gb_rates().unwrap_or_default(),
+            300,
+            &test::get_rates().unwrap_or_default(),
+            &test::get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::new(),
         )
         .await;
+
+        // job manager should have finished successfully
         assert_eq!(res, 0);
+        assert!(aws.outcomes.is_empty());
+        assert!(!aws.instances.contains_key(&job_num.to_string()))
     }
 
-    #[tokio::test]
-    async fn test_13() {
-        let res = Provider::<Ws>::connect(
-            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-        )
-        .await;
-        let client = res.unwrap();
-        let job_num = H256::from_low_u64_be(13);
-        let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
-        let job_stream = Box::into_pin(res.unwrap());
-        let aws = market::TestAws {
-            outcomes: vec![],
-            cur_idx: 0,
-            max_idx: 0,
-            outfile: "".into(),
-        };
-        let res = market::job_manager_once(
-            job_stream,
-            aws,
-            job_num,
-            vec!["ap-south-1".into()],
-            1,
-            &get_rates().unwrap_or_default(),
-            &get_gb_rates().unwrap_or_default(),
-            &Vec::new(),
-            &Vec::new(),
-        )
-        .await;
-        assert_eq!(res, -2);
-    }
+    #[tokio::test(start_paused = true)]
+    async fn test_rate_exceed_balance() {
+        let job_num = H256::from_low_u64_be(1);
+        let job_logs: Vec<(u64, Log)> = vec![
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,0,1).encode()),
+            (505, Action::Close, [].into()),
+            ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
-    #[tokio::test]
-    async fn test_14() {
-        let res = Provider::<Ws>::connect(
-            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-        )
-        .await;
-        let client = res.unwrap();
-        let job_num = H256::from_low_u64_be(14);
-        let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
-        let job_stream = Box::into_pin(res.unwrap());
-        let aws = market::TestAws {
-            outcomes: vec!['U', 'D'],
-            cur_idx: 0,
-            max_idx: 2,
-            outfile: "".into(),
-        };
+        let start_time = Instant::now();
+        // pending stream appended so job stream never ends
+        let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
+            .then(|(moment, log)| async move {
+                let delay = start_time + Duration::from_secs(moment) - Instant::now();
+                sleep(delay).await;
+                log
+            })
+            .chain(tokio_stream::pending()));
+        let mut aws: TestAws = Default::default();
         let res = market::job_manager_once(
             job_stream,
-            aws,
+            &mut aws,
             job_num,
             vec!["ap-south-1".into()],
-            1,
-            &get_rates().unwrap_or_default(),
-            &get_gb_rates().unwrap_or_default(),
+            300,
+            &test::get_rates().unwrap_or_default(),
+            &test::get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::new(),
         )
         .await;
+
+        // job manager should have finished successfully
         assert_eq!(res, 0);
+        assert!(aws.outcomes.is_empty());
+        assert!(!aws.instances.contains_key(&job_num.to_string()))
     }
 
-    #[tokio::test]
-    async fn test_15() {
-        let res = Provider::<Ws>::connect(
-            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-        )
-        .await;
-        let client = res.unwrap();
-        let job_num = H256::from_low_u64_be(15);
-        let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
-        let job_stream = Box::into_pin(res.unwrap());
-        let aws = market::TestAws {
-            outcomes: vec!['U', 'D'],
-            cur_idx: 0,
-            max_idx: 2,
-            outfile: "".into(),
-        };
+    #[tokio::test(start_paused = true)]
+    async fn test_withdrawal_exceed_rate() {
+        let job_num = H256::from_low_u64_be(1);
+        let job_logs: Vec<(u64, Log)> = vec![
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            (350, Action::Withdraw, (1001).encode()),
+            (500, Action::Close, [].into()),
+        ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
+
+        let start_time = Instant::now();
+        // pending stream appended so job stream never ends
+        let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
+            .then(|(moment, log)| async move {
+                let delay = start_time + Duration::from_secs(moment) - Instant::now();
+                sleep(delay).await;
+                log
+            })
+            .chain(tokio_stream::pending()));
+        let mut aws: TestAws = Default::default();
         let res = market::job_manager_once(
             job_stream,
-            aws,
+            &mut aws,
             job_num,
             vec!["ap-south-1".into()],
-            1,
-            &get_rates().unwrap_or_default(),
-            &get_gb_rates().unwrap_or_default(),
+            300,
+            &test::get_rates().unwrap_or_default(),
+            &test::get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::new(),
         )
         .await;
+
+        // job manager should have finished successfully
         assert_eq!(res, 0);
+        println!("{:?}", aws.outcomes);
+        let spin_up_tv_sec: Instant;
+        if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
+            spin_up_tv_sec = out.time;
+            assert!(
+                H256::from_str(&out.job).unwrap() == job_num
+                    && out.instance_type == *"c6a.xlarge"
+                    && out.region == *"ap-south-1"
+                    && out.req_mem == 4096
+                    && out.req_vcpu == 2
+                    && out.bandwidth == 0
+                    && out.eif_url == *"https://example.com/enclave.eif"
+            )
+        } else {
+            panic!();
+        };
+
+        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
+            assert_eq!((out.time - spin_up_tv_sec).as_secs(), 50);
+            assert!(H256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
+        } else {
+            panic!();
+        };
+
+        assert!(!aws.instances.contains_key(&job_num.to_string()))
     }
 
-    #[tokio::test]
-    async fn test_16() {
-        let res = Provider::<Ws>::connect(
-            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-        )
-        .await;
-        let client = res.unwrap();
-        let job_num = H256::from_low_u64_be(16);
-        let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
-        let job_stream = Box::into_pin(res.unwrap());
-        let aws = market::TestAws {
-            outcomes: vec!['U', 'D'],
-            cur_idx: 0,
-            max_idx: 2,
-            outfile: "".into(),
-        };
+    #[tokio::test(start_paused = true)]
+    async fn test_revise_rate_lower_higher() {
+        let job_num = H256::from_low_u64_be(1);
+        let job_logs: Vec<(u64, Log)> = vec![
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            (350, Action::ReviseRateInitiated, (25,0).encode()),
+            (400, Action::ReviseRateFinalized, (25,0).encode()),
+            (450, Action::ReviseRateInitiated, (50,0).encode()),
+            (500, Action::ReviseRateFinalized, (50,0).encode()),
+        ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
+
+        let start_time = Instant::now();
+        // pending stream appended so job stream never ends
+        let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
+            .then(|(moment, log)| async move {
+                let delay = start_time + Duration::from_secs(moment) - Instant::now();
+                sleep(delay).await;
+                log
+            })
+            .chain(tokio_stream::pending()));
+        let mut aws: TestAws = Default::default();
         let res = market::job_manager_once(
             job_stream,
-            aws,
+            &mut aws,
             job_num,
             vec!["ap-south-1".into()],
-            1,
-            &get_rates().unwrap_or_default(),
-            &get_gb_rates().unwrap_or_default(),
+            300,
+            &test::get_rates().unwrap_or_default(),
+            &test::get_gb_rates().unwrap_or_default(),
+            &Vec::new(),
+            &Vec::new(),
+        )
+        .await;
+
+        // job manager should have finished successfully
+        assert_eq!(res, 0);
+        println!("{:?}", aws.outcomes);
+        let spin_up_tv_sec: Instant;
+        if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
+            spin_up_tv_sec = out.time;
+            assert!(
+                H256::from_str(&out.job).unwrap() == job_num
+                    && out.instance_type == *"c6a.xlarge"
+                    && out.region == *"ap-south-1"
+                    && out.req_mem == 4096
+                    && out.req_vcpu == 2
+                    && out.bandwidth == 0
+                    && out.eif_url == *"https://example.com/enclave.eif"
+            )
+        } else {
+            panic!();
+        };
+
+        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
+            assert_eq!((out.time - spin_up_tv_sec).as_secs(), 50);
+            assert!(H256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
+        } else {
+            panic!();
+        };
+
+        assert!(!aws.instances.contains_key(&job_num.to_string()))
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_address_whitelisted() {
+        let job_num = H256::from_low_u64_be(1);
+        let job_logs: Vec<(u64, Log)> = vec![
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            (500, Action::Close, [].into()),
+        ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
+
+        let start_time = Instant::now();
+        // pending stream appended so job stream never ends
+        let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
+            .then(|(moment, log)| async move {
+                let delay = start_time + Duration::from_secs(moment) - Instant::now();
+                sleep(delay).await;
+                log
+            })
+            .chain(tokio_stream::pending()));
+        let mut aws: TestAws = Default::default();
+        let res = market::job_manager_once(
+            job_stream,
+            &mut aws,
+            job_num,
+            vec!["ap-south-1".into()],
+            300,
+            &test::get_rates().unwrap_or_default(),
+            &test::get_gb_rates().unwrap_or_default(),
             &Vec::from([
                 "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
             ]),
             &Vec::new(),
         )
         .await;
+
+        // job manager should have finished successfully
         assert_eq!(res, 0);
+        println!("{:?}", aws.outcomes);
+        let spin_up_tv_sec: Instant;
+        if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
+            spin_up_tv_sec = out.time;
+            assert!(
+                H256::from_str(&out.job).unwrap() == job_num
+                    && out.instance_type == *"c6a.xlarge"
+                    && out.region == *"ap-south-1"
+                    && out.req_mem == 4096
+                    && out.req_vcpu == 2
+                    && out.bandwidth == 0
+                    && out.eif_url == *"https://example.com/enclave.eif"
+            )
+        } else {
+            panic!();
+        };
+
+        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
+            assert_eq!((out.time - spin_up_tv_sec).as_secs(), 200);
+            assert!(H256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
+        } else {
+            panic!();
+        };
+
+        assert!(!aws.instances.contains_key(&job_num.to_string()))
     }
 
-    #[tokio::test]
-    async fn test_17() {
-        let res = Provider::<Ws>::connect(
-            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-        )
-        .await;
-        let client = res.unwrap();
-        let job_num = H256::from_low_u64_be(17);
-        let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
-        let job_stream = Box::into_pin(res.unwrap());
-        let aws = market::TestAws {
-            outcomes: vec![],
-            cur_idx: 0,
-            max_idx: 0,
-            outfile: "".into(),
-        };
+    #[tokio::test(start_paused = true)]
+    async fn test_address_not_whitelisted() {
+        let job_num = H256::from_low_u64_be(1);
+        let job_logs: Vec<(u64, Log)> = vec![
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            (500, Action::Close, [].into()),
+        ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
+
+        let start_time = Instant::now();
+        // pending stream appended so job stream never ends
+        let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
+            .then(|(moment, log)| async move {
+                let delay = start_time + Duration::from_secs(moment) - Instant::now();
+                sleep(delay).await;
+                log
+            })
+            .chain(tokio_stream::pending()));
+        let mut aws: TestAws = Default::default();
         let res = market::job_manager_once(
             job_stream,
-            aws,
+            &mut aws,
             job_num,
             vec!["ap-south-1".into()],
-            1,
-            &get_rates().unwrap_or_default(),
-            &get_gb_rates().unwrap_or_default(),
+            300,
+            &test::get_rates().unwrap_or_default(),
+            &test::get_gb_rates().unwrap_or_default(),
             &Vec::from([
                 "0x000000000000000000000000000000000000000000000000f020c4f6gc7a56ce".to_string(),
             ]),
             &Vec::new(),
         )
         .await;
+
+        // job manager should have finished successfully
         assert_eq!(res, 0);
+        assert!(aws.outcomes.is_empty());
+        assert!(!aws.instances.contains_key(&job_num.to_string()))
     }
 
-    #[tokio::test]
-    async fn test_18() {
-        let res = Provider::<Ws>::connect(
-            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-        )
-        .await;
-        let client = res.unwrap();
-        let job_num = H256::from_low_u64_be(18);
-        let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
-        let job_stream = Box::into_pin(res.unwrap());
-        let aws = market::TestAws {
-            outcomes: vec![],
-            cur_idx: 0,
-            max_idx: 0,
-            outfile: "".into(),
-        };
+    #[tokio::test(start_paused = true)]
+    async fn test_address_blacklisted() {
+        let job_num = H256::from_low_u64_be(1);
+        let job_logs: Vec<(u64, Log)> = vec![
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            (500, Action::Close, [].into()),
+        ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
+
+        let start_time = Instant::now();
+        // pending stream appended so job stream never ends
+        let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
+            .then(|(moment, log)| async move {
+                let delay = start_time + Duration::from_secs(moment) - Instant::now();
+                sleep(delay).await;
+                log
+            })
+            .chain(tokio_stream::pending()));
+        let mut aws: TestAws = Default::default();
         let res = market::job_manager_once(
             job_stream,
-            aws,
+            &mut aws,
             job_num,
             vec!["ap-south-1".into()],
-            1,
-            &get_rates().unwrap_or_default(),
-            &get_gb_rates().unwrap_or_default(),
+            300,
+            &test::get_rates().unwrap_or_default(),
+            &test::get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::from([
                 "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
             ]),
         )
         .await;
+
+        // job manager should have finished successfully
         assert_eq!(res, 0);
+        assert!(aws.outcomes.is_empty());
+        assert!(!aws.instances.contains_key(&job_num.to_string()))
     }
 
-    #[tokio::test]
-    async fn test_19() {
-        let res = Provider::<Ws>::connect(
-            "wss://arb-goerli.g.alchemy.com/v2/KYCa2H4IoaidJPaStdaPuUlICHYhCWo3".to_string(),
-        )
-        .await;
-        let client = res.unwrap();
-        let job_num = H256::from_low_u64_be(19);
-        let res = market::LogsProvider::job_logs(&market::TestLogger {}, &client, job_num).await;
-        let job_stream = Box::into_pin(res.unwrap());
-        let aws = market::TestAws {
-            outcomes: vec!['U', 'D'],
-            cur_idx: 0,
-            max_idx: 2,
-            outfile: "".into(),
-        };
+    #[tokio::test(start_paused = true)]
+    async fn test_address_not_blacklisted() {
+        let job_num = H256::from_low_u64_be(1);
+        let job_logs: Vec<(u64, Log)> = vec![
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            (500, Action::Close, [].into()),
+        ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
+
+        let start_time = Instant::now();
+        // pending stream appended so job stream never ends
+        let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
+            .then(|(moment, log)| async move {
+                let delay = start_time + Duration::from_secs(moment) - Instant::now();
+                sleep(delay).await;
+                log
+            })
+            .chain(tokio_stream::pending()));
+        let mut aws: TestAws = Default::default();
         let res = market::job_manager_once(
             job_stream,
-            aws,
+            &mut aws,
             job_num,
             vec!["ap-south-1".into()],
-            1,
-            &get_rates().unwrap_or_default(),
-            &get_gb_rates().unwrap_or_default(),
+            300,
+            &test::get_rates().unwrap_or_default(),
+            &test::get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::from([
-                "0x000000000000000000000000000000000000000000000000f020c4f6gc7a56ce".to_string(),
+                "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ece".to_string(),
             ]),
         )
         .await;
+
+        // job manager should have finished successfully
         assert_eq!(res, 0);
+        println!("{:?}", aws.outcomes);
+        let spin_up_tv_sec: Instant;
+        if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
+            spin_up_tv_sec = out.time;
+            assert!(
+                H256::from_str(&out.job).unwrap() == job_num
+                    && out.instance_type == *"c6a.xlarge"
+                    && out.region == *"ap-south-1"
+                    && out.req_mem == 4096
+                    && out.req_vcpu == 2
+                    && out.bandwidth == 0
+                    && out.eif_url == *"https://example.com/enclave.eif"
+            )
+        } else {
+            panic!();
+        };
+
+        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
+            assert_eq!((out.time - spin_up_tv_sec).as_secs(), 200);
+            assert!(H256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
+        } else {
+            panic!();
+        };
+
+        assert!(!aws.instances.contains_key(&job_num.to_string()))
     }
 
     // Tests for whitelist blacklist checks
     #[tokio::test]
     async fn test_whitelist_blacklist_check_no_list() {
-        let log = &test::test_logs()[0];
+        let log = test::get_log(Action::Open,
+            Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            H256::zero());
         let address_whitelist = vec![];
         let address_blacklist = vec![];
 
@@ -1886,7 +1897,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_whitelist_blacklist_check_whitelisted() {
-        let log = &test::test_logs()[0];
+        let log = test::get_log(Action::Open,
+            Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            H256::zero());
         let address_whitelist = vec![
             "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
             "0x000000000000000000000000000000000000000000000000f020b3e5fd6sd76d".to_string(),
@@ -1902,7 +1915,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_whitelist_blacklist_check_not_whitelisted() {
-        let log = &test::test_logs()[0];
+        let log = test::get_log(Action::Open,
+            Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            H256::zero());
         let address_whitelist = vec![
             "0x000000000000000000000000000000000000000000000000f020b3e5fc7a48as".to_string(),
             "0x000000000000000000000000000000000000000000000000f020b3e5fd6sd76d".to_string(),
@@ -1918,7 +1933,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_whitelist_blacklist_check_blacklisted() {
-        let log = &test::test_logs()[0];
+        let log = test::get_log(Action::Open,
+            Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            H256::zero());
         let address_whitelist = vec![];
         let address_blacklist = vec![
             "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
@@ -1934,7 +1951,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_whitelist_blacklist_check_not_blacklisted() {
-        let log = &test::test_logs()[0];
+        let log = test::get_log(Action::Open,
+            Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            H256::zero());
         let address_whitelist = vec![];
         let address_blacklist = vec![
             "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49fe".to_string(),
@@ -1950,7 +1969,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_whitelist_blacklist_check_neither() {
-        let log = &test::test_logs()[0];
+        let log = test::get_log(Action::Open,
+            Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            H256::zero());
         let address_whitelist = vec![
             "0x000000000000000000000000000000000000000000000000f020b3e5fc7a48aa".to_string(),
             "0x000000000000000000000000000000000000000000000000f020b3e5fd6sd76d".to_string(),
@@ -1969,7 +1990,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_whitelist_blacklist_check_both() {
-        let log = &test::test_logs()[0];
+        let log = test::get_log(Action::Open,
+            Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            H256::zero());
         let address_whitelist = vec![
             "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
             "0x000000000000000000000000000000000000000000000000f020b3e5fd6sd76d".to_string(),

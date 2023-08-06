@@ -1,11 +1,197 @@
-use ethers::abi::AbiEncode;
+use async_trait::async_trait;
+use ethers::prelude::rand::Rng;
 use ethers::prelude::*;
 use ethers::types::Log;
 use ethers::utils::keccak256;
+use std::collections::HashMap;
+use std::error::Error;
+use std::fs;
 use std::str::FromStr;
-use std::time::SystemTime;
+use tokio::time::{Duration, Instant};
+use tokio_stream::{Stream, StreamExt};
 
-enum Actions {
+use crate::market::{GBRateCard, InfraProvider, LogsProvider};
+use crate::server;
+
+#[cfg(test)]
+#[derive(Clone, Debug)]
+pub struct SpinUpOutcome {
+    pub time: Instant,
+    pub job: String,
+    pub instance_type: String,
+    pub region: String,
+    pub req_mem: i64,
+    pub req_vcpu: i32,
+    pub bandwidth: u64,
+    pub eif_url: String,
+}
+
+#[cfg(test)]
+#[derive(Clone, Debug)]
+pub struct SpinDownOutcome {
+    pub time: Instant,
+    pub job: String,
+    pub _instance_id: String,
+    pub region: String,
+}
+
+#[cfg(test)]
+#[derive(Clone, Debug)]
+pub enum TestAwsOutcome {
+    SpinUp(SpinUpOutcome),
+    SpinDown(SpinDownOutcome),
+}
+#[cfg(test)]
+#[derive(Clone, Default)]
+pub struct TestAws {
+    pub outcomes: Vec<TestAwsOutcome>,
+    pub instances: HashMap<String, String>,
+}
+
+#[cfg(test)]
+#[async_trait]
+impl InfraProvider for TestAws {
+    async fn spin_up(
+        &mut self,
+        eif_url: &str,
+        job: String,
+        instance_type: &str,
+        region: String,
+        req_mem: i64,
+        req_vcpu: i32,
+        bandwidth: u64,
+    ) -> Result<String, Box<dyn Error + Send + Sync>> {
+        self.outcomes.push(TestAwsOutcome::SpinUp(SpinUpOutcome {
+            time: Instant::now(),
+            job: job.clone(),
+            instance_type: instance_type.to_owned(),
+            region,
+            req_mem,
+            req_vcpu,
+            bandwidth,
+            eif_url: eif_url.to_owned(),
+        }));
+
+        let res = self.instances.get_key_value(&job);
+        if let Some(x) = res {
+            return Ok(x.1.clone());
+        }
+
+        let id: String = rand::thread_rng()
+            .sample_iter(rand::distributions::Alphanumeric)
+            .take(8)
+            .map(char::from)
+            .collect();
+        self.instances.insert(job, id.clone());
+
+        Ok(id)
+    }
+
+    async fn spin_down(
+        &mut self,
+        instance_id: &str,
+        job: String,
+        region: String,
+    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        self.outcomes
+            .push(TestAwsOutcome::SpinDown(SpinDownOutcome {
+                time: Instant::now(),
+                job: job.clone(),
+                _instance_id: instance_id.to_owned(),
+                region,
+            }));
+
+        self.instances.remove(&job);
+
+        Ok(true)
+    }
+
+    async fn get_job_instance(
+        &mut self,
+        job: &str,
+        _region: String,
+    ) -> Result<(bool, String, String), Box<dyn Error + Send + Sync>> {
+        let res = self.instances.get_key_value(job);
+        if let Some(x) = res {
+            return Ok((true, x.1.clone(), "running".to_owned()));
+        }
+
+        Ok((false, String::new(), String::new()))
+    }
+
+    async fn check_instance_running(
+        &mut self,
+        _instance_id: &str,
+        _region: String,
+    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        // println!("TEST: check_instance_running | instance_id: {}, region: {}", instance_id, region);
+        Ok(true)
+    }
+
+    async fn check_enclave_running(
+        &mut self,
+        _instance_id: &str,
+        _region: String,
+    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        Ok(true)
+    }
+
+    async fn run_enclave(
+        &mut self,
+        _job: String,
+        _instance_id: &str,
+        _region: String,
+        _image_url: &str,
+        _req_vcpu: i32,
+        _req_mem: i64,
+        _bandwidth: u64,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+#[derive(Clone)]
+pub struct TestLogger {}
+
+#[cfg(test)]
+#[async_trait]
+impl LogsProvider for TestLogger {
+    async fn new_jobs<'a>(
+        &'a self,
+        _client: &'a Provider<Ws>,
+    ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>, Box<dyn Error + Send + Sync>> {
+        let logs: Vec<Log> = Vec::new();
+        Ok(Box::new(
+            tokio_stream::iter(
+                logs.iter()
+                    .map(|job| (job.topics[1], false))
+                    .collect::<Vec<_>>(),
+            )
+            .throttle(Duration::from_secs(2)),
+        ))
+    }
+
+    async fn job_logs<'a>(
+        &'a self,
+        _client: &'a Provider<Ws>,
+        job: H256,
+    ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>, Box<dyn Error + Send + Sync>> {
+        let logs: Vec<Log> = Vec::new();
+        Ok(Box::new(
+            tokio_stream::iter(
+                logs.into_iter()
+                    .filter(|log| log.topics[1] == job)
+                    .collect::<Vec<_>>(),
+            )
+            .throttle(Duration::from_secs(2)),
+        ))
+    }
+}
+
+#[cfg(test)]
+#[derive(Clone)]
+pub enum Action {
     Open,                // metadata(region, url, instance), rate, balance, timestamp
     Close,               //
     Settle,              // amount, timestamp
@@ -16,132 +202,36 @@ enum Actions {
     ReviseRateFinalized, //
 }
 
-fn get_logs_data() -> Vec<(Actions, Bytes, U256)> {
-    let mut idx: i128 = 0;
-    let time = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-    let input = vec![
-        // test : 1 -> job open and close
-        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,time+1).encode()),
-        (Actions::Close, [].into()),
+#[cfg(test)]
+pub fn get_rates() -> Option<Vec<server::RegionalRates>> {
+    let file_path = "./rates.json";
+    let contents = fs::read_to_string(file_path);
 
-        // test : 2 -> deposit
-        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,time+3).encode()),
-        (Actions::Deposit, (500).encode()),
-        (Actions::Close, [].into()),
-
-        // test : 3 -> withdraw
-        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,time+6).encode()),
-        (Actions::Withdraw, (500).encode()),
-        (Actions::Close, [].into()),
-
-        // test : 4 -> settle
-        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,time+9).encode()),
-        (Actions::Settle, (2, time+10).encode()),
-        (Actions::Close, [].into()),
-
-        // test : 5 -> revise rate
-        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,time+12).encode()),
-        (Actions::ReviseRateInitiated, (50,0).encode()),
-        (Actions::ReviseRateFinalized, (50,0).encode()),
-        (Actions::Close, [].into()),
-
-        // test : 6 -> revise rate cancel
-        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,time+17).encode()),
-        (Actions::ReviseRateInitiated, (50,0).encode()),
-        (Actions::ReviseRateCancelled, [].into()),
-        (Actions::Close, [].into()),
-
-        // test : 7 -> region type not supported
-        (Actions::Open, ("{\"region\":\"ap-east-2\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,time+21).encode()),
-        (Actions::Close, [].into()),
-
-        // test : 8 -> region not provided
-        (Actions::Open, ("{\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,time+23).encode()),
-        (Actions::Close, [].into()),
-
-        // test : 9 -> instance type not provided
-        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,time+25).encode()),
-        (Actions::Close, [].into()),
-
-        // test : 10 -> instance type not supported
-        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.vsmall\",\"memory\":1024,\"vcpu\":1}".to_string(),30,1001,time+27).encode()),
-        (Actions::Close, [].into()),
-
-        // test : 11 -> eif url not provided
-        (Actions::Open, ("{\"region\":\"ap-south-1\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,time+29).encode()),
-        (Actions::Close, [].into()),
-
-        // test : 12 -> rate lower than min rate
-        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),2,1001,time+31).encode()),
-        (Actions::Close, [].into()),
-
-        // test : 13 -> rate higher than balance
-        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),50,49,time+33).encode()),
-        (Actions::Close, [].into()),
-
-        // test : 14 -> withdraw to amount lower than rate
-        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,time+35).encode()),
-        (Actions::Withdraw, (990).encode()),
-        (Actions::Close, [].into()),
-
-        // test : 15 -> revised rate lower than min rate and again to higher
-        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,time+38).encode()),
-        (Actions::ReviseRateInitiated, (25,0).encode()),
-        (Actions::ReviseRateFinalized, (25,0).encode()),
-        (Actions::ReviseRateInitiated, (50,0).encode()),
-        (Actions::ReviseRateFinalized, (50,0).encode()),
-
-        // test : 16 -> Address is Whitelisted - job open and close
-        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,time+1).encode()),
-        (Actions::Close, [].into()),
-
-        // test : 17 -> Address is not Whitelisted - job open and close
-        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,time+1).encode()),
-        (Actions::Close, [].into()),
-
-        // test : 18 -> Address is Blacklisted - job open and close
-        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,time+1).encode()),
-        (Actions::Close, [].into()),
-
-        // test : 19 -> Address is not Blacklisted - job open and close
-        (Actions::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://drive.google.com/file/d/1ADnr8vFo3vMlKCxc5KxQKtu5_nnreIBD/view?usp=sharing\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,time+1).encode()),
-        (Actions::Close, [].into()),
-    ];
-    let mut res: Vec<(Actions, Bytes, U256)> = Vec::new();
-    for v in input {
-        if let Actions::Open = v.0 {
-            idx += 1;
-        }
-        res.push(get_data_tuple(v.0, v.1, idx));
+    if let Err(err) = contents {
+        println!("Error reading rates file : {err}");
+        return None;
     }
-
-    res
+    let contents = contents.unwrap();
+    let rates: Vec<server::RegionalRates> = serde_json::from_str(&contents).unwrap_or_default();
+    Some(rates)
 }
 
-fn get_data_tuple(action: Actions, data: Vec<u8>, job: i128) -> (Actions, Bytes, U256) {
-    (
-        action,
-        Bytes::from(data),
-        U256::from_dec_str(&job.to_string()).unwrap_or(U256::one()),
-    )
-}
+#[cfg(test)]
+pub fn get_gb_rates() -> Option<Vec<GBRateCard>> {
+    let file_path = "./GB_rates.json";
+    let contents = fs::read_to_string(file_path);
 
-pub fn test_logs() -> Vec<Log> {
-    let data_logs = get_logs_data();
-    let mut logs: Vec<Log> = Vec::new();
-
-    for l in data_logs {
-        let log = get_log(l.0, l.1, H256::from_uint(&l.2));
-        logs.push(log);
+    if let Err(err) = contents {
+        println!("Error reading rates file : {err}");
+        return None;
     }
-
-    logs
+    let contents = contents.unwrap();
+    let rates: Vec<GBRateCard> = serde_json::from_str(&contents).unwrap_or_default();
+    Some(rates)
 }
 
-fn get_log(topic: Actions, data: Bytes, idx: H256) -> Log {
+#[cfg(test)]
+pub fn get_log(topic: Action, data: Bytes, idx: H256) -> Log {
     let mut log = Log {
         address: H160::from_str("0x0F5F91BA30a00bD43Bd19466f020B3E5fc7a49ec").unwrap(),
         removed: Some(false),
@@ -149,7 +239,7 @@ fn get_log(topic: Actions, data: Bytes, idx: H256) -> Log {
         ..Default::default()
     };
     match topic {
-        Actions::Open => {
+        Action::Open => {
             log.topics = vec![
                 H256::from(keccak256(
                     "JobOpened(bytes32,string,address,address,uint256,uint256,uint256)",
@@ -158,40 +248,40 @@ fn get_log(topic: Actions, data: Bytes, idx: H256) -> Log {
                 H256::from_low_u64_be(log.address.to_low_u64_be()),
             ];
         }
-        Actions::Close => {
+        Action::Close => {
             log.topics = vec![H256::from(keccak256("JobClosed(bytes32)")), idx];
         }
-        Actions::Settle => {
+        Action::Settle => {
             log.topics = vec![
                 H256::from(keccak256("JobSettled(bytes32,uint256,uint256)")),
                 idx,
             ];
         }
-        Actions::Deposit => {
+        Action::Deposit => {
             log.topics = vec![
                 H256::from(keccak256("JobDeposited(bytes32,address,uint256)")),
                 idx,
             ];
         }
-        Actions::Withdraw => {
+        Action::Withdraw => {
             log.topics = vec![
                 H256::from(keccak256("JobWithdrew(bytes32,address,uint256)")),
                 idx,
             ];
         }
-        Actions::ReviseRateInitiated => {
+        Action::ReviseRateInitiated => {
             log.topics = vec![
                 H256::from(keccak256("JobReviseRateInitiated(bytes32,uint256)")),
                 idx,
             ];
         }
-        Actions::ReviseRateCancelled => {
+        Action::ReviseRateCancelled => {
             log.topics = vec![
                 H256::from(keccak256("JobReviseRateCancelled(bytes32)")),
                 idx,
             ];
         }
-        Actions::ReviseRateFinalized => {
+        Action::ReviseRateFinalized => {
             log.topics = vec![
                 H256::from(keccak256("JobReviseRateFinalized(bytes32, uint256)")),
                 idx,

@@ -310,7 +310,7 @@ async fn new_jobs(
 // manage the complete lifecycle of a job
 async fn job_manager(
     infra_provider: impl InfraProvider + Send + Sync + Clone,
-    logs_provider: impl LogsProvider + Send + Sync + Send + Clone,
+    logs_provider: impl LogsProvider + Send + Sync,
     url: String,
     job: H256,
     allowed_regions: Vec<String>,

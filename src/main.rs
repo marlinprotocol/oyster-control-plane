@@ -77,6 +77,30 @@ async fn parse_file(filepath: String) -> Result<Vec<String>> {
     Ok(lines)
 }
 
+async fn parse_compute_rates_file(filepath: String) -> Result<Vec<server::RegionalRates>> {
+    if filepath.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let contents = fs::read_to_string(filepath).context("Error reading file")?;
+    let rates: Vec<server::RegionalRates> =
+        serde_json::from_str(&contents).context("failed to parse rates file")?;
+
+    Ok(rates)
+}
+
+async fn parse_bandwidth_rates_file(filepath: String) -> Result<Vec<market::GBRateCard>> {
+    if filepath.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let contents = fs::read_to_string(filepath).context("Error reading file")?;
+    let rates: Vec<market::GBRateCard> =
+        serde_json::from_str(&contents).context("failed to parse rates file")?;
+
+    Ok(rates)
+}
+
 #[tokio::main]
 pub async fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -107,12 +131,20 @@ pub async fn main() -> Result<()> {
         provider: cli.provider,
     };
 
+    let compute_rates = parse_compute_rates_file(cli.rates)
+        .await
+        .context("failed to parse computes rates file")?;
+    let bandwidth_rates = parse_bandwidth_rates_file(cli.bandwidth)
+        .await
+        .context("failed to parse bandwidth rates file")?;
+
     let address_whitelist_vec: Vec<String> = parse_file(cli.address_whitelist)
         .await
         .context("Failed to parse address whitelist")?;
     let address_blacklist_vec: Vec<String> = parse_file(cli.address_blacklist)
         .await
         .context("Failed to parse address blacklist")?;
+
     // Converting Vec<String> to &'static [String]
     // because market::run_once needs a static [String]
     let address_whitelist: &'static [String] = Box::leak(address_whitelist_vec.into_boxed_slice());
@@ -123,8 +155,8 @@ pub async fn main() -> Result<()> {
         ethers,
         cli.rpc,
         regions,
-        cli.rates,
-        cli.bandwidth,
+        &compute_rates,
+        &bandwidth_rates,
         address_whitelist,
         address_blacklist,
     )

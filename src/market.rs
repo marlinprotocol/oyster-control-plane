@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use std::error::Error;
-use std::fs;
 use std::time::SystemTime;
 use tokio::time::sleep;
 use tokio::time::{Duration, Instant};
@@ -205,8 +204,8 @@ pub async fn run(
     logs_provider: impl LogsProvider + Send + Sync + Clone + 'static,
     url: String,
     regions: Vec<String>,
-    rates_path: String,
-    gb_rates_path: String,
+    rates: &Vec<server::RegionalRates>,
+    gb_rates: &Vec<GBRateCard>,
     address_whitelist: &'static [String],
     address_blacklist: &'static [String],
 ) {
@@ -216,26 +215,6 @@ pub async fn run(
     // start from scratch in case of connection errors
     // trying to implicitly resume connections or event streams can cause issues
     // since subscriptions are stateful
-
-    let file_path = rates_path;
-    let contents = fs::read_to_string(file_path);
-
-    if let Err(err) = contents {
-        println!("Error reading rates file: {err:?}");
-        return;
-    }
-    let contents = contents.unwrap();
-    let rates: Vec<server::RegionalRates> = serde_json::from_str(&contents).unwrap_or_default();
-
-    let file_path = gb_rates_path;
-    let contents = fs::read_to_string(file_path);
-
-    if let Err(err) = contents {
-        println!("Error reading bandwidth rates file: {err:?}");
-        return;
-    }
-    let contents = contents.unwrap();
-    let gb_rates: Vec<GBRateCard> = serde_json::from_str(&contents).unwrap_or_default();
 
     loop {
         println!("main: Connecting to RPC endpoint...");

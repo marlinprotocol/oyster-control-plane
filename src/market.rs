@@ -186,7 +186,7 @@ impl LogsProvider for EthersProvider {
         client: &'a Provider<Ws>,
         job: H256,
     ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>, Box<dyn Error + Send + Sync>> {
-        job_logs(client, job).await
+        job_logs(client, self.contract.clone(), job).await
     }
 }
 
@@ -1062,12 +1062,13 @@ async fn job_manager_once(
 
 async fn job_logs(
     client: &Provider<Ws>,
+    contract: Address,
     job: H256,
 ) -> Result<Box<dyn Stream<Item = Log> + Send + '_>, Box<dyn Error + Send + Sync>> {
     // TODO: Filter by contract and job
     let event_filter = Filter::new()
         .select(0..)
-        .address("0x9d95D61eA056721E358BC49fE995caBF3B86A34B".parse::<Address>()?)
+        .address(contract)
         .topic0(vec![
             keccak256("JobOpened(bytes32,string,address,address,uint256,uint256,uint256)"),
             keccak256("JobSettled(bytes32,uint256,uint256)"),

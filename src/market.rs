@@ -152,7 +152,7 @@ impl LogsProvider for EthersProvider {
         &'a self,
         client: &'a Provider<Ws>,
     ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>> {
-        new_jobs(client, self.contract.clone(), self.provider.clone()).await
+        new_jobs(client, self.contract, self.provider).await
     }
 
     async fn job_logs<'a>(
@@ -160,7 +160,7 @@ impl LogsProvider for EthersProvider {
         client: &'a Provider<Ws>,
         job: H256,
     ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>> {
-        job_logs(client, self.contract.clone(), job).await
+        job_logs(client, self.contract, job).await
     }
 }
 

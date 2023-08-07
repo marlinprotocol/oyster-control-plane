@@ -167,8 +167,8 @@ pub async fn main() -> Result<()> {
         ethers,
         cli.rpc,
         regions,
-        &compute_rates,
-        &bandwidth_rates,
+        compute_rates,
+        bandwidth_rates,
         address_whitelist,
         address_blacklist,
     )

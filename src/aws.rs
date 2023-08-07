@@ -1074,7 +1074,7 @@ impl Aws {
             .context("error allocating ip address")?;
         println!("Elastic Ip allocated: {ip}");
 
-        self.associate_address(&instance, &alloc_id, region.clone())
+        self.associate_address(instance, &alloc_id, region.clone())
             .await
             .context("could not associate ip address")?;
         self.run_enclave_impl(instance, region, image_url, req_vcpu, req_mem, bandwidth)

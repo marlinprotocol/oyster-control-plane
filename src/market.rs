@@ -5,7 +5,7 @@ use ethers::utils::keccak256;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::time::SystemTime;
 use tokio::time::sleep;
 use tokio::time::{Duration, Instant};
@@ -284,7 +284,10 @@ async fn new_jobs(
         .topic3(provider);
 
     // register subscription
-    let stream = client.subscribe_logs(&event_filter).await?;
+    let stream = client
+        .subscribe_logs(&event_filter)
+        .await
+        .context("failed to subscribe to new jobs")?;
 
     Ok(Box::new(stream.map(|item| {
         (item.topics[1], item.removed.unwrap_or(false))
@@ -1056,7 +1059,10 @@ async fn job_logs(
         .topic1(job);
 
     // register subscription
-    let stream = client.subscribe_logs(&event_filter).await?;
+    let stream = client
+        .subscribe_logs(&event_filter)
+        .await
+        .context("failed to subscribe to job logs")?;
 
     Ok(Box::new(stream))
 }

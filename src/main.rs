@@ -132,7 +132,10 @@ pub async fn main() -> Result<()> {
             .contract
             .parse::<Address>()
             .context("failed to parse contract address")?,
-        provider: cli.provider,
+        provider: cli
+            .provider
+            .parse::<Address>()
+            .context("failed to parse provider address")?,
     };
 
     let compute_rates = parse_compute_rates_file(cli.rates)

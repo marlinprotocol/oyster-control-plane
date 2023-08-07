@@ -169,7 +169,7 @@ pub trait LogsProvider {
 #[derive(Clone)]
 pub struct EthersProvider {
     pub contract: Address,
-    pub provider: String,
+    pub provider: Address,
 }
 
 #[async_trait]
@@ -299,7 +299,7 @@ async fn run_once(
 async fn new_jobs(
     client: &Provider<Ws>,
     address: Address,
-    provider: String,
+    provider: Address,
 ) -> Result<Box<dyn Stream<Item = (H256, bool)> + '_>, Box<dyn Error + Send + Sync>> {
     let event_filter = Filter::new()
         .address(address)
@@ -307,7 +307,7 @@ async fn new_jobs(
         .topic0(vec![keccak256(
             "JobOpened(bytes32,string,address,address,uint256,uint256,uint256)",
         )])
-        .topic3(provider.parse::<Address>()?);
+        .topic3(provider);
 
     // register subscription
     let stream = client.subscribe_logs(&event_filter).await?;

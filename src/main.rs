@@ -4,9 +4,10 @@ mod server;
 #[cfg(test)]
 mod test;
 
-use anyhow::anyhow;
+use anyhow::Context;
+use anyhow::Result;
 use clap::Parser;
-use std::error::Error;
+use ethers::prelude::*;
 use std::fs;
 
 #[derive(Parser)]
@@ -22,7 +23,11 @@ struct Cli {
     key_name: String,
 
     /// AWS regions
-    #[clap(long, value_parser)]
+    #[clap(
+        long,
+        value_parser,
+        default_value = "us-east-1,us-east-2,us-west-1,us-west-2,ca-central-1,sa-east-1,eu-north-1,eu-west-3,eu-west-2,eu-west-1,eu-central-1,eu-central-2,eu-south-1,eu-south-2,me-south-1,me-central-1,af-south-1,ap-south-1,ap-south-2,ap-northeast-1,ap-northeast-2,ap-northeast-3,ap-southeast-1,ap-southeast-2,ap-southeast-3,ap-southeast-4,ap-east-1"
+    )]
     regions: String,
 
     /// RPC url
@@ -46,57 +51,74 @@ struct Cli {
     provider: String,
 
     /// Blacklist location
-    #[clap(long, value_parser)]
-    blacklist: Option<String>,
+    #[clap(long, value_parser, default_value = "")]
+    blacklist: String,
 
     /// Whitelist location
-    #[clap(long, value_parser)]
-    whitelist: Option<String>,
+    #[clap(long, value_parser, default_value = "")]
+    whitelist: String,
 
     /// Address Blacklist location
-    #[clap(long, value_parser)]
-    address_blacklist: Option<String>,
+    #[clap(long, value_parser, default_value = "")]
+    address_blacklist: String,
 
     /// Address Whitelist location
-    #[clap(long, value_parser)]
-    address_whitelist: Option<String>,
+    #[clap(long, value_parser, default_value = "")]
+    address_whitelist: String,
 }
 
-async fn parse_file(filepath: String) -> Result<Vec<String>, anyhow::Error> {
+async fn parse_file(filepath: String) -> Result<Vec<String>> {
     if filepath.is_empty() {
         return Ok(Vec::new());
     }
 
-    let file_path = filepath.as_str();
-    let contents = fs::read_to_string(file_path);
+    let contents = fs::read_to_string(filepath).context("Error reading file")?;
+    let lines: Vec<String> = contents.lines().map(|s| s.to_string()).collect();
 
-    if let Err(err) = contents {
-        Err(anyhow!("Error reading file: {err}"))
-    } else {
-        let lines: Vec<String> = contents.unwrap().lines().map(|s| s.to_string()).collect();
-        Ok(lines)
+    Ok(lines)
+}
+
+async fn parse_compute_rates_file(filepath: String) -> Result<Vec<market::RegionalRates>> {
+    if filepath.is_empty() {
+        return Ok(Vec::new());
     }
+
+    let contents = fs::read_to_string(filepath).context("Error reading file")?;
+    let rates: Vec<market::RegionalRates> =
+        serde_json::from_str(&contents).context("failed to parse rates file")?;
+
+    Ok(rates)
+}
+
+async fn parse_bandwidth_rates_file(filepath: String) -> Result<Vec<market::GBRateCard>> {
+    if filepath.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let contents = fs::read_to_string(filepath).context("Error reading file")?;
+    let rates: Vec<market::GBRateCard> =
+        serde_json::from_str(&contents).context("failed to parse rates file")?;
+
+    Ok(rates)
 }
 
 #[tokio::main]
-pub async fn main() -> Result<(), Box<dyn Error>> {
+pub async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     let regions: Vec<String> = cli.regions.split(',').map(|r| (r.into())).collect();
     println!("Supported regions: {regions:?}");
 
-    let aws = aws::Aws::new(
-        cli.profile,
-        cli.key_name,
-        cli.whitelist.unwrap_or("".to_owned()),
-        cli.blacklist.unwrap_or("".to_owned()),
-    )
-    .await;
+    let aws = aws::Aws::new(cli.profile, cli.key_name, cli.whitelist, cli.blacklist).await;
 
-    aws.generate_key_pair().await?;
+    aws.generate_key_pair()
+        .await
+        .context("Failed to generate key pair")?;
 
     for region in regions.clone() {
-        aws.key_setup(region).await?;
+        aws.key_setup(region)
+            .await
+            .context("Failed to setup key pair in {region}")?;
     }
 
     tokio::spawn(server::serve(
@@ -106,16 +128,37 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
     ));
 
     let ethers = market::EthersProvider {
-        address: cli.contract,
-        provider: cli.provider,
+        contract: cli
+            .contract
+            .parse::<Address>()
+            .context("failed to parse contract address")?,
+        provider: cli
+            .provider
+            .parse::<Address>()
+            .context("failed to parse provider address")?,
     };
 
-    let address_whitelist_vec: Vec<String> =
-        parse_file(cli.address_whitelist.unwrap_or("".to_owned())).await?;
-    let address_blacklist_vec: Vec<String> =
-        parse_file(cli.address_blacklist.unwrap_or("".to_owned())).await?;
-    // Converting Vec<String> to &'static [String]
-    // because market::run_once needs a static [String]
+    let compute_rates = parse_compute_rates_file(cli.rates)
+        .await
+        .context("failed to parse computes rates file")?;
+    let bandwidth_rates = parse_bandwidth_rates_file(cli.bandwidth)
+        .await
+        .context("failed to parse bandwidth rates file")?;
+
+    let address_whitelist_vec: Vec<String> = parse_file(cli.address_whitelist)
+        .await
+        .context("Failed to parse address whitelist")?;
+    let address_blacklist_vec: Vec<String> = parse_file(cli.address_blacklist)
+        .await
+        .context("Failed to parse address blacklist")?;
+
+    // leak memory to get static references
+    // will be cleaned up once program exits
+    // alternative to OnceCell equivalents
+    let compute_rates: &'static [market::RegionalRates] =
+        Box::leak(compute_rates.into_boxed_slice());
+    let bandwidth_rates: &'static [market::GBRateCard] =
+        Box::leak(bandwidth_rates.into_boxed_slice());
     let address_whitelist: &'static [String] = Box::leak(address_whitelist_vec.into_boxed_slice());
     let address_blacklist: &'static [String] = Box::leak(address_blacklist_vec.into_boxed_slice());
 
@@ -124,8 +167,8 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
         ethers,
         cli.rpc,
         regions,
-        cli.rates,
-        cli.bandwidth,
+        compute_rates,
+        bandwidth_rates,
         address_whitelist,
         address_blacklist,
     )

@@ -1,4 +1,5 @@
 use crate::aws::Aws;
+use crate::market::RegionalRates;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -9,18 +10,6 @@ use std::net::{TcpListener, TcpStream};
 struct Spec {
     allowed_regions: Vec<String>,
     min_rates: Vec<RegionalRates>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct RateCard {
-    pub instance: String,
-    pub min_rate: i64,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct RegionalRates {
-    pub region: String,
-    pub rate_cards: Vec<RateCard>,
 }
 
 async fn handle_read(
@@ -86,7 +75,7 @@ async fn handle_read(
                     }
                     let ip = get_ip(client, &id, region).await;
                     if let Err(err) = ip {
-                        println!("Server: {err}");
+                        println!("Server: {err:?}");
                         String::from("HTTP/1.1 404 Not Found\r\n")
                     } else {
                         let res = "{\"ip\": \"".to_owned() + ip.unwrap().as_str() + "\"}";
@@ -102,7 +91,7 @@ async fn handle_read(
                 let contents = fs::read_to_string(rates_path);
 
                 if let Err(err) = contents {
-                    println!("Server : Error reading rates file : {err}");
+                    println!("Server: Error reading rates file: {err:?}");
                 } else {
                     let contents = contents.unwrap();
                     let data: Vec<RegionalRates> =
@@ -124,7 +113,7 @@ async fn handle_read(
             }
         }
         Err(e) => {
-            println!("Server: Unable to read stream: {e}");
+            println!("Server: Unable to read stream: {e:?}");
             String::from("HTTP/1.1 500 Internal Server Error\r\n")
         }
     }
@@ -133,14 +122,18 @@ async fn handle_read(
 async fn handle_write(mut stream: TcpStream, response: &str) {
     match stream.write(response.as_bytes()) {
         Ok(_) => println!("Server: Response sent"),
-        Err(e) => println!("Server: Failed sending response: {e}"),
+        Err(e) => println!("Server: Failed sending response: {e:?}"),
     }
 }
 
 async fn get_ip(client: &Aws, id: &str, region: String) -> Result<String> {
     let instance = client.get_job_instance_id(id, region.clone()).await?;
 
-    let ip = client.get_instance_ip(&instance.0, region).await?;
+    if !instance.0 {
+        return Err(anyhow::anyhow!("Instance not found: {id}"));
+    }
+
+    let ip = client.get_instance_ip(&instance.1, region).await?;
 
     Ok(ip)
 }
@@ -161,7 +154,7 @@ pub async fn serve(client: Aws, regions: Vec<String>, rates_path: String) {
                 handle_client(&client, stream, regions.clone(), &rates_path).await;
             }
             Err(e) => {
-                println!("Server: Unable to connect: {e}");
+                println!("Server: Unable to connect: {e:?}");
             }
         }
     }

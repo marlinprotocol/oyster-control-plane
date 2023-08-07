@@ -1,15 +1,16 @@
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use aws_types::region::Region;
+use rand_core::OsRng;
 use serde_json::Value;
 use ssh2::Session;
+use ssh_key::{Algorithm, LineEnding, PrivateKey};
 use std::collections::HashMap;
 use std::fs;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::net::TcpStream;
 use std::path::Path;
-use std::process::Command;
 use std::str::FromStr;
 use tokio::time::{sleep, Duration};
 use whoami::username;
@@ -56,41 +57,42 @@ impl Aws {
         aws_sdk_ec2::Client::new(&config)
     }
 
-    /* AWS KEY PAIR UTILITY */
     pub async fn generate_key_pair(&self) -> Result<()> {
         let priv_check = Path::new(&self.key_location).exists();
         let pub_check = Path::new(&self.pub_key_location).exists();
+
         if priv_check && pub_check {
+            // both exist, we are done
             Ok(())
         } else if priv_check {
-            let output = Command::new("ssh-keygen")
-                .arg("-y")
-                .arg("-f")
-                .arg(&self.key_location)
-                .arg(">")
-                .arg(&self.pub_key_location)
-                .output()?;
+            // only private key exists, generate public key
+            let private_key = PrivateKey::read_openssh_file(Path::new(&self.key_location))
+                .context("Failed to read private key file")?;
 
-            if output.status.success() {
-                Ok(())
-            } else {
-                Err(anyhow!("Failed to generate key pair"))
-            }
+            private_key
+                .public_key()
+                .write_openssh_file(Path::new(&self.pub_key_location))
+                .context("Failed to write public key file")?;
+
+            Ok(())
+        } else if pub_check {
+            // only public key exists, error out to avoid overwriting it
+            Err(anyhow!("Found public key file without corresponding private key file, exiting to prevent overwriting it"))
         } else {
-            let output = Command::new("ssh-keygen")
-                .arg("-t")
-                .arg("ed25519")
-                .arg("-f")
-                .arg(&self.key_location)
-                .arg("-N")
-                .arg("")
-                .output()?;
+            // neither exist, generate private key and public key
+            let private_key = PrivateKey::random(OsRng, Algorithm::Ed25519)
+                .context("Failed to generate private key")?;
 
-            if output.status.success() {
-                Ok(())
-            } else {
-                Err(anyhow!("Failed to generate key pair"))
-            }
+            private_key
+                .write_openssh_file(Path::new(&self.key_location), LineEnding::default())
+                .context("Failed to write private key file")?;
+
+            private_key
+                .public_key()
+                .write_openssh_file(Path::new(&self.pub_key_location))
+                .context("Failed to write public key file")?;
+
+            Ok(())
         }
     }
 
@@ -101,20 +103,24 @@ impl Aws {
             .context("failed to check key pair")?;
 
         if !key_check {
-            self.import_key_pair(region).await?;
+            self.import_key_pair(region)
+                .await
+                .context("Failed to import key pair in {region}")?;
         } else {
-            println!("found existing keypair and pem file, skipping key setup");
+            println!("found existing keypair and pem file in {region}, skipping key setup");
         }
 
         Ok(())
     }
 
     pub async fn import_key_pair(&self, region: String) -> Result<()> {
-        let f = File::open(&self.pub_key_location)?;
+        let f = File::open(&self.pub_key_location).context("Failed to open pub key file")?;
         let mut reader = BufReader::new(f);
         let mut buffer = Vec::new();
 
-        reader.read_to_end(&mut buffer)?;
+        reader
+            .read_to_end(&mut buffer)
+            .context("Failed to read pub key file")?;
 
         self.client(region)
             .await
@@ -122,7 +128,8 @@ impl Aws {
             .key_name(&self.key_name)
             .public_key_material(aws_sdk_ec2::types::Blob::new(buffer))
             .send()
-            .await?;
+            .await
+            .context("Failed to import key pair")?;
 
         Ok(())
     }
@@ -160,139 +167,146 @@ impl Aws {
         Ok(sess)
     }
 
-    async fn run_enclave_impl(
+    fn ssh_exec(sess: &Session, command: &str) -> Result<(String, String)> {
+        let mut channel = sess
+            .channel_session()
+            .context("Failed to get channel session")?;
+        let mut stdout = String::new();
+        let mut stderr = String::new();
+        channel
+            .exec(command)
+            .context("Failed to execute command: {command}")?;
+        channel
+            .read_to_string(&mut stdout)
+            .context("Failed to read stdout")?;
+        channel
+            .stderr()
+            .read_to_string(&mut stderr)
+            .context("Failed to read stderr")?;
+        channel.wait_close().context("Failed to wait for close")?;
+
+        Ok((stdout, stderr))
+    }
+
+    pub async fn run_enclave_impl(
         &self,
-        sess: &Session,
-        url: &str,
-        v_cpus: i32,
-        mem: i64,
+        instance_id: &str,
+        region: String,
+        image_url: &str,
+        req_vcpu: i32,
+        req_mem: i64,
         bandwidth: u64,
     ) -> Result<()> {
-        let mut channel = sess.channel_session()?;
-        let mut s = String::new();
-        channel.exec(
+        let public_ip_address = self
+            .get_instance_ip(instance_id, region.clone())
+            .await
+            .context("could not fetch instance ip")?;
+        let sess = &self
+            .ssh_connect(&(public_ip_address + ":22"))
+            .await
+            .context("error establishing ssh connection")?;
+
+        Self::ssh_exec(
+            sess,
             &("echo -e '---\\nmemory_mib: ".to_owned()
-                + &((mem).to_string())
+                + &((req_mem).to_string())
                 + "\\ncpu_count: "
-                + &((v_cpus).to_string())
+                + &((req_vcpu).to_string())
                 + "' > /home/ubuntu/allocator_new.yaml"),
-        )?;
-        let _ = channel.stderr().read_to_string(&mut s);
-        let _ = channel.wait_close();
+        )
+        .context("Failed to set allocator file")?;
 
-        channel = sess.channel_session()?;
-        channel.exec("sudo apt-get update -y")?;
-        let _ = channel.stderr().read_to_string(&mut s);
-        let _ = channel.wait_close();
+        Self::ssh_exec(
+            sess,
+            "sudo cp /home/ubuntu/allocator_new.yaml /etc/nitro_enclaves/allocator.yaml",
+        )
+        .context("Failed to copy allocator file")?;
 
-        channel = sess.channel_session()?;
-        channel
-            .exec("sudo cp /home/ubuntu/allocator_new.yaml /etc/nitro_enclaves/allocator.yaml")?;
-
-        let _ = channel.stderr().read_to_string(&mut s);
-        let _ = channel.wait_close();
-
-        s.clear();
-
-        channel = sess.channel_session()?;
-        channel.exec("sudo systemctl restart nitro-enclaves-allocator.service")?;
-        let _ = channel.stderr().read_to_string(&mut s);
-        let _ = channel.wait_close();
-        if !s.is_empty() {
-            println!("{s}");
-            return Err(anyhow!("Error starting nitro-anclaves-allocator service"));
+        let (_, stderr) = Self::ssh_exec(
+            sess,
+            "sudo systemctl restart nitro-enclaves-allocator.service",
+        )
+        .context("Failed to restart allocator service")?;
+        if !stderr.is_empty() {
+            println!("{stderr}");
+            return Err(anyhow!(
+                "Error restarting nitro-enclaves-allocator service: {stderr}"
+            ));
         }
-        s.clear();
 
-        println!("Nitro Enclave Service set up with cpus: {v_cpus} and memory: {mem}");
+        println!("Nitro Enclave Service set up with cpus: {req_vcpu} and memory: {req_mem}");
 
-        channel = sess.channel_session()?;
-        channel.exec(&("wget -O enclave.eif ".to_owned() + url))?;
-        let _ = channel.stderr().read_to_string(&mut s);
-        let _ = channel.wait_close();
-        s.clear();
+        Self::ssh_exec(sess, &("wget -O enclave.eif ".to_owned() + image_url))
+            .context("Failed to download enclave image")?;
 
         if self.whitelist.as_str() != "" || self.blacklist.as_str() != "" {
-            channel = sess.channel_session()?;
-            channel.exec("sha256sum /home/ubuntu/enclave.eif")?;
-            let _ = channel.stderr().read_to_string(&mut s);
-            let _ = channel.wait_close();
-            if !s.is_empty() {
-                println!("{s}");
-                return Err(anyhow!("Error calculating hash of enclave image"));
+            let (stdout, stderr) = Self::ssh_exec(sess, "sha256sum /home/ubuntu/enclave.eif")
+                .context("Failed to calculate image hash")?;
+            if !stderr.is_empty() {
+                println!("{stderr}");
+                return Err(anyhow!("Error calculating hash of enclave image: {stderr}"));
             }
-            s.clear();
 
-            if let Some(line) = s.split_whitespace().next() {
-                println!("Hash : {line}");
-                if self.whitelist.as_str() != "" {
-                    println!("Checking whitelist...");
-                    let file_path = self.whitelist.as_str();
-                    let contents = fs::read_to_string(file_path);
+            let line = stdout
+                .split_whitespace()
+                .next()
+                .ok_or(anyhow!("Failed to retrieve image hash: {stdout}"))?;
 
-                    if let Err(err) = contents {
-                        println!("Error reading whitelist file : {err}");
-                        return Err(anyhow!("Error reading whitelist file"));
-                    } else {
-                        let contents = contents.unwrap();
-                        let entries = contents.lines();
-                        let mut allowed = false;
-                        for entry in entries {
-                            if entry.contains(line) {
-                                allowed = true;
-                                break;
-                            }
-                        }
-                        if allowed {
-                            println!("EIF ALLOWED!");
-                        } else {
-                            println!("EIF NOT ALLOWED!");
-                            return Err(anyhow!("EIF NOT ALLOWED"));
-                        }
+            println!("Hash: {line}");
+
+            if self.whitelist.as_str() != "" {
+                println!("Checking whitelist...");
+                let file_path = self.whitelist.as_str();
+                let contents =
+                    fs::read_to_string(file_path).context("Error reading whitelist file")?;
+
+                let entries = contents.lines();
+                let mut allowed = false;
+                for entry in entries {
+                    if entry.contains(line) {
+                        allowed = true;
+                        break;
                     }
                 }
-                if self.blacklist.as_str() != "" {
-                    println!("Checking blacklist...");
-                    let file_path = self.blacklist.as_str();
-                    let contents = fs::read_to_string(file_path);
+                if allowed {
+                    println!("EIF ALLOWED!");
+                } else {
+                    println!("EIF NOT ALLOWED!");
+                    return Err(anyhow!("EIF NOT ALLOWED"));
+                }
+            }
 
-                    if let Err(err) = contents {
-                        println!("Error reading blacklist file : {err}");
-                        return Err(anyhow!("Error reading blacklist file"));
-                    } else {
-                        let contents = contents.unwrap();
-                        let entries = contents.lines();
-                        let mut allowed = true;
-                        for entry in entries {
-                            if entry.contains(line) {
-                                allowed = false;
-                                break;
-                            }
-                        }
-                        if allowed {
-                            println!("EIF ALLOWED!");
-                        } else {
-                            println!("EIF NOT ALLOWED!");
-                            return Err(anyhow!("EIF NOT ALLOWED"));
-                        }
+            if self.blacklist.as_str() != "" {
+                println!("Checking blacklist...");
+                let file_path = self.blacklist.as_str();
+                let contents =
+                    fs::read_to_string(file_path).context("Error reading blacklist file")?;
+
+                let entries = contents.lines();
+                let mut allowed = true;
+                for entry in entries {
+                    if entry.contains(line) {
+                        allowed = false;
+                        break;
                     }
+                }
+                if allowed {
+                    println!("EIF ALLOWED!");
+                } else {
+                    println!("EIF NOT ALLOWED!");
+                    return Err(anyhow!("EIF NOT ALLOWED"));
                 }
             }
         }
 
-        let mut output = String::new();
-        channel = sess.channel_session()?;
-        channel.exec("nmcli device status")?;
-        let _ = channel.stderr().read_to_string(&mut s);
-        let _ = channel.read_to_string(&mut output);
-        let _ = channel.wait_close();
-        if !s.is_empty() || output.is_empty() {
-            println!("{s}");
-            return Err(anyhow!("Error fetching network interface name"));
+        let (stdout, stderr) =
+            Self::ssh_exec(sess, "nmcli device status").context("Failed to get nmcli status")?;
+        if !stderr.is_empty() || stdout.is_empty() {
+            println!("{stderr}");
+            return Err(anyhow!("Error fetching network interface name: {stderr}"));
         }
-        s.clear();
         let mut interface = String::new();
-        let entries: Vec<&str> = output.split('\n').collect();
+        let entries: Vec<&str> = stdout.split('\n').collect();
         for line in entries {
             let entry: Vec<&str> = line.split_whitespace().collect();
             if entry.len() > 1 && entry[1] == "ethernet" {
@@ -300,22 +314,20 @@ impl Aws {
                 break;
             }
         }
-        output.clear();
 
         if !interface.is_empty() {
-            channel = sess.channel_session()?;
-            channel.exec(&("sudo tc qdisc show dev ".to_owned() + &interface + " root"))?;
-            let _ = channel.stderr().read_to_string(&mut s);
-            let _ = channel.read_to_string(&mut output);
-            let _ = channel.wait_close();
-            if !s.is_empty() || output.is_empty() {
-                println!("{s}");
+            let (stdout, stderr) = Self::ssh_exec(
+                sess,
+                &("sudo tc qdisc show dev ".to_owned() + &interface + " root"),
+            )
+            .context("Failed to fetch tc config")?;
+            if !stderr.is_empty() || stdout.is_empty() {
+                println!("{stderr}");
                 return Err(anyhow!(
-                    "Error fetching network interface qdisc configuration."
+                    "Error fetching network interface qdisc configuration: {stderr}"
                 ));
             }
-            s.clear();
-            let entries: Vec<&str> = output.trim().split('\n').collect();
+            let entries: Vec<&str> = stdout.trim().split('\n').collect();
             let mut is_qdisc_config_set = false;
             for entry in entries {
                 if entry.contains("tbf")
@@ -328,11 +340,10 @@ impl Aws {
                     break;
                 }
             }
-            output.clear();
 
             if !is_qdisc_config_set {
-                channel = sess.channel_session()?;
-                channel.exec(
+                let (_, stderr) = Self::ssh_exec(
+                    sess,
                     &("sudo tc qdisc add dev ".to_owned()
                         + &interface
                         + " root tbf rate "
@@ -340,14 +351,10 @@ impl Aws {
                         + "mbit burst 4000Mb latency 100ms"),
                 )?;
 
-                let _ = channel.stderr().read_to_string(&mut s);
-                let _ = channel.wait_close();
-
-                if !s.is_empty() {
-                    println!("{s}");
-                    return Err(anyhow!("Error setting up bandwidth limit"));
+                if !stderr.is_empty() {
+                    println!("{stderr}");
+                    return Err(anyhow!("Error setting up bandwidth limit: {stderr}"));
                 }
-                s.clear();
             }
         } else {
             return Err(anyhow!("Error fetching network interface name"));
@@ -359,20 +366,15 @@ impl Aws {
             "-A PREROUTING -i ens5 -p tcp -m tcp --dport 443 -j REDIRECT --to-ports 1200",
             "-A PREROUTING -i ens5 -p tcp -m tcp --dport 1025:65535 -j REDIRECT --to-ports 1200",
         ];
-        let mut channel = sess.channel_session()?;
-        channel.exec("sudo iptables -t nat -S PREROUTING")?;
+        let (stdout, stderr) = Self::ssh_exec(sess, "sudo iptables -t nat -S PREROUTING")
+            .context("Failed to query iptables")?;
 
-        let _ = channel.stderr().read_to_string(&mut s);
-        let _ = channel.read_to_string(&mut output);
-        let _ = channel.wait_close();
-
-        if !s.is_empty() || output.is_empty() {
-            println!("{}", s);
-            return Err(anyhow!("Failed to get iptables rules"));
+        if !stderr.is_empty() || stdout.is_empty() {
+            println!("{stderr}");
+            return Err(anyhow!("Failed to get iptables rules: {stderr}"));
         }
-        s.clear();
 
-        let rules: Vec<&str> = output.trim().split('\n').map(|s| s.trim()).collect();
+        let rules: Vec<&str> = stdout.trim().split('\n').map(|s| s.trim()).collect();
 
         if rules[0] != iptables_rules[0] {
             println!("Got '{}' instead of '{}'", rules[0], iptables_rules[0]);
@@ -380,112 +382,47 @@ impl Aws {
         }
 
         if !rules.contains(&iptables_rules[1]) {
-            channel = sess.channel_session()?;
-            channel
-                .exec(
-                    "sudo iptables -A PREROUTING -t nat -p tcp --dport 80 -i ens5 -j REDIRECT --to-port 1200",
-                )?;
-            let _ = channel.stderr().read_to_string(&mut s);
-            let _ = channel.wait_close();
+            let (_, stderr) = Self::ssh_exec(sess, "sudo iptables -A PREROUTING -t nat -p tcp --dport 80 -i ens5 -j REDIRECT --to-port 1200").context("Failed to set iptables rule")?;
+            if !stderr.is_empty() {
+                println!("{stderr}");
+                return Err(anyhow!("Failed to set iptables rule: {stderr}"));
+            }
         }
 
         if !rules.contains(&iptables_rules[2]) {
-            channel = sess.channel_session()?;
-            channel
-            .exec(
-                "sudo iptables -A PREROUTING -t nat -p tcp --dport 443 -i ens5 -j REDIRECT --to-port 1200",
-            )?;
-            let _ = channel.stderr().read_to_string(&mut s);
-            let _ = channel.wait_close();
+            let (_, stderr) = Self::ssh_exec(sess, "sudo iptables -A PREROUTING -t nat -p tcp --dport 443 -i ens5 -j REDIRECT --to-port 1200").context("Failed to set iptables rule")?;
+            if !stderr.is_empty() {
+                println!("{stderr}");
+                return Err(anyhow!("Failed to set iptables rule: {stderr}"));
+            }
         }
 
         if !rules.contains(&iptables_rules[3]) {
-            channel = sess.channel_session()?;
-            channel
-            .exec(
-                "sudo iptables -A PREROUTING -t nat -p tcp --dport 1025:65535 -i ens5 -j REDIRECT --to-port 1200",
-            )?;
-            let _ = channel.stderr().read_to_string(&mut s);
-            let _ = channel.wait_close();
+            let (_, stderr) = Self::ssh_exec(sess, "sudo iptables -A PREROUTING -t nat -p tcp --dport 1025:65535 -i ens5 -j REDIRECT --to-port 1200").context("Failed to set iptables rule")?;
+            if !stderr.is_empty() {
+                println!("{stderr}");
+                return Err(anyhow!("Failed to set iptables rule: {stderr}"));
+            }
         }
 
-        output.clear();
-
-        if !s.is_empty() {
-            println!("{s}");
-            return Err(anyhow!("Error setting up proxies"));
-        }
-        s.clear();
-
-        channel = sess.channel_session()?;
-        channel.exec(
+        let (_, stderr) = Self::ssh_exec(
+            sess,
             &("nitro-cli run-enclave --cpu-count ".to_owned()
-                + &((v_cpus).to_string())
+                + &((req_vcpu).to_string())
                 + " --memory "
-                + &((mem).to_string())
+                + &((req_mem).to_string())
                 + " --eif-path enclave.eif --enclave-cid 88"),
         )?;
 
-        let _ = channel.stderr().read_to_string(&mut s);
-        let _ = channel.wait_close();
-        if !s.is_empty() {
-            println!("{s}");
-            if !s.contains("Started enclave with enclave-cid") {
-                return Err(anyhow!("Error running enclave image"));
+        if !stderr.is_empty() {
+            println!("{stderr}");
+            if !stderr.contains("Started enclave with enclave-cid") {
+                return Err(anyhow!("Error running enclave image: {stderr}"));
             }
         }
 
         println!("Enclave running");
-        Ok(())
-    }
 
-    pub async fn run_enclave(
-        &self,
-        job: String,
-        instance_id: &str,
-        region: String,
-        image_url: &str,
-        req_vcpu: i32,
-        req_mem: i64,
-        bandwidth: u64,
-    ) -> Result<()> {
-        let res = self.get_instance_ip(instance_id, region.clone()).await;
-        if let Err(err) = res {
-            self.spin_down_instance(instance_id, &job, region.clone())
-                .await?;
-            return Err(anyhow!("error launching instance, {err}"));
-        }
-        let mut public_ip_address = res.unwrap();
-        if public_ip_address.is_empty() {
-            self.spin_down_instance(instance_id, &job, region.clone())
-                .await?;
-            return Err(anyhow!("error fetching instance ip address"));
-        }
-        public_ip_address.push_str(":22");
-        let sess = self.ssh_connect(&public_ip_address).await;
-        match sess {
-            Ok(r) => {
-                let res = self
-                    .run_enclave_impl(&r, image_url, req_vcpu, req_mem, bandwidth)
-                    .await;
-                match res {
-                    Ok(_) => {}
-                    Err(e) => {
-                        self.spin_down_instance(instance_id, &job, region.clone())
-                            .await?;
-                        println!("Error running enclave: {e}");
-                        return Err(anyhow!(
-                            "error running enclave, terminating launched instance"
-                        ));
-                    }
-                }
-            }
-            Err(_) => {
-                self.spin_down_instance(instance_id, &job, region.clone())
-                    .await?;
-                return Err(anyhow!("error establishing ssh connection"));
-            }
-        }
         Ok(())
     }
 
@@ -503,7 +440,8 @@ impl Aws {
                     .build(),
             )
             .send()
-            .await?
+            .await
+            .context("could not describe instances")?
             // response parsing from here
             .reservations()
             .ok_or(anyhow!("could not parse reservations"))?
@@ -526,36 +464,38 @@ impl Aws {
         architecture: &str,
         region: String,
     ) -> Result<String> {
-        let size: i64;
-        let req_client = reqwest::Client::builder().no_gzip().build();
-        match req_client {
-            Ok(req_client) => {
-                let res = req_client.head(image_url).send().await;
-                match res {
-                    Ok(res) => {
-                        let content_len = res.headers()["content-length"].to_str()?;
-                        size = content_len.parse::<i64>()? / 1000000;
-                    }
-                    Err(e) => return Err(anyhow!("failed to fetch eif file header, {e}")),
-                }
-            }
-            Err(e) => return Err(anyhow!("failed to fetch eif file header, {e}")),
+        let req_client = reqwest::Client::builder()
+            .no_gzip()
+            .build()
+            .context("failed to build reqwest client")?;
+        let size = req_client
+            .head(image_url)
+            .send()
+            .await
+            .context("failed to fetch eif file header")?
+            .headers()["content-length"]
+            .to_str()
+            .context("could not stringify content length")?
+            .parse::<usize>()
+            .context("failed to parse content length")?
+            / 1000000000;
+
+        println!("eif size: {size} GB");
+        // limit enclave image size
+        if size > 8 {
+            return Err(anyhow!("enclave image too big"));
         }
 
-        println!("eif size: {size} MB");
-        let size = size / 1000;
-        let mut sdd = 15;
-        if size > sdd {
-            sdd = size + 10;
-        }
-
-        let instance_ami = self.get_amis(region.clone(), architecture).await?;
+        let instance_ami = self
+            .get_amis(region.clone(), architecture)
+            .await
+            .context("could not get amis")?;
 
         let enclave_options = aws_sdk_ec2::model::EnclaveOptionsRequest::builder()
             .set_enabled(Some(true))
             .build();
         let ebs = aws_sdk_ec2::model::EbsBlockDevice::builder()
-            .volume_size(sdd as i32)
+            .volume_size(12)
             .build();
         let block_device_mapping = aws_sdk_ec2::model::BlockDeviceMapping::builder()
             .set_device_name(Some("/dev/sda1".to_string()))
@@ -584,8 +524,14 @@ impl Aws {
             .tags(job_tag)
             .tags(project_tag)
             .build();
-        let subnet = self.get_subnet(region.clone()).await?;
-        let sec_group = self.get_security_group(region.clone()).await?;
+        let subnet = self
+            .get_subnet(region.clone())
+            .await
+            .context("could not get subnet")?;
+        let sec_group = self
+            .get_security_group(region.clone())
+            .await
+            .context("could not get subnet")?;
 
         Ok(self
             .client(region)
@@ -602,7 +548,8 @@ impl Aws {
             .security_group_ids(sec_group)
             .subnet_id(subnet)
             .send()
-            .await?
+            .await
+            .context("could not run instance")?
             // response parsing from here
             .instances()
             .ok_or(anyhow!("could not parse instances"))?
@@ -620,7 +567,8 @@ impl Aws {
             .terminate_instances()
             .instance_ids(instance_id)
             .send()
-            .await?;
+            .await
+            .context("could not terminate instance")?;
 
         Ok(())
     }
@@ -643,7 +591,8 @@ impl Aws {
             .filters(project_filter)
             .filters(name_filter)
             .send()
-            .await?;
+            .await
+            .context("could not describe images")?;
 
         let own_ami = own_ami
             .images()
@@ -657,7 +606,9 @@ impl Aws {
                 .ok_or(anyhow!("could not parse image id"))?
                 .to_string())
         } else {
-            self.get_community_amis(region, architecture).await
+            self.get_community_amis(region, architecture)
+                .await
+                .context("could not get community ami")
         }
     }
 
@@ -675,7 +626,8 @@ impl Aws {
             .owners(owner)
             .filters(name_filter)
             .send()
-            .await?
+            .await
+            .context("could not describe images")?
             // response parsing from here
             .images()
             .ok_or(anyhow!("could not parse images"))?
@@ -698,7 +650,8 @@ impl Aws {
             .describe_security_groups()
             .filters(filter)
             .send()
-            .await?
+            .await
+            .context("could not describe security groups")?
             // response parsing from here
             .security_groups()
             .ok_or(anyhow!("could not parse security groups"))?
@@ -721,7 +674,8 @@ impl Aws {
             .describe_subnets()
             .filters(filter)
             .send()
-            .await?
+            .await
+            .context("could not describe subnets")?
             // response parsing from here
             .subnets()
             .ok_or(anyhow!("Could not parse subnets"))?
@@ -732,7 +686,11 @@ impl Aws {
             .to_string())
     }
 
-    pub async fn get_job_instance_id(&self, job: &str, region: String) -> Result<(String, String)> {
+    pub async fn get_job_instance_id(
+        &self,
+        job: &str,
+        region: String,
+    ) -> Result<(bool, String, String)> {
         let res = self
             .client(region)
             .await
@@ -744,31 +702,35 @@ impl Aws {
                     .build(),
             )
             .send()
-            .await?;
+            .await
+            .context("could not describe instances")?;
         // response parsing from here
-        let instance = res
+        let instances = res
             .reservations()
             .ok_or(anyhow!("could not parse reservations"))?
             .first()
             .ok_or(anyhow!("reservation not found"))?
             .instances()
-            .ok_or(anyhow!("could not parse instances"))?
-            .first()
-            .ok_or(anyhow!("no instances for the given job"))?;
+            .ok_or(anyhow!("could not parse instances"))?;
 
-        Ok((
-            instance
-                .instance_id()
-                .ok_or(anyhow!("could not parse ip address"))?
-                .to_string(),
-            instance
-                .state()
-                .ok_or(anyhow!("could not parse instance state"))?
-                .name()
-                .ok_or(anyhow!("could not parse instance state name"))?
-                .as_str()
-                .to_owned(),
-        ))
+        if instances.is_empty() {
+            Ok((false, "".to_owned(), "".to_owned()))
+        } else {
+            Ok((
+                true,
+                instances[0]
+                    .instance_id()
+                    .ok_or(anyhow!("could not parse ip address"))?
+                    .to_string(),
+                instances[0]
+                    .state()
+                    .ok_or(anyhow!("could not parse instance state"))?
+                    .name()
+                    .ok_or(anyhow!("could not parse instance state name"))?
+                    .as_str()
+                    .to_owned(),
+            ))
+        }
     }
 
     pub async fn get_instance_state(&self, instance_id: &str, region: String) -> Result<String> {
@@ -783,7 +745,8 @@ impl Aws {
                     .build(),
             )
             .send()
-            .await?
+            .await
+            .context("could not describe instances")?
             // response parsing from here
             .reservations()
             .ok_or(anyhow!("could not parse reservations"))?
@@ -802,40 +765,37 @@ impl Aws {
     }
 
     pub async fn get_enclave_state(&self, instance_id: &str, region: String) -> Result<String> {
-        let res = self.get_instance_ip(&instance_id, region.clone()).await;
-        let mut public_ip_address = res.unwrap();
-        if public_ip_address.is_empty() {
-            return Err(anyhow!("error fetching instance ip address"));
+        let public_ip_address = self
+            .get_instance_ip(instance_id, region.clone())
+            .await
+            .context("could not fetch instance ip")?;
+        let sess = self
+            .ssh_connect(&(public_ip_address + ":22"))
+            .await
+            .context("error establishing ssh connection")?;
+
+        let (stdout, stderr) = Self::ssh_exec(&sess, "nitro-cli describe-enclaves")
+            .context("could not describe enclaves")?;
+        if !stderr.is_empty() {
+            println!("{stderr}");
+            return Err(anyhow!("Error describing enclaves: {stderr}"));
         }
-        public_ip_address.push_str(":22");
 
-        let sess = self.ssh_connect(&public_ip_address).await;
-        match sess {
-            Ok(sess) => {
-                let mut channel = sess.channel_session()?;
-                channel.exec("nitro-cli describe-enclaves")?;
-                let mut command_output = String::new();
-                channel.read_to_string(&mut command_output)?;
+        let enclave_data: Vec<HashMap<String, Value>> =
+            serde_json::from_str(&stdout).context("could not parse enclave description")?;
 
-                let enclave_data: Vec<HashMap<String, Value>> =
-                    serde_json::from_str(&command_output)?;
-                let _ = channel.close();
-
-                let enclave_status = match enclave_data
-                    .get(0)
-                    .and_then(|data| data.get("State").and_then(Value::as_str))
-                {
-                    Some(status) => status.to_owned(),
-                    None => "No state found".to_owned(),
-                };
-                Ok(enclave_status)
-            }
-            Err(_) => Err(anyhow!("error establishing ssh connection")),
-        }
+        Ok(enclave_data
+            .get(0)
+            .and_then(|data| data.get("State").and_then(Value::as_str))
+            .unwrap_or("No state found")
+            .to_owned())
     }
 
     async fn allocate_ip_addr(&self, job: String, region: String) -> Result<(String, String)> {
-        let (exist, alloc_id, public_ip) = self.get_job_elastic_ip(&job, region.clone()).await?;
+        let (exist, alloc_id, public_ip) = self
+            .get_job_elastic_ip(&job, region.clone())
+            .await
+            .context("could not get elastic ip for job")?;
 
         if exist {
             println!("Elastic Ip already exists");
@@ -868,7 +828,8 @@ impl Aws {
             .domain(aws_sdk_ec2::model::DomainType::Vpc)
             .tag_specifications(tags)
             .send()
-            .await?;
+            .await
+            .context("could not allocate elastic ip")?;
 
         Ok((
             resp.allocation_id()
@@ -903,7 +864,8 @@ impl Aws {
                 .filters(filter_a)
                 .filters(filter_b)
                 .send()
-                .await?
+                .await
+                .context("could not describe elastic ips")?
                 // response parsing starts here
                 .addresses()
                 .ok_or(anyhow!("could not parse addresses"))?
@@ -942,7 +904,8 @@ impl Aws {
                 .describe_addresses()
                 .filters(filter_a)
                 .send()
-                .await?
+                .await
+                .context("could not describe elastic ips")?
                 // response parsing starts here
                 .addresses()
                 .ok_or(anyhow!("could not parse addresses"))?
@@ -976,7 +939,8 @@ impl Aws {
             .allocation_id(alloc_id)
             .instance_id(instance_id)
             .send()
-            .await?;
+            .await
+            .context("could not associate elastic ip")?;
         Ok(())
     }
 
@@ -986,7 +950,8 @@ impl Aws {
             .disassociate_address()
             .association_id(association_id)
             .send()
-            .await?;
+            .await
+            .context("could not disassociate elastic ip")?;
         Ok(())
     }
 
@@ -996,7 +961,8 @@ impl Aws {
             .release_address()
             .allocation_id(alloc_id)
             .send()
-            .await?;
+            .await
+            .context("could not release elastic ip")?;
         Ok(())
     }
 
@@ -1010,14 +976,16 @@ impl Aws {
         req_vcpu: i32,
         bandwidth: u64,
     ) -> Result<String> {
-        let ec2_type = aws_sdk_ec2::model::InstanceType::from_str(instance_type)?;
+        let instance_type = aws_sdk_ec2::model::InstanceType::from_str(instance_type)
+            .context("cannot parse instance type")?;
         let resp = self
             .client(region.clone())
             .await
             .describe_instance_types()
-            .instance_types(ec2_type)
+            .instance_types(instance_type.clone())
             .send()
-            .await?;
+            .await
+            .context("could not describe instance types")?;
         let mut architecture = "amd64".to_string();
         let mut v_cpus: i32 = 4;
         let mut mem: i64 = 8192;
@@ -1056,7 +1024,6 @@ impl Aws {
         if req_mem > mem || req_vcpu > v_cpus {
             return Err(anyhow!("Required memory or vcpus are more than available"));
         }
-        let instance_type = aws_sdk_ec2::model::InstanceType::from_str(instance_type)?;
         let instance = self
             .launch_instance(
                 job.clone(),
@@ -1065,39 +1032,55 @@ impl Aws {
                 &architecture,
                 region.clone(),
             )
-            .await?;
+            .await
+            .context("could not launch instance")?;
         sleep(Duration::from_secs(100)).await;
-        let res = self.allocate_ip_addr(job.clone(), region.clone()).await;
-        if let Err(err) = res {
-            self.spin_down_instance(&instance, &job, region.clone())
-                .await?;
-            return Err(anyhow!("error launching instance, {err}"));
-        }
-        let (alloc_id, ip) = res.unwrap();
-        println!("Elastic Ip allocated: {ip}");
 
         let res = self
-            .associate_address(&instance, &alloc_id, region.clone())
-            .await;
-        if let Err(err) = res {
-            self.spin_down_instance(&instance, &job, region.clone())
-                .await?;
-            return Err(anyhow!("error launching instance, {err}"));
-        }
-        let res = self
-            .run_enclave(
-                job, &instance, region, image_url, req_vcpu, req_mem, bandwidth,
+            .post_spin_up(
+                image_url,
+                job.clone(),
+                &instance,
+                region.clone(),
+                req_mem,
+                req_vcpu,
+                bandwidth,
             )
             .await;
-        match res {
-            Ok(_) => {
-                return Ok(instance);
-            }
-            Err(err) => {
-                println!("Enclave failed to start, {err}");
-                return Err(anyhow!("error running enclave on instance, {err}"));
-            }
+
+        if let Err(err) = res {
+            println!("error during post spin up: {err:?}");
+            self.spin_down_instance(&instance, &job, region.clone())
+                .await
+                .context("could not spin down instance after error during post spin up")?;
+            return Err(err).context("error during post spin up");
         }
+        Ok(instance)
+    }
+
+    async fn post_spin_up(
+        &self,
+        image_url: &str,
+        job: String,
+        instance: &str,
+        region: String,
+        req_mem: i64,
+        req_vcpu: i32,
+        bandwidth: u64,
+    ) -> Result<()> {
+        let (alloc_id, ip) = self
+            .allocate_ip_addr(job.clone(), region.clone())
+            .await
+            .context("error allocating ip address")?;
+        println!("Elastic Ip allocated: {ip}");
+
+        self.associate_address(instance, &alloc_id, region.clone())
+            .await
+            .context("could not associate ip address")?;
+        self.run_enclave_impl(instance, region, image_url, req_vcpu, req_mem, bandwidth)
+            .await
+            .context("could not run enclave")?;
+        Ok(())
     }
 
     pub async fn spin_down_instance(
@@ -1108,24 +1091,30 @@ impl Aws {
     ) -> Result<()> {
         let (exist, _, association_id) = self
             .get_instance_elastic_ip(instance_id, region.clone())
-            .await?;
+            .await
+            .context("could not get elastic ip of instance")?;
         if exist {
             self.disassociate_address(association_id.as_str(), region.clone())
-                .await?;
+                .await
+                .context("could not disassociate address")?;
         }
-        let (exist, alloc_id, _) = self.get_job_elastic_ip(job, region.clone()).await?;
+        let (exist, alloc_id, _) = self
+            .get_job_elastic_ip(job, region.clone())
+            .await
+            .context("could not get elastic ip of job")?;
         if exist {
             self.release_address(alloc_id.as_str(), region.clone())
-                .await?;
+                .await
+                .context("could not release address")?;
             println!("Elastic IP released");
         }
 
-        self.terminate_instance(instance_id, region).await?;
+        self.terminate_instance(instance_id, region)
+            .await
+            .context("could not terminate instance")?;
         Ok(())
     }
 }
-
-use std::error::Error;
 
 #[async_trait]
 impl InfraProvider for Aws {
@@ -1138,7 +1127,7 @@ impl InfraProvider for Aws {
         req_mem: i64,
         req_vcpu: i32,
         bandwidth: u64,
-    ) -> Result<String, Box<dyn Error + Send + Sync>> {
+    ) -> Result<String> {
         let instance = self
             .spin_up_instance(
                 eif_url,
@@ -1149,17 +1138,16 @@ impl InfraProvider for Aws {
                 req_vcpu,
                 bandwidth,
             )
-            .await?;
+            .await
+            .context("could not spin up instance")?;
         Ok(instance)
     }
 
-    async fn spin_down(
-        &mut self,
-        instance_id: &str,
-        job: String,
-        region: String,
-    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
-        let _ = self.spin_down_instance(instance_id, &job, region).await?;
+    async fn spin_down(&mut self, instance_id: &str, job: String, region: String) -> Result<bool> {
+        let _ = self
+            .spin_down_instance(instance_id, &job, region)
+            .await
+            .context("could not spin down instance")?;
         Ok(true)
     }
 
@@ -1167,51 +1155,43 @@ impl InfraProvider for Aws {
         &mut self,
         job: &str,
         region: String,
-    ) -> Result<(bool, String, String), Box<dyn Error + Send + Sync>> {
-        let instance = self.get_job_instance_id(job, region).await?;
-        Ok((true, instance.0, instance.1))
+    ) -> Result<(bool, String, String)> {
+        Ok(self
+            .get_job_instance_id(job, region)
+            .await
+            .context("could not get instance id for job")?)
     }
 
-    async fn check_instance_running(
-        &mut self,
-        instance_id: &str,
-        region: String,
-    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
-        let res = self.get_instance_state(instance_id, region).await?;
+    async fn check_instance_running(&mut self, instance_id: &str, region: String) -> Result<bool> {
+        let res = self
+            .get_instance_state(instance_id, region)
+            .await
+            .context("could not get current instance state")?;
         Ok(res == "running" || res == "pending")
     }
 
-    async fn check_enclave_running(
-        &mut self,
-        instance_id: &str,
-        region: String,
-    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
-        let res = self.get_enclave_state(instance_id, region).await?;
+    async fn check_enclave_running(&mut self, instance_id: &str, region: String) -> Result<bool> {
+        let res = self
+            .get_enclave_state(instance_id, region)
+            .await
+            .context("could not get current enclace state")?;
         // There can be 2 states - RUNNING or TERMINATING
         Ok(res == "RUNNING")
     }
 
     async fn run_enclave(
         &mut self,
-        job: String,
+        _job: String,
         instance_id: &str,
         region: String,
         image_url: &str,
         req_vcpu: i32,
         req_mem: i64,
         bandwidth: u64,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let _ = self
-            .run_enclave(
-                job,
-                instance_id,
-                region,
-                image_url,
-                req_vcpu,
-                req_mem,
-                bandwidth,
-            )
-            .await;
+    ) -> Result<()> {
+        self.run_enclave_impl(instance_id, region, image_url, req_vcpu, req_mem, bandwidth)
+            .await
+            .context("could not run enclave")?;
         Ok(())
     }
 }

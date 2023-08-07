@@ -5,16 +5,13 @@ use ethers::utils::keccak256;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use std::error::Error;
-use std::fs;
+use anyhow::{Context, Result};
 use std::time::SystemTime;
 use tokio::time::sleep;
 use tokio::time::{Duration, Instant};
 use tokio_stream::Stream;
 
 use ethers::types::Log;
-
-use crate::server;
 
 // Basic architecture:
 // One future listening to new jobs
@@ -31,32 +28,19 @@ pub trait InfraProvider {
         req_mem: i64,
         req_vcpu: i32,
         bandwidth: u64,
-    ) -> Result<String, Box<dyn Error + Send + Sync>>;
+    ) -> Result<String>;
 
-    async fn spin_down(
-        &mut self,
-        instance_id: &str,
-        job: String,
-        region: String,
-    ) -> Result<bool, Box<dyn Error + Send + Sync>>;
+    async fn spin_down(&mut self, instance_id: &str, job: String, region: String) -> Result<bool>;
 
     async fn get_job_instance(
         &mut self,
         job: &str,
         region: String,
-    ) -> Result<(bool, String, String), Box<dyn Error + Send + Sync>>;
+    ) -> Result<(bool, String, String)>;
 
-    async fn check_instance_running(
-        &mut self,
-        instance_id: &str,
-        region: String,
-    ) -> Result<bool, Box<dyn Error + Send + Sync>>;
+    async fn check_instance_running(&mut self, instance_id: &str, region: String) -> Result<bool>;
 
-    async fn check_enclave_running(
-        &mut self,
-        instance_id: &str,
-        region: String,
-    ) -> Result<bool, Box<dyn Error + Send + Sync>>;
+    async fn check_enclave_running(&mut self, instance_id: &str, region: String) -> Result<bool>;
 
     async fn run_enclave(
         &mut self,
@@ -67,7 +51,7 @@ pub trait InfraProvider {
         req_vcpu: i32,
         req_mem: i64,
         bandwidth: u64,
-    ) -> Result<(), Box<dyn Error + Send + Sync>>;
+    ) -> Result<()>;
 }
 
 #[async_trait]
@@ -84,7 +68,7 @@ where
         req_mem: i64,
         req_vcpu: i32,
         bandwidth: u64,
-    ) -> Result<String, Box<dyn Error + Send + Sync>> {
+    ) -> Result<String> {
         (**self)
             .spin_up(
                 eif_url,
@@ -98,12 +82,7 @@ where
             .await
     }
 
-    async fn spin_down(
-        &mut self,
-        instance_id: &str,
-        job: String,
-        region: String,
-    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+    async fn spin_down(&mut self, instance_id: &str, job: String, region: String) -> Result<bool> {
         (**self).spin_down(instance_id, job, region).await
     }
 
@@ -111,23 +90,15 @@ where
         &mut self,
         job: &str,
         region: String,
-    ) -> Result<(bool, String, String), Box<dyn Error + Send + Sync>> {
+    ) -> Result<(bool, String, String)> {
         (**self).get_job_instance(job, region).await
     }
 
-    async fn check_instance_running(
-        &mut self,
-        instance_id: &str,
-        region: String,
-    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+    async fn check_instance_running(&mut self, instance_id: &str, region: String) -> Result<bool> {
         (**self).check_instance_running(instance_id, region).await
     }
 
-    async fn check_enclave_running(
-        &mut self,
-        instance_id: &str,
-        region: String,
-    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+    async fn check_enclave_running(&mut self, instance_id: &str, region: String) -> Result<bool> {
         (**self).check_enclave_running(instance_id, region).await
     }
 
@@ -140,7 +111,7 @@ where
         req_vcpu: i32,
         req_mem: i64,
         bandwidth: u64,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    ) -> Result<()> {
         (**self)
             .run_enclave(
                 job,
@@ -160,19 +131,19 @@ pub trait LogsProvider {
     async fn new_jobs<'a>(
         &'a self,
         client: &'a Provider<Ws>,
-    ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>, Box<dyn Error + Send + Sync>>;
+    ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>>;
 
     async fn job_logs<'a>(
         &'a self,
         client: &'a Provider<Ws>,
         job: H256,
-    ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>, Box<dyn Error + Send + Sync>>;
+    ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>>;
 }
 
 #[derive(Clone)]
 pub struct EthersProvider {
-    pub address: String,
-    pub provider: String,
+    pub contract: Address,
+    pub provider: Address,
 }
 
 #[async_trait]
@@ -180,17 +151,29 @@ impl LogsProvider for EthersProvider {
     async fn new_jobs<'a>(
         &'a self,
         client: &'a Provider<Ws>,
-    ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>, Box<dyn Error + Send + Sync>> {
-        new_jobs(client, self.address.clone(), self.provider.clone()).await
+    ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>> {
+        new_jobs(client, self.contract, self.provider).await
     }
 
     async fn job_logs<'a>(
         &'a self,
         client: &'a Provider<Ws>,
         job: H256,
-    ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>, Box<dyn Error + Send + Sync>> {
-        job_logs(client, job).await
+    ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>> {
+        job_logs(client, self.contract, job).await
     }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct RateCard {
+    pub instance: String,
+    pub min_rate: i64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct RegionalRates {
+    pub region: String,
+    pub rate_cards: Vec<RateCard>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -205,8 +188,8 @@ pub async fn run(
     logs_provider: impl LogsProvider + Send + Sync + Clone + 'static,
     url: String,
     regions: Vec<String>,
-    rates_path: String,
-    gb_rates_path: String,
+    rates: &'static [RegionalRates],
+    gb_rates: &'static [GBRateCard],
     address_whitelist: &'static [String],
     address_blacklist: &'static [String],
 ) {
@@ -217,32 +200,12 @@ pub async fn run(
     // trying to implicitly resume connections or event streams can cause issues
     // since subscriptions are stateful
 
-    let file_path = rates_path;
-    let contents = fs::read_to_string(file_path);
-
-    if let Err(err) = contents {
-        println!("Error reading rates file : {err}");
-        return;
-    }
-    let contents = contents.unwrap();
-    let rates: Vec<server::RegionalRates> = serde_json::from_str(&contents).unwrap_or_default();
-
-    let file_path = gb_rates_path;
-    let contents = fs::read_to_string(file_path);
-
-    if let Err(err) = contents {
-        println!("Error reading bandwidth rates file : {err}");
-        return;
-    }
-    let contents = contents.unwrap();
-    let gb_rates: Vec<GBRateCard> = serde_json::from_str(&contents).unwrap_or_default();
-
     loop {
         println!("main: Connecting to RPC endpoint...");
         let res = Provider::<Ws>::connect(url.clone()).await;
         if let Err(err) = res {
             // exponential backoff on connection errors
-            println!("main: Connection error: {err}");
+            println!("main: Connection error: {err:?}");
             sleep(Duration::from_secs(backoff)).await;
             backoff *= 2;
             if backoff > 128 {
@@ -256,7 +219,7 @@ pub async fn run(
         let client = res.unwrap();
         let res = logs_provider.new_jobs(&client).await;
         if let Err(err) = res {
-            println!("main: Subscribe error: {err}");
+            println!("main: Subscribe error: {err:?}");
             sleep(Duration::from_secs(1)).await;
             continue;
         }
@@ -268,8 +231,8 @@ pub async fn run(
             logs_provider.clone(),
             url.clone(),
             regions.clone(),
-            &rates,
-            &gb_rates,
+            rates,
+            gb_rates,
             address_whitelist,
             address_blacklist,
         )
@@ -283,8 +246,8 @@ async fn run_once(
     logs_provider: impl LogsProvider + Send + Sync + Clone + 'static,
     url: String,
     regions: Vec<String>,
-    rates: &Vec<server::RegionalRates>,
-    gb_rates: &Vec<GBRateCard>,
+    rates: &'static [RegionalRates],
+    gb_rates: &'static [GBRateCard],
     address_whitelist: &'static [String],
     address_blacklist: &'static [String],
 ) {
@@ -297,8 +260,8 @@ async fn run_once(
             job,
             regions.clone(),
             3,
-            rates.clone(),
-            gb_rates.clone(),
+            rates,
+            gb_rates,
             address_whitelist,
             address_blacklist,
         ));
@@ -309,20 +272,22 @@ async fn run_once(
 
 async fn new_jobs(
     client: &Provider<Ws>,
-    address: String,
-    provider: String,
-) -> Result<Box<dyn Stream<Item = (H256, bool)> + '_>, Box<dyn Error + Send + Sync>> {
-    // TODO: Filter by contract and provider address
+    address: Address,
+    provider: Address,
+) -> Result<Box<dyn Stream<Item = (H256, bool)> + '_>> {
     let event_filter = Filter::new()
-        .address(address.parse::<Address>()?)
+        .address(address)
         .select(0..)
         .topic0(vec![keccak256(
             "JobOpened(bytes32,string,address,address,uint256,uint256,uint256)",
         )])
-        .topic3(provider.parse::<Address>()?);
+        .topic3(provider);
 
     // register subscription
-    let stream = client.subscribe_logs(&event_filter).await?;
+    let stream = client
+        .subscribe_logs(&event_filter)
+        .await
+        .context("failed to subscribe to new jobs")?;
 
     Ok(Box::new(stream.map(|item| {
         (item.topics[1], item.removed.unwrap_or(false))
@@ -332,13 +297,13 @@ async fn new_jobs(
 // manage the complete lifecycle of a job
 async fn job_manager(
     infra_provider: impl InfraProvider + Send + Sync + Clone,
-    logs_provider: impl LogsProvider + Send + Sync + Send + Clone,
+    logs_provider: impl LogsProvider + Send + Sync,
     url: String,
     job: H256,
     allowed_regions: Vec<String>,
     aws_delay_duration: u64,
-    rates: Vec<server::RegionalRates>,
-    gb_rates: Vec<GBRateCard>,
+    rates: &[RegionalRates],
+    gb_rates: &[GBRateCard],
     address_whitelist: &[String],
     address_blacklist: &[String],
 ) {
@@ -353,7 +318,7 @@ async fn job_manager(
         let res = Provider::<Ws>::connect(url.clone()).await;
         if let Err(err) = res {
             // exponential backoff on connection errors
-            println!("job {job}: Connection error: {err}");
+            println!("job {job}: Connection error: {err:?}");
             sleep(Duration::from_secs(backoff)).await;
             backoff *= 2;
             if backoff > 128 {
@@ -367,7 +332,7 @@ async fn job_manager(
         let client = res.unwrap();
         let res = logs_provider.job_logs(&client, job).await;
         if let Err(err) = res {
-            println!("job {job}: Subscribe error: {err}");
+            println!("job {job}: Subscribe error: {err:?}");
             sleep(Duration::from_secs(1)).await;
             continue;
         }
@@ -379,8 +344,8 @@ async fn job_manager(
             job,
             allowed_regions.clone(),
             aws_delay_duration,
-            &rates,
-            &gb_rates,
+            rates,
+            gb_rates,
             address_whitelist,
             address_blacklist,
         )
@@ -505,7 +470,7 @@ impl JobState {
             .await;
         match is_running {
             Err(err) => {
-                println!("job {job}: failed to retrieve instance state, {err}");
+                println!("job {job}: failed to retrieve instance state, {err:?}");
             }
             Ok(is_running) => {
                 if is_running {
@@ -535,13 +500,13 @@ impl JobState {
                                         );
                                     }
                                     Err(err) => {
-                                        println!("job {job}: failed to run enclave, {err}. Spinning instance down.");
+                                        println!("job {job}: failed to run enclave, {err:?}. Spinning instance down.");
                                     }
                                 }
                             }
                         }
                         Err(err) => {
-                            println!("job {job}: failed to retrieve enclave state, {err}");
+                            println!("job {job}: failed to retrieve enclave state, {err:?}");
                         }
                     }
                 } else if !is_running && self.rate >= self.min_rate {
@@ -594,10 +559,15 @@ impl JobState {
     async fn change_infra_impl(&mut self, mut infra_provider: impl InfraProvider) -> bool {
         let job = &self.job;
 
-        let (exist, instance, state) = infra_provider
+        let res = infra_provider
             .get_job_instance(&job.encode_hex(), self.region.clone())
-            .await
-            .unwrap_or((false, "".to_string(), "".to_string()));
+            .await;
+
+        if let Err(err) = res {
+            println!("job {job}: ERROR failed to get job instance, {err:?}");
+            return false;
+        }
+        let (exist, instance, state) = res.unwrap();
 
         if self.infra_state {
             // launch mode
@@ -617,7 +587,7 @@ impl JobState {
                         .spin_down(&instance, job.encode_hex(), self.region.clone())
                         .await;
                     if let Err(err) = res {
-                        println!("job {job}: ERROR failed to terminate instance, {err}");
+                        println!("job {job}: ERROR failed to terminate instance, {err:?}");
                         return false;
                     }
                 }
@@ -639,7 +609,7 @@ impl JobState {
                 )
                 .await;
             if let Err(err) = res {
-                println!("job {job}: Instance launch failed, {err}");
+                println!("job {job}: Instance launch failed, {err:?}");
                 return false;
             }
             self.instance_id = res.unwrap();
@@ -658,7 +628,7 @@ impl JobState {
                 .spin_down(&instance, job.encode_hex(), self.region.clone())
                 .await;
             if let Err(err) = res {
-                println!("job {job}: ERROR failed to terminate instance, {err}");
+                println!("job {job}: ERROR failed to terminate instance, {err:?}");
                 return false;
             }
         }
@@ -673,8 +643,8 @@ impl JobState {
     fn process_log(
         &mut self,
         log: Option<Log>,
-        rates: &Vec<server::RegionalRates>,
-        gb_rates: &Vec<GBRateCard>,
+        rates: &[RegionalRates],
+        gb_rates: &[GBRateCard],
         address_whitelist: &[String],
         address_blacklist: &[String],
     ) -> i8 {
@@ -731,7 +701,7 @@ impl JobState {
 
                 let v = serde_json::from_str(&metadata);
                 if let Err(err) = v {
-                    println!("job {job}: Error reading metadata: {err}");
+                    println!("job {job}: Error reading metadata: {err:?}");
                     return -2;
                 }
 
@@ -763,7 +733,7 @@ impl JobState {
 
                 if !self.allowed_regions.contains(&self.region) {
                     println!(
-                        "job {job}: region : {} not suppported, exiting job",
+                        "job {job}: region: {} not suppported, exiting job",
                         self.region
                     );
                     return -2;
@@ -1005,8 +975,8 @@ async fn job_manager_once(
     job: H256,
     allowed_regions: Vec<String>,
     aws_delay_duration: u64,
-    rates: &Vec<server::RegionalRates>,
-    gb_rates: &Vec<GBRateCard>,
+    rates: &[RegionalRates],
+    gb_rates: &[GBRateCard],
     address_whitelist: &[String],
     address_blacklist: &[String],
 ) -> i8 {
@@ -1069,12 +1039,13 @@ async fn job_manager_once(
 
 async fn job_logs(
     client: &Provider<Ws>,
+    contract: Address,
     job: H256,
-) -> Result<Box<dyn Stream<Item = Log> + Send + '_>, Box<dyn Error + Send + Sync>> {
+) -> Result<Box<dyn Stream<Item = Log> + Send + '_>> {
     // TODO: Filter by contract and job
     let event_filter = Filter::new()
         .select(0..)
-        .address("0x9d95D61eA056721E358BC49fE995caBF3B86A34B".parse::<Address>()?)
+        .address(contract)
         .topic0(vec![
             keccak256("JobOpened(bytes32,string,address,address,uint256,uint256,uint256)"),
             keccak256("JobSettled(bytes32,uint256,uint256)"),
@@ -1088,7 +1059,10 @@ async fn job_logs(
         .topic1(job);
 
     // register subscription
-    let stream = client.subscribe_logs(&event_filter).await?;
+    let stream = client
+        .subscribe_logs(&event_filter)
+        .await
+        .context("failed to subscribe to job logs")?;
 
     Ok(Box::new(stream))
 }

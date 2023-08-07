@@ -1,17 +1,16 @@
+use anyhow::Result;
 use async_trait::async_trait;
 use ethers::prelude::rand::Rng;
 use ethers::prelude::*;
 use ethers::types::Log;
 use ethers::utils::keccak256;
 use std::collections::HashMap;
-use std::error::Error;
 use std::fs;
 use std::str::FromStr;
 use tokio::time::{Duration, Instant};
 use tokio_stream::{Stream, StreamExt};
 
-use crate::market::{GBRateCard, InfraProvider, LogsProvider};
-use crate::server;
+use crate::market::{GBRateCard, InfraProvider, LogsProvider, RegionalRates};
 
 #[cfg(test)]
 #[derive(Clone, Debug)]
@@ -60,7 +59,7 @@ impl InfraProvider for TestAws {
         req_mem: i64,
         req_vcpu: i32,
         bandwidth: u64,
-    ) -> Result<String, Box<dyn Error + Send + Sync>> {
+    ) -> Result<String> {
         self.outcomes.push(TestAwsOutcome::SpinUp(SpinUpOutcome {
             time: Instant::now(),
             job: job.clone(),
@@ -87,12 +86,7 @@ impl InfraProvider for TestAws {
         Ok(id)
     }
 
-    async fn spin_down(
-        &mut self,
-        instance_id: &str,
-        job: String,
-        region: String,
-    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+    async fn spin_down(&mut self, instance_id: &str, job: String, region: String) -> Result<bool> {
         self.outcomes
             .push(TestAwsOutcome::SpinDown(SpinDownOutcome {
                 time: Instant::now(),
@@ -110,7 +104,7 @@ impl InfraProvider for TestAws {
         &mut self,
         job: &str,
         _region: String,
-    ) -> Result<(bool, String, String), Box<dyn Error + Send + Sync>> {
+    ) -> Result<(bool, String, String)> {
         let res = self.instances.get_key_value(job);
         if let Some(x) = res {
             return Ok((true, x.1.clone(), "running".to_owned()));
@@ -123,16 +117,12 @@ impl InfraProvider for TestAws {
         &mut self,
         _instance_id: &str,
         _region: String,
-    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+    ) -> Result<bool> {
         // println!("TEST: check_instance_running | instance_id: {}, region: {}", instance_id, region);
         Ok(true)
     }
 
-    async fn check_enclave_running(
-        &mut self,
-        _instance_id: &str,
-        _region: String,
-    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+    async fn check_enclave_running(&mut self, _instance_id: &str, _region: String) -> Result<bool> {
         Ok(true)
     }
 
@@ -145,7 +135,7 @@ impl InfraProvider for TestAws {
         _req_vcpu: i32,
         _req_mem: i64,
         _bandwidth: u64,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    ) -> Result<()> {
         Ok(())
     }
 }
@@ -160,7 +150,7 @@ impl LogsProvider for TestLogger {
     async fn new_jobs<'a>(
         &'a self,
         _client: &'a Provider<Ws>,
-    ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>> {
         let logs: Vec<Log> = Vec::new();
         Ok(Box::new(
             tokio_stream::iter(
@@ -176,7 +166,7 @@ impl LogsProvider for TestLogger {
         &'a self,
         _client: &'a Provider<Ws>,
         job: H256,
-    ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>> {
         let logs: Vec<Log> = Vec::new();
         Ok(Box::new(
             tokio_stream::iter(
@@ -203,7 +193,7 @@ pub enum Action {
 }
 
 #[cfg(test)]
-pub fn get_rates() -> Option<Vec<server::RegionalRates>> {
+pub fn get_rates() -> Option<Vec<RegionalRates>> {
     let file_path = "./rates.json";
     let contents = fs::read_to_string(file_path);
 
@@ -212,7 +202,7 @@ pub fn get_rates() -> Option<Vec<server::RegionalRates>> {
         return None;
     }
     let contents = contents.unwrap();
-    let rates: Vec<server::RegionalRates> = serde_json::from_str(&contents).unwrap_or_default();
+    let rates: Vec<RegionalRates> = serde_json::from_str(&contents).unwrap_or_default();
     Some(rates)
 }
 

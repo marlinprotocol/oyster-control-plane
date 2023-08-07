@@ -1,10 +1,10 @@
+use anyhow::Result;
 use async_trait::async_trait;
 use ethers::prelude::rand::Rng;
 use ethers::prelude::*;
 use ethers::types::Log;
 use ethers::utils::keccak256;
 use std::collections::HashMap;
-use std::error::Error;
 use std::fs;
 use std::str::FromStr;
 use tokio::time::{Duration, Instant};
@@ -59,7 +59,7 @@ impl InfraProvider for TestAws {
         req_mem: i64,
         req_vcpu: i32,
         bandwidth: u64,
-    ) -> Result<String, Box<dyn Error + Send + Sync>> {
+    ) -> Result<String> {
         self.outcomes.push(TestAwsOutcome::SpinUp(SpinUpOutcome {
             time: Instant::now(),
             job: job.clone(),
@@ -86,12 +86,7 @@ impl InfraProvider for TestAws {
         Ok(id)
     }
 
-    async fn spin_down(
-        &mut self,
-        instance_id: &str,
-        job: String,
-        region: String,
-    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+    async fn spin_down(&mut self, instance_id: &str, job: String, region: String) -> Result<bool> {
         self.outcomes
             .push(TestAwsOutcome::SpinDown(SpinDownOutcome {
                 time: Instant::now(),
@@ -109,7 +104,7 @@ impl InfraProvider for TestAws {
         &mut self,
         job: &str,
         _region: String,
-    ) -> Result<(bool, String, String), Box<dyn Error + Send + Sync>> {
+    ) -> Result<(bool, String, String)> {
         let res = self.instances.get_key_value(job);
         if let Some(x) = res {
             return Ok((true, x.1.clone(), "running".to_owned()));
@@ -122,16 +117,12 @@ impl InfraProvider for TestAws {
         &mut self,
         _instance_id: &str,
         _region: String,
-    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+    ) -> Result<bool> {
         // println!("TEST: check_instance_running | instance_id: {}, region: {}", instance_id, region);
         Ok(true)
     }
 
-    async fn check_enclave_running(
-        &mut self,
-        _instance_id: &str,
-        _region: String,
-    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+    async fn check_enclave_running(&mut self, _instance_id: &str, _region: String) -> Result<bool> {
         Ok(true)
     }
 
@@ -144,7 +135,7 @@ impl InfraProvider for TestAws {
         _req_vcpu: i32,
         _req_mem: i64,
         _bandwidth: u64,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    ) -> Result<()> {
         Ok(())
     }
 }
@@ -159,7 +150,7 @@ impl LogsProvider for TestLogger {
     async fn new_jobs<'a>(
         &'a self,
         _client: &'a Provider<Ws>,
-    ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>> {
         let logs: Vec<Log> = Vec::new();
         Ok(Box::new(
             tokio_stream::iter(
@@ -175,7 +166,7 @@ impl LogsProvider for TestLogger {
         &'a self,
         _client: &'a Provider<Ws>,
         job: H256,
-    ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>> {
         let logs: Vec<Log> = Vec::new();
         Ok(Box::new(
             tokio_stream::iter(

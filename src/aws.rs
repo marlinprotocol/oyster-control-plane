@@ -1116,8 +1116,6 @@ impl Aws {
     }
 }
 
-use std::error::Error;
-
 #[async_trait]
 impl InfraProvider for Aws {
     async fn spin_up(
@@ -1129,7 +1127,7 @@ impl InfraProvider for Aws {
         req_mem: i64,
         req_vcpu: i32,
         bandwidth: u64,
-    ) -> Result<String, Box<dyn Error + Send + Sync>> {
+    ) -> Result<String> {
         let instance = self
             .spin_up_instance(
                 eif_url,
@@ -1145,12 +1143,7 @@ impl InfraProvider for Aws {
         Ok(instance)
     }
 
-    async fn spin_down(
-        &mut self,
-        instance_id: &str,
-        job: String,
-        region: String,
-    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+    async fn spin_down(&mut self, instance_id: &str, job: String, region: String) -> Result<bool> {
         let _ = self
             .spin_down_instance(instance_id, &job, region)
             .await
@@ -1162,18 +1155,14 @@ impl InfraProvider for Aws {
         &mut self,
         job: &str,
         region: String,
-    ) -> Result<(bool, String, String), Box<dyn Error + Send + Sync>> {
+    ) -> Result<(bool, String, String)> {
         Ok(self
             .get_job_instance_id(job, region)
             .await
             .context("could not get instance id for job")?)
     }
 
-    async fn check_instance_running(
-        &mut self,
-        instance_id: &str,
-        region: String,
-    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+    async fn check_instance_running(&mut self, instance_id: &str, region: String) -> Result<bool> {
         let res = self
             .get_instance_state(instance_id, region)
             .await
@@ -1181,11 +1170,7 @@ impl InfraProvider for Aws {
         Ok(res == "running" || res == "pending")
     }
 
-    async fn check_enclave_running(
-        &mut self,
-        instance_id: &str,
-        region: String,
-    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+    async fn check_enclave_running(&mut self, instance_id: &str, region: String) -> Result<bool> {
         let res = self
             .get_enclave_state(instance_id, region)
             .await
@@ -1203,7 +1188,7 @@ impl InfraProvider for Aws {
         req_vcpu: i32,
         req_mem: i64,
         bandwidth: u64,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    ) -> Result<()> {
         self.run_enclave_impl(instance_id, region, image_url, req_vcpu, req_mem, bandwidth)
             .await
             .context("could not run enclave")?;

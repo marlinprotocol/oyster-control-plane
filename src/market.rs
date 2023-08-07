@@ -5,7 +5,7 @@ use ethers::utils::keccak256;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use std::error::Error;
+use anyhow::Result;
 use std::time::SystemTime;
 use tokio::time::sleep;
 use tokio::time::{Duration, Instant};
@@ -28,32 +28,19 @@ pub trait InfraProvider {
         req_mem: i64,
         req_vcpu: i32,
         bandwidth: u64,
-    ) -> Result<String, Box<dyn Error + Send + Sync>>;
+    ) -> Result<String>;
 
-    async fn spin_down(
-        &mut self,
-        instance_id: &str,
-        job: String,
-        region: String,
-    ) -> Result<bool, Box<dyn Error + Send + Sync>>;
+    async fn spin_down(&mut self, instance_id: &str, job: String, region: String) -> Result<bool>;
 
     async fn get_job_instance(
         &mut self,
         job: &str,
         region: String,
-    ) -> Result<(bool, String, String), Box<dyn Error + Send + Sync>>;
+    ) -> Result<(bool, String, String)>;
 
-    async fn check_instance_running(
-        &mut self,
-        instance_id: &str,
-        region: String,
-    ) -> Result<bool, Box<dyn Error + Send + Sync>>;
+    async fn check_instance_running(&mut self, instance_id: &str, region: String) -> Result<bool>;
 
-    async fn check_enclave_running(
-        &mut self,
-        instance_id: &str,
-        region: String,
-    ) -> Result<bool, Box<dyn Error + Send + Sync>>;
+    async fn check_enclave_running(&mut self, instance_id: &str, region: String) -> Result<bool>;
 
     async fn run_enclave(
         &mut self,
@@ -64,7 +51,7 @@ pub trait InfraProvider {
         req_vcpu: i32,
         req_mem: i64,
         bandwidth: u64,
-    ) -> Result<(), Box<dyn Error + Send + Sync>>;
+    ) -> Result<()>;
 }
 
 #[async_trait]
@@ -81,7 +68,7 @@ where
         req_mem: i64,
         req_vcpu: i32,
         bandwidth: u64,
-    ) -> Result<String, Box<dyn Error + Send + Sync>> {
+    ) -> Result<String> {
         (**self)
             .spin_up(
                 eif_url,
@@ -95,12 +82,7 @@ where
             .await
     }
 
-    async fn spin_down(
-        &mut self,
-        instance_id: &str,
-        job: String,
-        region: String,
-    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+    async fn spin_down(&mut self, instance_id: &str, job: String, region: String) -> Result<bool> {
         (**self).spin_down(instance_id, job, region).await
     }
 
@@ -108,23 +90,15 @@ where
         &mut self,
         job: &str,
         region: String,
-    ) -> Result<(bool, String, String), Box<dyn Error + Send + Sync>> {
+    ) -> Result<(bool, String, String)> {
         (**self).get_job_instance(job, region).await
     }
 
-    async fn check_instance_running(
-        &mut self,
-        instance_id: &str,
-        region: String,
-    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+    async fn check_instance_running(&mut self, instance_id: &str, region: String) -> Result<bool> {
         (**self).check_instance_running(instance_id, region).await
     }
 
-    async fn check_enclave_running(
-        &mut self,
-        instance_id: &str,
-        region: String,
-    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+    async fn check_enclave_running(&mut self, instance_id: &str, region: String) -> Result<bool> {
         (**self).check_enclave_running(instance_id, region).await
     }
 
@@ -137,7 +111,7 @@ where
         req_vcpu: i32,
         req_mem: i64,
         bandwidth: u64,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    ) -> Result<()> {
         (**self)
             .run_enclave(
                 job,
@@ -157,13 +131,13 @@ pub trait LogsProvider {
     async fn new_jobs<'a>(
         &'a self,
         client: &'a Provider<Ws>,
-    ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>, Box<dyn Error + Send + Sync>>;
+    ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>>;
 
     async fn job_logs<'a>(
         &'a self,
         client: &'a Provider<Ws>,
         job: H256,
-    ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>, Box<dyn Error + Send + Sync>>;
+    ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>>;
 }
 
 #[derive(Clone)]
@@ -177,7 +151,7 @@ impl LogsProvider for EthersProvider {
     async fn new_jobs<'a>(
         &'a self,
         client: &'a Provider<Ws>,
-    ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>> {
         new_jobs(client, self.contract.clone(), self.provider.clone()).await
     }
 
@@ -185,7 +159,7 @@ impl LogsProvider for EthersProvider {
         &'a self,
         client: &'a Provider<Ws>,
         job: H256,
-    ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>> {
         job_logs(client, self.contract.clone(), job).await
     }
 }
@@ -300,7 +274,7 @@ async fn new_jobs(
     client: &Provider<Ws>,
     address: Address,
     provider: Address,
-) -> Result<Box<dyn Stream<Item = (H256, bool)> + '_>, Box<dyn Error + Send + Sync>> {
+) -> Result<Box<dyn Stream<Item = (H256, bool)> + '_>> {
     let event_filter = Filter::new()
         .address(address)
         .select(0..)
@@ -1064,7 +1038,7 @@ async fn job_logs(
     client: &Provider<Ws>,
     contract: Address,
     job: H256,
-) -> Result<Box<dyn Stream<Item = Log> + Send + '_>, Box<dyn Error + Send + Sync>> {
+) -> Result<Box<dyn Stream<Item = Log> + Send + '_>> {
     // TODO: Filter by contract and job
     let event_filter = Filter::new()
         .select(0..)

@@ -167,7 +167,7 @@ impl LogsProvider for EthersProvider {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RateCard {
     pub instance: String,
-    pub min_rate: u128,
+    pub min_rate: U256,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -180,7 +180,7 @@ pub struct RegionalRates {
 pub struct GBRateCard {
     pub region: String,
     pub region_code: String,
-    pub rate: u128,
+    pub rate: U256,
 }
 
 pub async fn run(

@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use ethers::abi::{AbiDecode, AbiEncode};
 use ethers::prelude::*;
+use ethers::types::serde_helpers::deserialize_stringified_numeric;
 use ethers::utils::keccak256;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -167,6 +168,7 @@ impl LogsProvider for EthersProvider {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct RateCard {
     pub instance: String,
+    #[serde(deserialize_with = "deserialize_stringified_numeric")]
     pub min_rate: U256,
 }
 
@@ -180,6 +182,7 @@ pub struct RegionalRates {
 pub struct GBRateCard {
     pub region: String,
     pub region_code: String,
+    #[serde(deserialize_with = "deserialize_stringified_numeric")]
     pub rate: U256,
 }
 

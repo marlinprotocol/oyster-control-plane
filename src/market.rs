@@ -787,7 +787,7 @@ impl JobState {
                     if entry.region == self.region {
                         for card in &entry.rate_cards {
                             if card.instance == self.instance_type {
-                                self.min_rate = U256::from(card.min_rate);
+                                self.min_rate = card.min_rate;
                                 supported = true;
                                 break;
                             }
@@ -816,8 +816,7 @@ impl JobState {
                             let gb_cost = entry.rate;
                             let bandwidth_rate = self.rate - self.min_rate;
 
-                            self.bandwidth = ((bandwidth_rate * 1024 * 8 / U256::from(gb_cost))
-                                as U256)
+                            self.bandwidth = ((bandwidth_rate * 1024 * 8 / gb_cost) as U256)
                                 .clamp(U256::zero(), u64::MAX.into())
                                 .low_u64();
                             break;

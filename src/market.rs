@@ -167,7 +167,7 @@ impl LogsProvider for EthersProvider {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RateCard {
     pub instance: String,
-    pub min_rate: i64,
+    pub min_rate: u128,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

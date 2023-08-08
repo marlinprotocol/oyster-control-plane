@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use ethers::abi::{AbiDecode, AbiEncode};
 use ethers::prelude::*;
+use ethers::types::serde_helpers::deserialize_stringified_numeric;
 use ethers::utils::keccak256;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -164,23 +165,25 @@ impl LogsProvider for EthersProvider {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct RateCard {
     pub instance: String,
-    pub min_rate: i64,
+    #[serde(deserialize_with = "deserialize_stringified_numeric")]
+    pub min_rate: U256,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct RegionalRates {
     pub region: String,
     pub rate_cards: Vec<RateCard>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct GBRateCard {
     pub region: String,
     pub region_code: String,
-    pub rate: u128,
+    #[serde(deserialize_with = "deserialize_stringified_numeric")]
+    pub rate: U256,
 }
 
 pub async fn run(
@@ -784,7 +787,7 @@ impl JobState {
                     if entry.region == self.region {
                         for card in &entry.rate_cards {
                             if card.instance == self.instance_type {
-                                self.min_rate = U256::from(card.min_rate);
+                                self.min_rate = card.min_rate;
                                 supported = true;
                                 break;
                             }
@@ -813,8 +816,7 @@ impl JobState {
                             let gb_cost = entry.rate;
                             let bandwidth_rate = self.rate - self.min_rate;
 
-                            self.bandwidth = ((bandwidth_rate * 1024 * 8 / U256::from(gb_cost))
-                                as U256)
+                            self.bandwidth = ((bandwidth_rate * 1024 * 8 / gb_cost) as U256)
                                 .clamp(U256::zero(), u64::MAX.into())
                                 .low_u64();
                             break;
@@ -1981,5 +1983,53 @@ mod tests {
             &address_whitelist,
             &address_blacklist
         ));
+    }
+
+    #[test]
+    fn test_parse_compute_rates() {
+        let contents = "[{\"region\": \"ap-south-1\", \"rate_cards\": [{\"instance\": \"c6a.48xlarge\", \"min_rate\": \"2469600000000000000000\"}, {\"instance\": \"m7g.xlarge\", \"min_rate\": \"150000000\"}]}]";
+        let rates: Vec<market::RegionalRates> = serde_json::from_str(&contents).unwrap();
+
+        assert_eq!(rates.len(), 1);
+        assert_eq!(
+            rates[0],
+            market::RegionalRates {
+                region: "ap-south-1".to_owned(),
+                rate_cards: vec![
+                    market::RateCard {
+                        instance: "c6a.48xlarge".to_owned(),
+                        min_rate: U256::from_dec_str("2469600000000000000000").unwrap(),
+                    },
+                    market::RateCard {
+                        instance: "m7g.xlarge".to_owned(),
+                        min_rate: U256::from(150000000u64),
+                    }
+                ]
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_bandwidth_rates() {
+        let contents = "[{\"region\": \"Asia South (Mumbai)\", \"region_code\": \"ap-south-1\", \"rate\": \"8264900000000000000000\"}, {\"region\": \"US East (N.Virginia)\", \"region_code\": \"us-east-1\", \"rate\": \"10000\"}]";
+        let rates: Vec<market::GBRateCard> = serde_json::from_str(&contents).unwrap();
+
+        assert_eq!(rates.len(), 2);
+        assert_eq!(
+            rates[0],
+            market::GBRateCard {
+                region: "Asia South (Mumbai)".to_owned(),
+                region_code: "ap-south-1".to_owned(),
+                rate: U256::from_dec_str("8264900000000000000000").unwrap(),
+            }
+        );
+        assert_eq!(
+            rates[1],
+            market::GBRateCard {
+                region: "US East (N.Virginia)".to_owned(),
+                region_code: "us-east-1".to_owned(),
+                rate: U256::from(10000u16),
+            }
+        );
     }
 }

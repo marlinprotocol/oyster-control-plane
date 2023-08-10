@@ -464,7 +464,7 @@ impl Aws {
         architecture: &str,
         region: String,
         contract_address: String,
-        chain_id: String
+        chain_id: String,
     ) -> Result<String> {
         let req_client = reqwest::Client::builder()
             .no_gzip()

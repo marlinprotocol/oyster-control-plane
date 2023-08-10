@@ -443,7 +443,13 @@ struct JobState {
 }
 
 impl JobState {
-    fn new(job: H256, launch_delay: u64, allowed_regions: Vec<String>, contract_address: String, chain_id: String) -> JobState {
+    fn new(
+        job: H256,
+        launch_delay: u64,
+        allowed_regions: Vec<String>,
+        contract_address: String,
+        chain_id: String,
+    ) -> JobState {
         // solvency metrics
         // default of 60s
         JobState {
@@ -1008,7 +1014,13 @@ async fn job_manager_once(
     contract_address: String,
     chain_id: String,
 ) -> i8 {
-    let mut state = JobState::new(job, aws_delay_duration, allowed_regions, contract_address, chain_id);
+    let mut state = JobState::new(
+        job,
+        aws_delay_duration,
+        allowed_regions,
+        contract_address,
+        chain_id,
+    );
 
     let res = 'event: loop {
         // compute time to insolvency

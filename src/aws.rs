@@ -463,6 +463,8 @@ impl Aws {
         image_url: &str,
         architecture: &str,
         region: String,
+        contract_address: String,
+        chain_id: String
     ) -> Result<String> {
         let req_client = reqwest::Client::builder()
             .no_gzip()
@@ -517,12 +519,22 @@ impl Aws {
             .set_key(Some("jobId".to_string()))
             .set_value(Some(job))
             .build();
+        let chain_tag = aws_sdk_ec2::model::Tag::builder()
+            .set_key(Some("chainID".to_string()))
+            .set_value(Some(chain_id))
+            .build();
+        let contract_tag = aws_sdk_ec2::model::Tag::builder()
+            .set_key(Some("contractAddress".to_string()))
+            .set_value(Some(contract_address))
+            .build();
         let tags = aws_sdk_ec2::model::TagSpecification::builder()
             .set_resource_type(Some(aws_sdk_ec2::model::ResourceType::Instance))
             .tags(name_tag)
             .tags(managed_tag)
             .tags(job_tag)
             .tags(project_tag)
+            .tags(chain_tag)
+            .tags(contract_tag)
             .build();
         let subnet = self
             .get_subnet(region.clone())
@@ -975,6 +987,8 @@ impl Aws {
         req_mem: i64,
         req_vcpu: i32,
         bandwidth: u64,
+        contract_address: String,
+        chain_id: String,
     ) -> Result<String> {
         let instance_type = aws_sdk_ec2::model::InstanceType::from_str(instance_type)
             .context("cannot parse instance type")?;
@@ -1031,6 +1045,8 @@ impl Aws {
                 image_url,
                 &architecture,
                 region.clone(),
+                contract_address,
+                chain_id,
             )
             .await
             .context("could not launch instance")?;
@@ -1127,6 +1143,8 @@ impl InfraProvider for Aws {
         req_mem: i64,
         req_vcpu: i32,
         bandwidth: u64,
+        contract_address: String,
+        chain_id: String,
     ) -> Result<String> {
         let instance = self
             .spin_up_instance(
@@ -1137,6 +1155,8 @@ impl InfraProvider for Aws {
                 req_mem,
                 req_vcpu,
                 bandwidth,
+                contract_address,
+                chain_id,
             )
             .await
             .context("could not spin up instance")?;

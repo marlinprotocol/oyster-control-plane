@@ -9,6 +9,8 @@ use anyhow::Result;
 use clap::Parser;
 use ethers::prelude::*;
 use std::fs;
+use web3::transports::Http;
+use web3::Web3;
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
@@ -102,6 +104,16 @@ async fn parse_bandwidth_rates_file(filepath: String) -> Result<Vec<market::GBRa
     Ok(rates)
 }
 
+async fn get_chain_id_from_rpc_url(url: String) -> Result<String> {
+    let url = url.replace("wss://", "https://");
+    let http = Http::new(&url)?;
+    let web3 = Web3::new(http);
+
+    let chain_id = web3.eth().chain_id().await?;
+
+    Ok(chain_id.to_string())
+}
+
 #[tokio::main]
 pub async fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -130,6 +142,7 @@ pub async fn main() -> Result<()> {
     let ethers = market::EthersProvider {
         contract: cli
             .contract
+            .clone()
             .parse::<Address>()
             .context("failed to parse contract address")?,
         provider: cli
@@ -165,12 +178,14 @@ pub async fn main() -> Result<()> {
     market::run(
         aws,
         ethers,
-        cli.rpc,
+        cli.rpc.clone(),
         regions,
         compute_rates,
         bandwidth_rates,
         address_whitelist,
         address_blacklist,
+        cli.contract,
+        get_chain_id_from_rpc_url(cli.rpc).await?,
     )
     .await;
 

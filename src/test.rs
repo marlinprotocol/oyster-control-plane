@@ -45,7 +45,9 @@ pub enum TestAwsOutcome {
 }
 
 #[cfg(test)]
-pub async fn generate_random_string(charset: &[u8], len: usize) -> String {
+pub async fn generate_random_string(charset: Option<&[u8]>, len: usize) -> String {
+    let charset =
+        charset.unwrap_or(b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
     let one_char = || charset[rand::thread_rng().gen_range(0..charset.len())] as char;
     iter::repeat_with(one_char).take(len).collect()
 }
@@ -72,8 +74,8 @@ pub struct InstanceMetadata {
 #[cfg(test)]
 impl InstanceMetadata {
     pub async fn new(instance_id: Option<String>, ip_address: Option<String>) -> Self {
-        let instance_id =
-            instance_id.unwrap_or(generate_random_string(b"1234567890abcdef", 17).await);
+        let instance_id = "i-".to_string()
+            + &instance_id.unwrap_or(generate_random_string(Some(b"1234567890abcdef"), 17).await);
 
         let ip_address = ip_address.unwrap_or(generate_random_ip().await);
         Self {

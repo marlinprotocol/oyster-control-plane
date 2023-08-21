@@ -24,6 +24,8 @@ tokio = { version = "1.21.1", features = ["full", "test-util"] }
 tokio-stream = "0.1"
 whoami = "0.2.0"
 
+[dev-dependencies]
+httpc-test = "0.1.5"
+
 [profile.release]
 lto = true
-

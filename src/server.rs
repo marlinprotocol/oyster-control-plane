@@ -10,7 +10,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{aws::Aws, market::RegionalRates};
+use crate::market::{InfraProvider, RegionalRates};
 
 enum Error {
     GetIPFail,
@@ -42,8 +42,12 @@ struct SpecResponse {
     min_rates: Vec<RegionalRates>,
 }
 
-async fn get_ip(client: &Aws, id: &str, region: String) -> Result<String> {
-    let instance = client.get_job_instance_id(id, region.clone()).await?;
+async fn get_ip(
+    mut client: impl InfraProvider + Send + Sync + Clone,
+    id: &str,
+    region: String,
+) -> Result<String> {
+    let instance = client.get_job_instance(id, region.clone()).await?;
 
     if !instance.0 {
         return Err(anyhow!("Instance not found: {id}"));
@@ -55,10 +59,16 @@ async fn get_ip(client: &Aws, id: &str, region: String) -> Result<String> {
 }
 
 async fn handle_ip_request(
-    State(state): State<Arc<(Aws, Vec<String>, String)>>,
+    State(state): State<
+        Arc<(
+            impl InfraProvider + Send + Sync + Clone,
+            Vec<String>,
+            String,
+        )>,
+    >,
     Query(query): Query<GetIPRequest>,
 ) -> HandlerResult<Json<GetIPResponse>> {
-    let client = &state.0;
+    let client = state.0.clone();
 
     if !query.id.is_some() || !query.region.is_some() {
         return Err(Error::GetIPFail);
@@ -68,14 +78,20 @@ async fn handle_ip_request(
     if ip.is_err() {
         return Err(Error::GetIPFail);
     }
-    let ip = ip.unwrap();
+    let ip = ip.unwrap().to_string();
     let ip = GetIPResponse { ip };
 
     Ok(Json(ip))
 }
 
 async fn handle_spec_request(
-    State(state): State<Arc<(Aws, Vec<String>, String)>>,
+    State(state): State<
+        Arc<(
+            impl InfraProvider + Send + Sync + Clone,
+            Vec<String>,
+            String,
+        )>,
+    >,
 ) -> HandlerResult<Json<SpecResponse>> {
     let regions = &state.1;
     let rates_path = &state.2;
@@ -99,15 +115,25 @@ async fn handle_spec_request(
     return Err(Error::GetSpecFail);
 }
 
-fn all_routes(state: Arc<(Aws, Vec<String>, String)>) -> Router {
+fn all_routes<'a>(
+    state: Arc<(
+        impl InfraProvider + Send + Sync + Clone + 'static,
+        Vec<String>,
+        String,
+    )>,
+) -> Router {
     Router::new()
         .route("/ip", get(handle_ip_request))
         .route("/spec", get(handle_spec_request))
         .with_state(state)
 }
 
-pub async fn serve(client: Aws, regions: Vec<String>, rates_path: String) {
-    let state: Arc<(Aws, Vec<String>, String)> = Arc::from((client, regions, rates_path));
+pub async fn serve(
+    client: impl InfraProvider + Send + Sync + Clone + 'static,
+    regions: Vec<String>,
+    rates_path: String,
+) {
+    let state = Arc::from((client, regions, rates_path));
 
     let router = Router::new().merge(all_routes(state));
 

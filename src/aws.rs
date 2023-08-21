@@ -1162,6 +1162,17 @@ impl InfraProvider for Aws {
             .context("could not get instance id for job")?)
     }
 
+    async fn get_ip_from_instance_id(
+        &mut self,
+        instance_id: &str,
+        region: String,
+    ) -> Result<String> {
+        Ok(self
+            .get_instance_ip(instance_id, region)
+            .await
+            .context("could not get instance ip")?)
+    }
+
     async fn check_instance_running(&mut self, instance_id: &str, region: String) -> Result<bool> {
         let res = self
             .get_instance_state(instance_id, region)

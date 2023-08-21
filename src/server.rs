@@ -44,16 +44,16 @@ struct SpecResponse {
 
 async fn get_ip(
     mut client: impl InfraProvider + Send + Sync + Clone,
-    id: &str,
+    job_id: &str,
     region: String,
 ) -> Result<String> {
-    let instance = client.get_job_instance(id, region.clone()).await?;
+    let instance = client.get_job_instance(job_id, region.clone()).await?;
 
     if !instance.0 {
-        return Err(anyhow!("Instance not found: {id}"));
+        return Err(anyhow!("Instance not found for job - {job_id}"));
     }
 
-    let ip = client.get_instance_ip(&instance.1, region).await?;
+    let ip = client.get_ip_from_instance_id(&instance.1, region).await?;
 
     Ok(ip)
 }

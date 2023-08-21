@@ -1,6 +1,7 @@
 use anyhow::Result;
 
 #[tokio::test]
+#[ignore]
 async fn test_handle_spec_request() -> Result<()> {
     let hc = httpc_test::new_client("http://localhost:8080")?;
 

@@ -24,6 +24,8 @@ pub struct SpinUpOutcome {
     pub req_vcpu: i32,
     pub bandwidth: u64,
     pub eif_url: String,
+    pub contract_address: String,
+    pub chain_id: String,
 }
 
 #[cfg(test)]
@@ -110,6 +112,8 @@ impl InfraProvider for TestAws {
         req_mem: i64,
         req_vcpu: i32,
         bandwidth: u64,
+        contract_address: String,
+        chain_id: String,
     ) -> Result<String> {
         self.outcomes.push(TestAwsOutcome::SpinUp(SpinUpOutcome {
             time: Instant::now(),
@@ -120,6 +124,8 @@ impl InfraProvider for TestAws {
             req_vcpu,
             bandwidth,
             eif_url: eif_url.to_owned(),
+            contract_address,
+            chain_id,
         }));
 
         let res = self.instances.get_key_value(&job);

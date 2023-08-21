@@ -8,6 +8,7 @@ use anyhow::Context;
 use anyhow::Result;
 use clap::Parser;
 use ethers::prelude::*;
+use ethers::providers::{Provider, Ws};
 use std::fs;
 
 #[derive(Parser)]
@@ -102,6 +103,14 @@ async fn parse_bandwidth_rates_file(filepath: String) -> Result<Vec<market::GBRa
     Ok(rates)
 }
 
+async fn get_chain_id_from_rpc_url(url: String) -> Result<String> {
+    let provider = Provider::<Ws>::connect(url).await.context("Failed to connect to rpc to fetch chain_id")?;
+    let hex_chain_id: String = provider.request("eth_chainId", ()).await.context("Failed to fetch chain_id")?;
+    let chain_id = u64::from_str_radix(&hex_chain_id[2..], 16).context("Failed to convert chain_id to u64")?;
+
+    Ok(chain_id.to_string())
+}
+
 #[tokio::main]
 pub async fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -130,6 +139,7 @@ pub async fn main() -> Result<()> {
     let ethers = market::EthersProvider {
         contract: cli
             .contract
+            .clone()
             .parse::<Address>()
             .context("failed to parse contract address")?,
         provider: cli
@@ -165,12 +175,14 @@ pub async fn main() -> Result<()> {
     market::run(
         aws,
         ethers,
-        cli.rpc,
+        cli.rpc.clone(),
         regions,
         compute_rates,
         bandwidth_rates,
         address_whitelist,
         address_blacklist,
+        cli.contract,
+        get_chain_id_from_rpc_url(cli.rpc).await.context("Failed to fetch chain_id")?,
     )
     .await;
 

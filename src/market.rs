@@ -29,6 +29,8 @@ pub trait InfraProvider {
         req_mem: i64,
         req_vcpu: i32,
         bandwidth: u64,
+        contract_address: String,
+        chain_id: String,
     ) -> Result<String>;
 
     async fn spin_down(&mut self, instance_id: &str, job: String, region: String) -> Result<bool>;
@@ -75,6 +77,8 @@ where
         req_mem: i64,
         req_vcpu: i32,
         bandwidth: u64,
+        contract_address: String,
+        chain_id: String,
     ) -> Result<String> {
         (**self)
             .spin_up(
@@ -85,6 +89,8 @@ where
                 req_mem,
                 req_vcpu,
                 bandwidth,
+                contract_address,
+                chain_id,
             )
             .await
     }
@@ -209,6 +215,8 @@ pub async fn run(
     gb_rates: &'static [GBRateCard],
     address_whitelist: &'static [String],
     address_blacklist: &'static [String],
+    contract_address: String,
+    chain_id: String,
 ) {
     let mut backoff = 1;
 
@@ -252,6 +260,8 @@ pub async fn run(
             gb_rates,
             address_whitelist,
             address_blacklist,
+            contract_address.clone(),
+            chain_id.clone(),
         )
         .await;
     }
@@ -267,6 +277,8 @@ async fn run_once(
     gb_rates: &'static [GBRateCard],
     address_whitelist: &'static [String],
     address_blacklist: &'static [String],
+    contract_address: String,
+    chain_id: String,
 ) {
     while let Some((job, removed)) = job_stream.next().await {
         println!("main: New job: {job}, {removed}");
@@ -281,6 +293,8 @@ async fn run_once(
             gb_rates,
             address_whitelist,
             address_blacklist,
+            contract_address.clone(),
+            chain_id.clone(),
         ));
     }
 
@@ -323,6 +337,8 @@ async fn job_manager(
     gb_rates: &[GBRateCard],
     address_whitelist: &[String],
     address_blacklist: &[String],
+    contract_address: String,
+    chain_id: String,
 ) {
     let mut backoff = 1;
 
@@ -365,6 +381,8 @@ async fn job_manager(
             gb_rates,
             address_whitelist,
             address_blacklist,
+            contract_address.clone(),
+            chain_id.clone(),
         )
         .await;
 
@@ -414,6 +432,8 @@ struct JobState {
     job: H256,
     launch_delay: u64,
     allowed_regions: Vec<String>,
+    contract_address: String,
+    chain_id: String,
 
     balance: U256,
     last_settled: Duration,
@@ -437,13 +457,21 @@ struct JobState {
 }
 
 impl JobState {
-    fn new(job: H256, launch_delay: u64, allowed_regions: Vec<String>) -> JobState {
+    fn new(
+        job: H256,
+        launch_delay: u64,
+        allowed_regions: Vec<String>,
+        contract_address: String,
+        chain_id: String,
+    ) -> JobState {
         // solvency metrics
         // default of 60s
         JobState {
             job,
             launch_delay,
             allowed_regions,
+            contract_address,
+            chain_id,
             balance: U256::from(360),
             last_settled: SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
@@ -623,6 +651,8 @@ impl JobState {
                     self.req_mem,
                     self.req_vcpus,
                     self.bandwidth,
+                    self.contract_address.clone(),
+                    self.chain_id.clone(),
                 )
                 .await;
             if let Err(err) = res {
@@ -995,8 +1025,16 @@ async fn job_manager_once(
     gb_rates: &[GBRateCard],
     address_whitelist: &[String],
     address_blacklist: &[String],
+    contract_address: String,
+    chain_id: String,
 ) -> i8 {
-    let mut state = JobState::new(job, aws_delay_duration, allowed_regions);
+    let mut state = JobState::new(
+        job,
+        aws_delay_duration,
+        allowed_regions,
+        contract_address,
+        chain_id,
+    );
 
     let res = 'event: loop {
         // compute time to insolvency
@@ -1125,6 +1163,8 @@ mod tests {
             &test::get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::new(),
+            "xyz".into(),
+            "123".into(),
         )
         .await;
 
@@ -1142,6 +1182,8 @@ mod tests {
                     && out.req_vcpu == 2
                     && out.bandwidth == 0
                     && out.eif_url == *"https://example.com/enclave.eif"
+                    && out.contract_address == "xyz"
+                    && out.chain_id == "123"
             )
         } else {
             panic!();
@@ -1188,6 +1230,8 @@ mod tests {
             &test::get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::new(),
+            "xyz".into(),
+            "123".into(),
         )
         .await;
 
@@ -1205,6 +1249,8 @@ mod tests {
                     && out.req_vcpu == 2
                     && out.bandwidth == 0
                     && out.eif_url == *"https://example.com/enclave.eif"
+                    && out.contract_address == "xyz"
+                    && out.chain_id == "123"
             )
         } else {
             panic!();
@@ -1252,6 +1298,8 @@ mod tests {
             &test::get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::new(),
+            "xyz".into(),
+            "123".into(),
         )
         .await;
 
@@ -1269,6 +1317,8 @@ mod tests {
                     && out.req_vcpu == 2
                     && out.bandwidth == 0
                     && out.eif_url == *"https://example.com/enclave.eif"
+                    && out.contract_address == "xyz"
+                    && out.chain_id == "123"
             )
         } else {
             panic!();
@@ -1312,6 +1362,8 @@ mod tests {
             &test::get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::new(),
+            "xyz".into(),
+            "123".into(),
         )
         .await;
 
@@ -1349,6 +1401,8 @@ mod tests {
             &test::get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::new(),
+            "xyz".into(),
+            "123".into(),
         )
         .await;
 
@@ -1386,6 +1440,8 @@ mod tests {
             &test::get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::new(),
+            "xyz".into(),
+            "123".into(),
         )
         .await;
 
@@ -1423,6 +1479,8 @@ mod tests {
             &test::get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::new(),
+            "xyz".into(),
+            "123".into(),
         )
         .await;
 
@@ -1460,6 +1518,8 @@ mod tests {
             &test::get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::new(),
+            "xyz".into(),
+            "123".into(),
         )
         .await;
 
@@ -1497,6 +1557,8 @@ mod tests {
             &test::get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::new(),
+            "xyz".into(),
+            "123".into(),
         )
         .await;
 
@@ -1534,6 +1596,8 @@ mod tests {
             &test::get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::new(),
+            "xyz".into(),
+            "123".into(),
         )
         .await;
 
@@ -1572,6 +1636,8 @@ mod tests {
             &test::get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::new(),
+            "xyz".into(),
+            "123".into(),
         )
         .await;
 
@@ -1589,6 +1655,8 @@ mod tests {
                     && out.req_vcpu == 2
                     && out.bandwidth == 0
                     && out.eif_url == *"https://example.com/enclave.eif"
+                    && out.contract_address == "xyz"
+                    && out.chain_id == "123"
             )
         } else {
             panic!();
@@ -1635,6 +1703,8 @@ mod tests {
             &test::get_gb_rates().unwrap_or_default(),
             &Vec::new(),
             &Vec::new(),
+            "xyz".into(),
+            "123".into(),
         )
         .await;
 
@@ -1652,6 +1722,8 @@ mod tests {
                     && out.req_vcpu == 2
                     && out.bandwidth == 0
                     && out.eif_url == *"https://example.com/enclave.eif"
+                    && out.contract_address == "xyz"
+                    && out.chain_id == "123"
             )
         } else {
             panic!();
@@ -1697,6 +1769,8 @@ mod tests {
                 "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
             ]),
             &Vec::new(),
+            "xyz".into(),
+            "123".into(),
         )
         .await;
 
@@ -1714,6 +1788,8 @@ mod tests {
                     && out.req_vcpu == 2
                     && out.bandwidth == 0
                     && out.eif_url == *"https://example.com/enclave.eif"
+                    && out.contract_address == "xyz"
+                    && out.chain_id == "123"
             )
         } else {
             panic!();
@@ -1759,6 +1835,8 @@ mod tests {
                 "0x000000000000000000000000000000000000000000000000f020c4f6gc7a56ce".to_string(),
             ]),
             &Vec::new(),
+            "xyz".into(),
+            "123".into(),
         )
         .await;
 
@@ -1798,6 +1876,8 @@ mod tests {
             &Vec::from([
                 "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
             ]),
+            "xyz".into(),
+            "123".into(),
         )
         .await;
 
@@ -1837,6 +1917,8 @@ mod tests {
             &Vec::from([
                 "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ece".to_string(),
             ]),
+            "xyz".into(),
+            "123".into(),
         )
         .await;
 
@@ -1854,6 +1936,8 @@ mod tests {
                     && out.req_vcpu == 2
                     && out.bandwidth == 0
                     && out.eif_url == *"https://example.com/enclave.eif"
+                    && out.contract_address == "xyz"
+                    && out.chain_id == "123"
             )
         } else {
             panic!();

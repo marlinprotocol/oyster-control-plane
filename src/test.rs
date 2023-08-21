@@ -84,16 +84,6 @@ impl InstanceMetadata {
 }
 
 #[cfg(test)]
-impl Default for InstanceMetadata {
-    fn default() -> Self {
-        Self {
-            instance_id: String::from("i-1234567890abcdef0"),
-            ip_address: String::from("123.45.67.89"),
-        }
-    }
-}
-
-#[cfg(test)]
 #[derive(Clone, Default)]
 pub struct TestAws {
     pub outcomes: Vec<TestAwsOutcome>,

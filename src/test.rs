@@ -6,6 +6,7 @@ use ethers::types::Log;
 use ethers::utils::keccak256;
 use std::collections::HashMap;
 use std::fs;
+use std::iter;
 use std::str::FromStr;
 use tokio::time::{Duration, Instant};
 use tokio_stream::{Stream, StreamExt};
@@ -40,11 +41,61 @@ pub enum TestAwsOutcome {
     SpinUp(SpinUpOutcome),
     SpinDown(SpinDownOutcome),
 }
+
+#[cfg(test)]
+pub async fn generate_random_string(charset: &[u8], len: usize) -> String {
+    let one_char = || charset[rand::thread_rng().gen_range(0..charset.len())] as char;
+    iter::repeat_with(one_char).take(len).collect()
+}
+
+#[cfg(test)]
+pub async fn generate_random_ip() -> String {
+    let ip_parts: Vec<u8> = (0..4)
+        .map(|_| rand::thread_rng().gen_range(0..=255))
+        .collect();
+    ip_parts
+        .iter()
+        .map(|&part| part.to_string())
+        .collect::<Vec<String>>()
+        .join(".")
+}
+
+#[cfg(test)]
+#[derive(Clone, Debug)]
+pub struct InstanceMetadata {
+    pub instance_id: String,
+    pub ip_address: String,
+}
+
+#[cfg(test)]
+impl InstanceMetadata {
+    pub async fn new(instance_id: Option<String>, ip_address: Option<String>) -> Self {
+        let instance_id =
+            instance_id.unwrap_or(generate_random_string(b"1234567890abcdef", 17).await);
+
+        let ip_address = ip_address.unwrap_or(generate_random_ip().await);
+        Self {
+            instance_id,
+            ip_address,
+        }
+    }
+}
+
+#[cfg(test)]
+impl Default for InstanceMetadata {
+    fn default() -> Self {
+        Self {
+            instance_id: String::from("i-1234567890abcdef0"),
+            ip_address: String::from("123.45.67.89"),
+        }
+    }
+}
+
 #[cfg(test)]
 #[derive(Clone, Default)]
 pub struct TestAws {
     pub outcomes: Vec<TestAwsOutcome>,
-    pub instances: HashMap<String, String>,
+    pub instances: HashMap<String, InstanceMetadata>,
 }
 
 #[cfg(test)]
@@ -73,17 +124,13 @@ impl InfraProvider for TestAws {
 
         let res = self.instances.get_key_value(&job);
         if let Some(x) = res {
-            return Ok(x.1.clone());
+            return Ok(x.1.instance_id.clone());
         }
 
-        let id: String = rand::thread_rng()
-            .sample_iter(rand::distributions::Alphanumeric)
-            .take(8)
-            .map(char::from)
-            .collect();
-        self.instances.insert(job, id.clone());
+        let instance_metadata: InstanceMetadata = InstanceMetadata::new(None, None).await;
+        self.instances.insert(job, instance_metadata.clone());
 
-        Ok(id)
+        Ok(instance_metadata.instance_id)
     }
 
     async fn spin_down(&mut self, instance_id: &str, job: String, region: String) -> Result<bool> {
@@ -107,10 +154,23 @@ impl InfraProvider for TestAws {
     ) -> Result<(bool, String, String)> {
         let res = self.instances.get_key_value(job);
         if let Some(x) = res {
-            return Ok((true, x.1.clone(), "running".to_owned()));
+            return Ok((true, x.1.instance_id.clone(), "running".to_owned()));
         }
 
         Ok((false, String::new(), String::new()))
+    }
+
+    async fn get_ip_from_instance_id(
+        &mut self,
+        instance_id: &str,
+        _region: String,
+    ) -> Result<String> {
+        for instance in self.instances.values() {
+            if instance.instance_id == instance_id {
+                return Ok(instance.ip_address.clone());
+            }
+        }
+        panic!("Instance not found");
     }
 
     async fn check_instance_running(

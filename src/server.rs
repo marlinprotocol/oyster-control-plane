@@ -144,3 +144,45 @@ pub async fn serve(
         .await
         .unwrap();
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use ethers::{abi::AbiEncode, prelude::*};
+
+    use crate::test::{InstanceMetadata, TestAws};
+
+    #[tokio::test]
+    async fn test_get_ip_happy_case() {
+        let mut aws: TestAws = Default::default();
+
+        let job_id = H256::from_low_u64_be(1).encode_hex();
+        let region = "ap-south-1".to_string();
+
+        let instance_metadata = InstanceMetadata::new(None, None).await;
+
+        aws.instances
+            .insert(job_id.clone(), instance_metadata.clone());
+
+        let res = get_ip(aws, &job_id, region).await;
+        assert!(res.is_ok());
+
+        let res = res.unwrap();
+        assert_eq!(res, instance_metadata.ip_address)
+    }
+
+    #[tokio::test]
+    async fn test_get_ip_bad_case() {
+        let aws: TestAws = Default::default();
+
+        let job_id = H256::from_low_u64_be(1).encode_hex();
+        let region = "ap-south-1".to_string();
+
+        let res = get_ip(aws, &job_id, region).await;
+        assert!(res.is_err());
+
+        let err = res.as_ref().unwrap_err().to_string();
+        assert_eq!(err, format!("Instance not found for job - {job_id}"));
+    }
+}

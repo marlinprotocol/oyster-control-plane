@@ -176,6 +176,9 @@ pub struct RateCard {
     pub instance: String,
     #[serde(deserialize_with = "deserialize_stringified_numeric")]
     pub min_rate: U256,
+    pub cpu: u32,
+    pub memory: u32,
+    pub arch: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -2083,10 +2086,16 @@ mod tests {
                     market::RateCard {
                         instance: "c6a.48xlarge".to_owned(),
                         min_rate: U256::from_dec_str("2469600000000000000000").unwrap(),
+                        cpu: 192,
+                        memory: 384,
+                        arch: String::from("amd64")
                     },
                     market::RateCard {
                         instance: "m7g.xlarge".to_owned(),
                         min_rate: U256::from(150000000u64),
+                        cpu: 4,
+                        memory: 8,
+                        arch: String::from("amd64")
                     }
                 ]
             }

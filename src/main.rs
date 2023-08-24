@@ -1,5 +1,5 @@
 mod aws;
-mod market;
+pub mod market;
 mod server;
 #[cfg(test)]
 mod test;
@@ -140,6 +140,7 @@ pub async fn main() -> Result<()> {
         aws.clone(),
         regions.clone(),
         cli.rates.clone(),
+        cli.bandwidth.clone(),
     ));
 
     let ethers = market::EthersProvider {

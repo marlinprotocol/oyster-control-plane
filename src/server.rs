@@ -10,11 +10,12 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::market::{InfraProvider, RegionalRates};
+use crate::market::{GBRateCard, InfraProvider, RegionalRates};
 
 enum Error {
     GetIPFail,
     GetSpecFail,
+    GetBandwidthFail,
 }
 
 impl IntoResponse for Error {
@@ -42,6 +43,11 @@ struct SpecResponse {
     min_rates: Vec<RegionalRates>,
 }
 
+#[derive(Debug, Serialize)]
+struct BandwidthResponse {
+    rates: Vec<GBRateCard>,
+}
+
 async fn get_ip(
     mut client: impl InfraProvider + Send + Sync + Clone,
     job_id: &str,
@@ -63,6 +69,7 @@ async fn handle_ip_request(
         Arc<(
             impl InfraProvider + Send + Sync + Clone,
             Vec<String>,
+            String,
             String,
         )>,
     >,
@@ -90,6 +97,7 @@ async fn handle_spec_request(
             impl InfraProvider + Send + Sync + Clone,
             Vec<String>,
             String,
+            String,
         )>,
     >,
 ) -> HandlerResult<Json<SpecResponse>> {
@@ -115,16 +123,46 @@ async fn handle_spec_request(
     return Err(Error::GetSpecFail);
 }
 
+async fn handle_bandwidth_request(
+    State(state): State<
+        Arc<(
+            impl InfraProvider + Send + Sync + Clone,
+            Vec<String>,
+            String,
+            String,
+        )>,
+    >,
+) -> HandlerResult<Json<BandwidthResponse>> {
+    let bandwidth_path = &state.3;
+
+    let contents = fs::read_to_string(bandwidth_path);
+
+    if let Err(err) = contents {
+        println!("Server: Error reading bandwidth rates file: {err:?}");
+    } else {
+        let contents = contents.unwrap();
+        let data: Vec<GBRateCard> = serde_json::from_str(&contents).unwrap_or_default();
+        if !data.is_empty() {
+            let res = BandwidthResponse { rates: data };
+
+            return Ok(Json(res));
+        }
+    }
+    return Err(Error::GetBandwidthFail);
+}
+
 fn all_routes<'a>(
     state: Arc<(
         impl InfraProvider + Send + Sync + Clone + 'static,
         Vec<String>,
+        String,
         String,
     )>,
 ) -> Router {
     Router::new()
         .route("/ip", get(handle_ip_request))
         .route("/spec", get(handle_spec_request))
+        .route("/bandwidth", get(handle_bandwidth_request))
         .with_state(state)
 }
 
@@ -132,8 +170,9 @@ pub async fn serve(
     client: impl InfraProvider + Send + Sync + Clone + 'static,
     regions: Vec<String>,
     rates_path: String,
+    bandwidth_path: String,
 ) {
-    let state = Arc::from((client, regions, rates_path));
+    let state = Arc::from((client, regions, rates_path, bandwidth_path));
 
     let router = Router::new().merge(all_routes(state));
 

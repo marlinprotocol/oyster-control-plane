@@ -342,6 +342,18 @@ impl Aws {
             }
 
             if !is_qdisc_config_set {
+                // remove previously defined rules
+                let (_, stderr) = Self::ssh_exec(
+                    sess,
+                    &("sudo tc qdisc del dev ".to_owned() + &interface + " root"),
+                )?;
+                if !stderr.is_empty() {
+                    println!("{stderr}");
+                    return Err(anyhow!(
+                        "Error removing network interface qdisc configuration: {stderr}"
+                    ));
+                }
+
                 let (_, stderr) = Self::ssh_exec(
                     sess,
                     &("sudo tc qdisc add dev ".to_owned()

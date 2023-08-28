@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use ethers::prelude::rand::Rng;
 use ethers::prelude::*;
@@ -165,7 +165,7 @@ impl InfraProvider for TestAws {
         if instance_metadata.is_some() {
             return Ok(instance_metadata.unwrap().ip_address.clone());
         }
-        panic!("Instance not found");
+        return Err(anyhow!("Instance not found for job - {job_id}"));
     }
 
     async fn check_instance_running(

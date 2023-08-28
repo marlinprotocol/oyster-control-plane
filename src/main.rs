@@ -104,9 +104,15 @@ async fn parse_bandwidth_rates_file(filepath: String) -> Result<Vec<market::GBRa
 }
 
 async fn get_chain_id_from_rpc_url(url: String) -> Result<String> {
-    let provider = Provider::<Ws>::connect(url).await.context("Failed to connect to rpc to fetch chain_id")?;
-    let hex_chain_id: String = provider.request("eth_chainId", ()).await.context("Failed to fetch chain_id")?;
-    let chain_id = u64::from_str_radix(&hex_chain_id[2..], 16).context("Failed to convert chain_id to u64")?;
+    let provider = Provider::<Ws>::connect(url)
+        .await
+        .context("Failed to connect to rpc to fetch chain_id")?;
+    let hex_chain_id: String = provider
+        .request("eth_chainId", ())
+        .await
+        .context("Failed to fetch chain_id")?;
+    let chain_id =
+        u64::from_str_radix(&hex_chain_id[2..], 16).context("Failed to convert chain_id to u64")?;
 
     Ok(chain_id.to_string())
 }
@@ -182,7 +188,9 @@ pub async fn main() -> Result<()> {
         address_whitelist,
         address_blacklist,
         cli.contract,
-        get_chain_id_from_rpc_url(cli.rpc).await.context("Failed to fetch chain_id")?,
+        get_chain_id_from_rpc_url(cli.rpc)
+            .await
+            .context("Failed to fetch chain_id")?,
     )
     .await;
 

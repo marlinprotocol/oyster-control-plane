@@ -1182,13 +1182,15 @@ impl InfraProvider for Aws {
             .context("could not get instance id for job")?)
     }
 
-    async fn get_ip_from_instance_id(
-        &mut self,
-        instance_id: &str,
-        region: String,
-    ) -> Result<String> {
+    async fn get_ip_from_job_id(&mut self, job_id: &str, region: String) -> Result<String> {
+        let instance = self.get_job_instance(job_id, region.clone()).await?;
+
+        if !instance.0 {
+            return Err(anyhow!("Instance not found for job - {job_id}"));
+        }
+
         Ok(self
-            .get_instance_ip(instance_id, region)
+            .get_instance_ip(&instance.1, region)
             .await
             .context("could not get instance ip")?)
     }

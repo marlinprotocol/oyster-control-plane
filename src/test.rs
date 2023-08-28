@@ -89,6 +89,8 @@ impl InstanceMetadata {
 #[derive(Clone, Default)]
 pub struct TestAws {
     pub outcomes: Vec<TestAwsOutcome>,
+
+    // HashMap format - (Job, InstanceMetadata)
     pub instances: HashMap<String, InstanceMetadata>,
 }
 
@@ -158,15 +160,10 @@ impl InfraProvider for TestAws {
         Ok((false, String::new(), String::new()))
     }
 
-    async fn get_ip_from_instance_id(
-        &mut self,
-        instance_id: &str,
-        _region: String,
-    ) -> Result<String> {
-        for instance in self.instances.values() {
-            if instance.instance_id == instance_id {
-                return Ok(instance.ip_address.clone());
-            }
+    async fn get_ip_from_job_id(&mut self, job_id: &str, _region: String) -> Result<String> {
+        let instance_metadata = self.instances.get(job_id);
+        if instance_metadata.is_some() {
+            return Ok(instance_metadata.unwrap().ip_address.clone());
         }
         panic!("Instance not found");
     }

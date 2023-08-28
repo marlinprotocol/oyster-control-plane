@@ -41,11 +41,7 @@ pub trait InfraProvider {
         region: String,
     ) -> Result<(bool, String, String)>;
 
-    async fn get_ip_from_instance_id(
-        &mut self,
-        instance_id: &str,
-        region: String,
-    ) -> Result<String>;
+    async fn get_ip_from_job_id(&mut self, job: &str, region: String) -> Result<String>;
 
     async fn check_instance_running(&mut self, instance_id: &str, region: String) -> Result<bool>;
 
@@ -107,12 +103,8 @@ where
         (**self).get_job_instance(job, region).await
     }
 
-    async fn get_ip_from_instance_id(
-        &mut self,
-        instance_id: &str,
-        region: String,
-    ) -> Result<String> {
-        (**self).get_ip_from_instance_id(instance_id, region).await
+    async fn get_ip_from_job_id(&mut self, job: &str, region: String) -> Result<String> {
+        (**self).get_ip_from_job_id(job, region).await
     }
 
     async fn check_instance_running(&mut self, instance_id: &str, region: String) -> Result<bool> {

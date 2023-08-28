@@ -1,6 +1,6 @@
 use std::{fs, net::SocketAddr, sync::Arc};
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use axum::{
     extract::{Query, State},
     http::StatusCode,
@@ -47,13 +47,7 @@ async fn get_ip(
     job_id: &str,
     region: String,
 ) -> Result<String> {
-    let instance = client.get_job_instance(job_id, region.clone()).await?;
-
-    if !instance.0 {
-        return Err(anyhow!("Instance not found for job - {job_id}"));
-    }
-
-    let ip = client.get_ip_from_instance_id(&instance.1, region).await?;
+    let ip = client.get_ip_from_job_id(job_id, region).await?;
 
     Ok(ip)
 }

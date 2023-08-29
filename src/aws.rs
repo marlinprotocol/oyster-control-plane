@@ -731,22 +731,23 @@ impl Aws {
         // response parsing from here
         let instances = res
             .reservations()
-            .ok_or(anyhow!("could not parse reservations"))?
-            .first()
-            .ok_or(anyhow!("reservation not found"))?
-            .instances()
-            .ok_or(anyhow!("could not parse instances"))?;
+            .ok_or(anyhow!("could not parse reservations"))?;
 
         if instances.is_empty() {
             Ok((false, "".to_owned(), "".to_owned()))
         } else {
+            let instance = instances[0]
+                .instances()
+                .ok_or(anyhow!("could not parse instances"))?
+                .first()
+                .ok_or(anyhow!("instance not found"))?;
             Ok((
                 true,
-                instances[0]
+                instance
                     .instance_id()
                     .ok_or(anyhow!("could not parse ip address"))?
                     .to_string(),
-                instances[0]
+                instance
                     .state()
                     .ok_or(anyhow!("could not parse instance state"))?
                     .name()

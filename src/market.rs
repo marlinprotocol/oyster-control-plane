@@ -1706,10 +1706,10 @@ mod tests {
         let job_num = H256::from_low_u64_be(1);
         let job_logs: Vec<(u64, Log)> = vec![
             (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).encode()),
-            (350, Action::ReviseRateInitiated, (25,0).encode()),
-            (400, Action::ReviseRateFinalized, (25,0).encode()),
-            (450, Action::ReviseRateInitiated, (50,0).encode()),
-            (500, Action::ReviseRateFinalized, (50,0).encode()),
+            (350, Action::ReviseRateInitiated, (29000000000000u64,0).encode()),
+            (400, Action::ReviseRateFinalized, (29000000000000u64,0).encode()),
+            (450, Action::ReviseRateInitiated, (31000000000000u64,0).encode()),
+            (500, Action::ReviseRateFinalized, (31000000000000u64,0).encode()),
         ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
         let start_time = Instant::now();
@@ -1749,7 +1749,7 @@ mod tests {
                     && out.region == *"ap-south-1"
                     && out.req_mem == 4096
                     && out.req_vcpu == 2
-                    && out.bandwidth == 0
+                    && out.bandwidth == 76
                     && out.eif_url == *"https://example.com/enclave.eif"
                     && out.contract_address == "xyz"
                     && out.chain_id == "123"

@@ -213,17 +213,12 @@ pub fn get_rates() -> Vec<RegionalRates> {
 }
 
 #[cfg(test)]
-pub fn get_gb_rates() -> Option<Vec<GBRateCard>> {
-    let file_path = "./GB_rates.json";
-    let contents = fs::read_to_string(file_path);
-
-    if let Err(err) = contents {
-        println!("Error reading rates file : {err}");
-        return None;
-    }
-    let contents = contents.unwrap();
-    let rates: Vec<GBRateCard> = serde_json::from_str(&contents).unwrap_or_default();
-    Some(rates)
+pub fn get_gb_rates() -> Vec<GBRateCard> {
+    vec![GBRateCard {
+        region: "Asia South (Mumbai)".to_owned(),
+        region_code: "ap-south-1".to_owned(),
+        rate: U256::from_dec_str("109300000000000000").unwrap(),
+    }]
 }
 
 #[cfg(test)]

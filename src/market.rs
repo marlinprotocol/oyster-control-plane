@@ -1183,12 +1183,12 @@ mod tests {
             spin_up_tv_sec = out.time;
             assert!(
                 H256::from_str(&out.job).unwrap() == job_num
-                    && out.instance_type == *"c6a.xlarge"
-                    && out.region == *"ap-south-1"
+                    && out.instance_type == "c6a.xlarge"
+                    && out.region == "ap-south-1"
                     && out.req_mem == 4096
                     && out.req_vcpu == 2
                     && out.bandwidth == 76
-                    && out.eif_url == *"https://example.com/enclave.eif"
+                    && out.eif_url == "https://example.com/enclave.eif"
                     && out.contract_address == "xyz"
                     && out.chain_id == "123"
             )

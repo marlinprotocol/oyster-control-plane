@@ -5,7 +5,6 @@ use ethers::prelude::*;
 use ethers::types::Log;
 use ethers::utils::keccak256;
 use std::collections::HashMap;
-use std::fs;
 use std::str::FromStr;
 use tokio::time::{Duration, Instant};
 use tokio_stream::{Stream, StreamExt};

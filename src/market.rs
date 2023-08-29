@@ -1208,9 +1208,11 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn test_deposit_withdraw_settle() {
+        market::START.set(Instant::now()).unwrap();
+
         let job_num = H256::from_low_u64_be(1);
         let job_logs: Vec<(u64, Log)> = vec![
-            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).encode()),
             (40, Action::Deposit, (500).encode()),
             (60, Action::Withdraw, (500).encode()),
             (100, Action::Settle, (2, 6).encode()),
@@ -1250,12 +1252,12 @@ mod tests {
             spin_up_tv_sec = out.time;
             assert!(
                 H256::from_str(&out.job).unwrap() == job_num
-                    && out.instance_type == *"c6a.xlarge"
-                    && out.region == *"ap-south-1"
+                    && out.instance_type == "c6a.xlarge"
+                    && out.region == "ap-south-1"
                     && out.req_mem == 4096
                     && out.req_vcpu == 2
-                    && out.bandwidth == 0
-                    && out.eif_url == *"https://example.com/enclave.eif"
+                    && out.bandwidth == 76
+                    && out.eif_url == "https://example.com/enclave.eif"
                     && out.contract_address == "xyz"
                     && out.chain_id == "123"
             )

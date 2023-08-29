@@ -1597,7 +1597,7 @@ mod tests {
 
         let job_num = H256::from_low_u64_be(1);
         let job_logs: Vec<(u64, Log)> = vec![
-            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,0,1).encode()),
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,0u64,market::now_timestamp().as_secs()).encode()),
             (505, Action::Close, [].into()),
             ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 

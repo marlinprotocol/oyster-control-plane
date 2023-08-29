@@ -109,7 +109,7 @@ async fn handle_spec_request(
     return Err(Error::GetSpecFail);
 }
 
-fn all_routes<'a>(
+fn all_routes(
     state: Arc<(
         impl InfraProvider + Send + Sync + Clone + 'static,
         Vec<String>,

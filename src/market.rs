@@ -1142,7 +1142,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn test_instance_launch_after_delay_on_spin_up() {
-        market::START.set(Instant::now()).unwrap();
+        let _ = market::START.set(Instant::now());
 
         let job_num = H256::from_low_u64_be(1);
         let job_logs: Vec<(u64, Log)> = vec![
@@ -1208,7 +1208,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn test_deposit_withdraw_settle() {
-        market::START.set(Instant::now()).unwrap();
+        let _ = market::START.set(Instant::now());
 
         let job_num = H256::from_low_u64_be(1);
         let job_logs: Vec<(u64, Log)> = vec![
@@ -1277,7 +1277,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn test_revise_rate_cancel() {
-        market::START.set(Instant::now()).unwrap();
+        let _ = market::START.set(Instant::now());
 
         let job_num = H256::from_low_u64_be(1);
         let job_logs: Vec<(u64, Log)> = vec![
@@ -1347,6 +1347,8 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn test_unsupported_region() {
+        let _ = market::START.set(Instant::now());
+
         let job_num = H256::from_low_u64_be(1);
         let job_logs: Vec<(u64, Log)> = vec![
             (0, Action::Open, ("{\"region\":\"ap-east-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
@@ -1386,6 +1388,8 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn test_region_not_found() {
+        let _ = market::START.set(Instant::now());
+
         let job_num = H256::from_low_u64_be(1);
         let job_logs: Vec<(u64, Log)> = vec![
             (0, Action::Open, ("{\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
@@ -1425,6 +1429,8 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn test_instance_type_not_found() {
+        let _ = market::START.set(Instant::now());
+
         let job_num = H256::from_low_u64_be(1);
         let job_logs: Vec<(u64, Log)> = vec![
             (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
@@ -1464,6 +1470,8 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn test_unsupported_instance() {
+        let _ = market::START.set(Instant::now());
+
         let job_num = H256::from_low_u64_be(1);
         let job_logs: Vec<(u64, Log)> = vec![
             (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.vsmall\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
@@ -1503,6 +1511,8 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn test_eif_url_not_found() {
+        let _ = market::START.set(Instant::now());
+
         let job_num = H256::from_low_u64_be(1);
         let job_logs: Vec<(u64, Log)> = vec![
             (0, Action::Open, ("{\"region\":\"ap-south-1\",\"instance\":\"c6a.vsmall\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
@@ -1542,6 +1552,8 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn test_min_rate() {
+        let _ = market::START.set(Instant::now());
+
         let job_num = H256::from_low_u64_be(1);
         let job_logs: Vec<(u64, Log)> = vec![
             (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),1,1001,1).encode()),
@@ -1581,6 +1593,8 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn test_rate_exceed_balance() {
+        let _ = market::START.set(Instant::now());
+
         let job_num = H256::from_low_u64_be(1);
         let job_logs: Vec<(u64, Log)> = vec![
             (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,0,1).encode()),
@@ -1620,6 +1634,8 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn test_withdrawal_exceed_rate() {
+        let _ = market::START.set(Instant::now());
+
         let job_num = H256::from_low_u64_be(1);
         let job_logs: Vec<(u64, Log)> = vec![
             (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
@@ -1685,6 +1701,8 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn test_revise_rate_lower_higher() {
+        let _ = market::START.set(Instant::now());
+
         let job_num = H256::from_low_u64_be(1);
         let job_logs: Vec<(u64, Log)> = vec![
             (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
@@ -1752,6 +1770,8 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn test_address_whitelisted() {
+        let _ = market::START.set(Instant::now());
+
         let job_num = H256::from_low_u64_be(1);
         let job_logs: Vec<(u64, Log)> = vec![
             (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
@@ -1818,6 +1838,8 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn test_address_not_whitelisted() {
+        let _ = market::START.set(Instant::now());
+
         let job_num = H256::from_low_u64_be(1);
         let job_logs: Vec<(u64, Log)> = vec![
             (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
@@ -1859,6 +1881,8 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn test_address_blacklisted() {
+        let _ = market::START.set(Instant::now());
+
         let job_num = H256::from_low_u64_be(1);
         let job_logs: Vec<(u64, Log)> = vec![
             (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
@@ -1900,6 +1924,8 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn test_address_not_blacklisted() {
+        let _ = market::START.set(Instant::now());
+
         let job_num = H256::from_low_u64_be(1);
         let job_logs: Vec<(u64, Log)> = vec![
             (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
@@ -1967,6 +1993,8 @@ mod tests {
     // Tests for whitelist blacklist checks
     #[tokio::test]
     async fn test_whitelist_blacklist_check_no_list() {
+        let _ = market::START.set(Instant::now());
+
         let log = test::get_log(Action::Open,
             Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
             H256::zero());
@@ -1982,6 +2010,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_whitelist_blacklist_check_whitelisted() {
+        let _ = market::START.set(Instant::now());
+
         let log = test::get_log(Action::Open,
             Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
             H256::zero());
@@ -2000,6 +2030,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_whitelist_blacklist_check_not_whitelisted() {
+        let _ = market::START.set(Instant::now());
+
         let log = test::get_log(Action::Open,
             Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
             H256::zero());
@@ -2018,6 +2050,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_whitelist_blacklist_check_blacklisted() {
+        let _ = market::START.set(Instant::now());
+
         let log = test::get_log(Action::Open,
             Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
             H256::zero());
@@ -2036,6 +2070,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_whitelist_blacklist_check_not_blacklisted() {
+        let _ = market::START.set(Instant::now());
+
         let log = test::get_log(Action::Open,
             Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
             H256::zero());
@@ -2054,6 +2090,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_whitelist_blacklist_check_neither() {
+        let _ = market::START.set(Instant::now());
+
         let log = test::get_log(Action::Open,
             Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
             H256::zero());
@@ -2075,6 +2113,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_whitelist_blacklist_check_both() {
+        let _ = market::START.set(Instant::now());
+
         let log = test::get_log(Action::Open,
             Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),30,1001,1).encode()),
             H256::zero());

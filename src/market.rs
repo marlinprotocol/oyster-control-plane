@@ -2074,7 +2074,7 @@ mod tests {
 
     #[test]
     fn test_parse_compute_rates() {
-        let contents = "[{\"region\": \"ap-south-1\", \"rate_cards\": [{\"instance\": \"c6a.48xlarge\", \"min_rate\": \"2469600000000000000000\"}, {\"instance\": \"m7g.xlarge\", \"min_rate\": \"150000000\"}]}]";
+        let contents = "[{\"region\": \"ap-south-1\", \"rate_cards\": [{\"instance\": \"c6a.48xlarge\", \"min_rate\": \"2469600000000000000000\", \"cpu\": 192, \"memory\": 384, \"arch\": \"amd64\"}, {\"instance\": \"m7g.xlarge\", \"min_rate\": \"150000000\", \"cpu\": 4, \"memory\": 8, \"arch\": \"arm64\"}]}]";
         let rates: Vec<market::RegionalRates> = serde_json::from_str(&contents).unwrap();
 
         assert_eq!(rates.len(), 1);
@@ -2095,7 +2095,7 @@ mod tests {
                         min_rate: U256::from(150000000u64),
                         cpu: 4,
                         memory: 8,
-                        arch: String::from("amd64")
+                        arch: String::from("arm64")
                     }
                 ]
             }

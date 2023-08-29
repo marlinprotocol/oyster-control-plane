@@ -14,7 +14,6 @@ use crate::market::{InfraProvider, RegionalRates};
 
 enum Error {
     GetIPFail,
-    GetSpecFail,
 }
 
 impl IntoResponse for Error {
@@ -57,7 +56,7 @@ async fn handle_ip_request(
         Arc<(
             impl InfraProvider + Send + Sync + Clone,
             Vec<String>,
-            String,
+            &'static [RegionalRates],
         )>,
     >,
     Query(query): Query<GetIPRequest>,
@@ -83,37 +82,26 @@ async fn handle_spec_request(
         Arc<(
             impl InfraProvider + Send + Sync + Clone,
             Vec<String>,
-            String,
+            &'static [RegionalRates],
         )>,
     >,
 ) -> HandlerResult<Json<SpecResponse>> {
     let regions = &state.1;
-    let rates_path = &state.2;
+    let rates = state.2;
 
-    let contents = fs::read_to_string(rates_path);
+    let res = SpecResponse {
+        allowed_regions: regions.to_owned(),
+        min_rates: rates.to_owned(),
+    };
 
-    if let Err(err) = contents {
-        println!("Server: Error reading rates file: {err:?}");
-    } else {
-        let contents = contents.unwrap();
-        let data: Vec<RegionalRates> = serde_json::from_str(&contents).unwrap_or_default();
-        if !data.is_empty() {
-            let res = SpecResponse {
-                allowed_regions: regions.to_owned(),
-                min_rates: data,
-            };
-
-            return Ok(Json(res));
-        }
-    }
-    return Err(Error::GetSpecFail);
+    return Ok(Json(res));
 }
 
 fn all_routes(
     state: Arc<(
         impl InfraProvider + Send + Sync + Clone + 'static,
         Vec<String>,
-        String,
+        &'static [RegionalRates],
     )>,
 ) -> Router {
     Router::new()
@@ -125,9 +113,9 @@ fn all_routes(
 pub async fn serve(
     client: impl InfraProvider + Send + Sync + Clone + 'static,
     regions: Vec<String>,
-    rates_path: String,
+    rates: &'static [RegionalRates],
 ) {
-    let state = Arc::from((client, regions, rates_path));
+    let state = Arc::from((client, regions, rates));
 
     let router = Router::new().merge(all_routes(state));
 

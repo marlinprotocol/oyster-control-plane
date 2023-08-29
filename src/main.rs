@@ -136,24 +136,6 @@ pub async fn main() -> Result<()> {
             .context("Failed to setup key pair in {region}")?;
     }
 
-    tokio::spawn(server::serve(
-        aws.clone(),
-        regions.clone(),
-        cli.rates.clone(),
-    ));
-
-    let ethers = market::EthersProvider {
-        contract: cli
-            .contract
-            .clone()
-            .parse::<Address>()
-            .context("failed to parse contract address")?,
-        provider: cli
-            .provider
-            .parse::<Address>()
-            .context("failed to parse provider address")?,
-    };
-
     let compute_rates = parse_compute_rates_file(cli.rates)
         .await
         .context("failed to parse computes rates file")?;
@@ -177,6 +159,20 @@ pub async fn main() -> Result<()> {
         Box::leak(bandwidth_rates.into_boxed_slice());
     let address_whitelist: &'static [String] = Box::leak(address_whitelist_vec.into_boxed_slice());
     let address_blacklist: &'static [String] = Box::leak(address_blacklist_vec.into_boxed_slice());
+
+    tokio::spawn(server::serve(aws.clone(), regions.clone(), compute_rates));
+
+    let ethers = market::EthersProvider {
+        contract: cli
+            .contract
+            .clone()
+            .parse::<Address>()
+            .context("failed to parse contract address")?,
+        provider: cli
+            .provider
+            .parse::<Address>()
+            .context("failed to parse provider address")?,
+    };
 
     market::run(
         aws,

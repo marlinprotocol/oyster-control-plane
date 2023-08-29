@@ -333,7 +333,7 @@ impl Aws {
                 if entry.contains("tbf")
                     && entry
                         .to_lowercase()
-                        .contains(&format!("rate {}mbit burst 4000mb lat 100ms", bandwidth))
+                        .contains(&format!("rate {}kbit burst 4000mb lat 100ms", bandwidth))
                 {
                     println!("Bandwidth limit already set");
                     is_qdisc_config_set = true;
@@ -360,7 +360,7 @@ impl Aws {
                         + &interface
                         + " root tbf rate "
                         + &bandwidth.to_string()
-                        + "mbit burst 4000Mb latency 100ms"),
+                        + "kbit burst 4000Mb latency 100ms"),
                 )?;
 
                 if !stderr.is_empty() {

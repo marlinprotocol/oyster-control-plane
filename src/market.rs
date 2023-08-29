@@ -848,7 +848,7 @@ impl JobState {
                             let gb_cost = entry.rate;
                             let bandwidth_rate = self.rate - self.min_rate;
 
-                            self.bandwidth = ((bandwidth_rate * 1024 * 8 / gb_cost) as U256)
+                            self.bandwidth = ((bandwidth_rate * 1024 * 1024 * 8 / gb_cost) as U256)
                                 .clamp(U256::zero(), u64::MAX.into())
                                 .low_u64();
                             break;

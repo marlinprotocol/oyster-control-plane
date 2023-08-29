@@ -41,11 +41,7 @@ pub trait InfraProvider {
         region: String,
     ) -> Result<(bool, String, String)>;
 
-    async fn get_ip_from_instance_id(
-        &mut self,
-        instance_id: &str,
-        region: String,
-    ) -> Result<String>;
+    async fn get_ip_from_job_id(&mut self, job: &str, region: String) -> Result<String>;
 
     async fn check_instance_running(&mut self, instance_id: &str, region: String) -> Result<bool>;
 
@@ -107,12 +103,8 @@ where
         (**self).get_job_instance(job, region).await
     }
 
-    async fn get_ip_from_instance_id(
-        &mut self,
-        instance_id: &str,
-        region: String,
-    ) -> Result<String> {
-        (**self).get_ip_from_instance_id(instance_id, region).await
+    async fn get_ip_from_job_id(&mut self, job: &str, region: String) -> Result<String> {
+        (**self).get_ip_from_job_id(job, region).await
     }
 
     async fn check_instance_running(&mut self, instance_id: &str, region: String) -> Result<bool> {
@@ -190,6 +182,9 @@ pub struct RateCard {
     pub instance: String,
     #[serde(deserialize_with = "deserialize_stringified_numeric")]
     pub min_rate: U256,
+    pub cpu: u32,
+    pub memory: u32,
+    pub arch: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -2097,10 +2092,16 @@ mod tests {
                     market::RateCard {
                         instance: "c6a.48xlarge".to_owned(),
                         min_rate: U256::from_dec_str("2469600000000000000000").unwrap(),
+                        cpu: 192,
+                        memory: 384,
+                        arch: String::from("amd64")
                     },
                     market::RateCard {
                         instance: "m7g.xlarge".to_owned(),
                         min_rate: U256::from(150000000u64),
+                        cpu: 4,
+                        memory: 8,
+                        arch: String::from("amd64")
                     }
                 ]
             }

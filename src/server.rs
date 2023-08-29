@@ -1,6 +1,6 @@
-use std::{fs, net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc};
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use axum::{
     extract::{Query, State},
     http::StatusCode,
@@ -14,8 +14,6 @@ use crate::market::{GBRateCard, InfraProvider, RegionalRates};
 
 enum Error {
     GetIPFail,
-    GetSpecFail,
-    GetBandwidthFail,
 }
 
 impl IntoResponse for Error {
@@ -53,13 +51,7 @@ async fn get_ip(
     job_id: &str,
     region: String,
 ) -> Result<String> {
-    let instance = client.get_job_instance(job_id, region.clone()).await?;
-
-    if !instance.0 {
-        return Err(anyhow!("Instance not found for job - {job_id}"));
-    }
-
-    let ip = client.get_ip_from_instance_id(&instance.1, region).await?;
+    let ip = client.get_ip_from_job_id(job_id, region).await?;
 
     Ok(ip)
 }
@@ -69,19 +61,19 @@ async fn handle_ip_request(
         Arc<(
             impl InfraProvider + Send + Sync + Clone,
             Vec<String>,
-            String,
-            String,
+            &'static [RegionalRates],
+            &'static [GBRateCard],
         )>,
     >,
     Query(query): Query<GetIPRequest>,
 ) -> HandlerResult<Json<GetIPResponse>> {
-    let client = state.0.clone();
+    let client = &state.0;
 
     if !query.id.is_some() || !query.region.is_some() {
         return Err(Error::GetIPFail);
     }
 
-    let ip = get_ip(client, &query.id.unwrap(), query.region.unwrap()).await;
+    let ip = get_ip(client.clone(), &query.id.unwrap(), query.region.unwrap()).await;
     if ip.is_err() {
         return Err(Error::GetIPFail);
     }
@@ -96,31 +88,20 @@ async fn handle_spec_request(
         Arc<(
             impl InfraProvider + Send + Sync + Clone,
             Vec<String>,
-            String,
-            String,
+            &'static [RegionalRates],
+            &'static [GBRateCard],
         )>,
     >,
 ) -> HandlerResult<Json<SpecResponse>> {
     let regions = &state.1;
-    let rates_path = &state.2;
+    let rates = state.2;
 
-    let contents = fs::read_to_string(rates_path);
+    let res = SpecResponse {
+        allowed_regions: regions.to_owned(),
+        min_rates: rates.to_owned(),
+    };
 
-    if let Err(err) = contents {
-        println!("Server: Error reading rates file: {err:?}");
-    } else {
-        let contents = contents.unwrap();
-        let data: Vec<RegionalRates> = serde_json::from_str(&contents).unwrap_or_default();
-        if !data.is_empty() {
-            let res = SpecResponse {
-                allowed_regions: regions.to_owned(),
-                min_rates: data,
-            };
-
-            return Ok(Json(res));
-        }
-    }
-    return Err(Error::GetSpecFail);
+    return Ok(Json(res));
 }
 
 async fn handle_bandwidth_request(
@@ -128,35 +109,25 @@ async fn handle_bandwidth_request(
         Arc<(
             impl InfraProvider + Send + Sync + Clone,
             Vec<String>,
-            String,
-            String,
+            &'static [RegionalRates],
+            &'static [GBRateCard],
         )>,
     >,
 ) -> HandlerResult<Json<BandwidthResponse>> {
-    let bandwidth_path = &state.3;
+    let bandwidth = state.3;
+    let res = BandwidthResponse {
+        rates: bandwidth.to_owned(),
+    };
 
-    let contents = fs::read_to_string(bandwidth_path);
-
-    if let Err(err) = contents {
-        println!("Server: Error reading bandwidth rates file: {err:?}");
-    } else {
-        let contents = contents.unwrap();
-        let data: Vec<GBRateCard> = serde_json::from_str(&contents).unwrap_or_default();
-        if !data.is_empty() {
-            let res = BandwidthResponse { rates: data };
-
-            return Ok(Json(res));
-        }
-    }
-    return Err(Error::GetBandwidthFail);
+    return Ok(Json(res));
 }
 
-fn all_routes<'a>(
+fn all_routes(
     state: Arc<(
         impl InfraProvider + Send + Sync + Clone + 'static,
         Vec<String>,
-        String,
-        String,
+        &'static [RegionalRates],
+        &'static [GBRateCard],
     )>,
 ) -> Router {
     Router::new()
@@ -169,10 +140,10 @@ fn all_routes<'a>(
 pub async fn serve(
     client: impl InfraProvider + Send + Sync + Clone + 'static,
     regions: Vec<String>,
-    rates_path: String,
-    bandwidth_path: String,
+    rates: &'static [RegionalRates],
+    bandwidth: &'static [GBRateCard],
 ) {
-    let state = Arc::from((client, regions, rates_path, bandwidth_path));
+    let state = Arc::from((client, regions, rates, bandwidth));
 
     let router = Router::new().merge(all_routes(state));
 

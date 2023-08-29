@@ -7,12 +7,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use anyhow::{Context, Result};
-use std::time::SystemTime;
 use tokio::time::sleep;
 use tokio::time::{Duration, Instant};
 use tokio_stream::Stream;
 
 use ethers::types::Log;
+
+// IMPORTANT: do not import SystemTime, use the now_timestamp helper
 
 // Basic architecture:
 // One future listening to new jobs
@@ -462,9 +463,7 @@ impl JobState {
             contract_address,
             chain_id,
             balance: U256::from(360),
-            last_settled: SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap(),
+            last_settled: now_timestamp(),
             rate: U256::one(),
             original_rate: U256::one(),
             instance_id: String::new(),
@@ -482,7 +481,7 @@ impl JobState {
     }
 
     fn insolvency_duration(&self) -> Duration {
-        let now_ts = SystemTime::UNIX_EPOCH.elapsed().unwrap();
+        let now_ts = now_timestamp();
         let sat_convert = |n: U256| n.clamp(U256::zero(), u64::MAX.into()).low_u64();
 
         if self.rate == U256::zero() {
@@ -725,7 +724,7 @@ impl JobState {
                 <(String, U256, U256, U256)>::decode(&log.data)
             {
                 println!(
-                    "job {job}: OPENED: metadata: {metadata}, rate: {_rate}, balance: {_balance}, timestamp: {}",
+                    "job {job}: OPENED: metadata: {metadata}, rate: {_rate}, balance: {_balance}, timestamp: {timestamp}, {}",
                     self.last_settled.as_secs()
                 );
 

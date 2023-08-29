@@ -1110,6 +1110,23 @@ async fn job_logs(
     Ok(Box::new(stream))
 }
 
+#[cfg(not(test))]
+fn now_timestamp() -> Duration {
+    // import here to ensure it is used only through this function
+    use std::time::SystemTime;
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+}
+
+#[cfg(test)]
+static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+
+#[cfg(test)]
+fn now_timestamp() -> Duration {
+    Instant::now() - *START.get().unwrap()
+}
+
 // --------------------------------------------------------------------------------------------------------------------------------------------------------
 //                                                                  TESTS
 // --------------------------------------------------------------------------------------------------------------------------------------------------------

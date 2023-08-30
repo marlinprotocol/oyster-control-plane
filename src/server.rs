@@ -61,11 +61,11 @@ async fn handle_ip_request(
     >,
     Query(query): Query<GetIPRequest>,
 ) -> HandlerResult<Json<GetIPResponse>> {
-    let client = &state.0;
-
     if !query.id.is_some() || !query.region.is_some() {
         return Err(Error::GetIPFail);
     }
+
+    let client = &state.0;
 
     let ip = get_ip(client.clone(), &query.id.unwrap(), query.region.unwrap()).await;
     if ip.is_err() {

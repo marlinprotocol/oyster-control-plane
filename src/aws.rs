@@ -316,57 +316,30 @@ impl Aws {
         }
 
         if !interface.is_empty() {
-            let (stdout, stderr) = Self::ssh_exec(
+            // remove previously defined rules
+            let (_, stderr) = Self::ssh_exec(
                 sess,
-                &("sudo tc qdisc show dev ".to_owned() + &interface + " root"),
-            )
-            .context("Failed to fetch tc config")?;
-            if !stderr.is_empty() || stdout.is_empty() {
+                &("sudo tc qdisc del dev ".to_owned() + &interface + " root"),
+            )?;
+            if !stderr.is_empty() {
                 println!("{stderr}");
                 return Err(anyhow!(
-                    "Error fetching network interface qdisc configuration: {stderr}"
+                    "Error removing network interface qdisc configuration: {stderr}"
                 ));
             }
-            let entries: Vec<&str> = stdout.trim().split('\n').collect();
-            let mut is_qdisc_config_set = false;
-            for entry in entries {
-                if entry.contains("tbf")
-                    && entry
-                        .to_lowercase()
-                        .contains(&format!("rate {}mbit burst 4000mb lat 100ms", bandwidth))
-                {
-                    println!("Bandwidth limit already set");
-                    is_qdisc_config_set = true;
-                    break;
-                }
-            }
 
-            if !is_qdisc_config_set {
-                // remove previously defined rules
-                let (_, stderr) = Self::ssh_exec(
-                    sess,
-                    &("sudo tc qdisc del dev ".to_owned() + &interface + " root"),
-                )?;
-                if !stderr.is_empty() {
-                    println!("{stderr}");
-                    return Err(anyhow!(
-                        "Error removing network interface qdisc configuration: {stderr}"
-                    ));
-                }
+            let (_, stderr) = Self::ssh_exec(
+                sess,
+                &("sudo tc qdisc add dev ".to_owned()
+                    + &interface
+                    + " root tbf rate "
+                    + &bandwidth.to_string()
+                    + "kbit burst 4000Mb latency 100ms"),
+            )?;
 
-                let (_, stderr) = Self::ssh_exec(
-                    sess,
-                    &("sudo tc qdisc add dev ".to_owned()
-                        + &interface
-                        + " root tbf rate "
-                        + &bandwidth.to_string()
-                        + "mbit burst 4000Mb latency 100ms"),
-                )?;
-
-                if !stderr.is_empty() {
-                    println!("{stderr}");
-                    return Err(anyhow!("Error setting up bandwidth limit: {stderr}"));
-                }
+            if !stderr.is_empty() {
+                println!("{stderr}");
+                return Err(anyhow!("Error setting up bandwidth limit: {stderr}"));
             }
         } else {
             return Err(anyhow!("Error fetching network interface name"));
@@ -729,24 +702,25 @@ impl Aws {
             .await
             .context("could not describe instances")?;
         // response parsing from here
-        let instances = res
+        let reservations = res
             .reservations()
-            .ok_or(anyhow!("could not parse reservations"))?
-            .first()
-            .ok_or(anyhow!("reservation not found"))?
-            .instances()
-            .ok_or(anyhow!("could not parse instances"))?;
+            .ok_or(anyhow!("could not parse reservations"))?;
 
-        if instances.is_empty() {
+        if reservations.is_empty() {
             Ok((false, "".to_owned(), "".to_owned()))
         } else {
+            let instance = reservations[0]
+                .instances()
+                .ok_or(anyhow!("could not parse instances"))?
+                .first()
+                .ok_or(anyhow!("instance not found"))?;
             Ok((
                 true,
-                instances[0]
+                instance
                     .instance_id()
                     .ok_or(anyhow!("could not parse ip address"))?
                     .to_string(),
-                instances[0]
+                instance
                     .state()
                     .ok_or(anyhow!("could not parse instance state"))?
                     .name()

@@ -5,12 +5,11 @@ use ethers::prelude::*;
 use ethers::types::Log;
 use ethers::utils::keccak256;
 use std::collections::HashMap;
-use std::fs;
 use std::str::FromStr;
 use tokio::time::{Duration, Instant};
 use tokio_stream::{Stream, StreamExt};
 
-use crate::market::{GBRateCard, InfraProvider, LogsProvider, RegionalRates};
+use crate::market::{GBRateCard, InfraProvider, LogsProvider, RateCard, RegionalRates};
 
 #[cfg(test)]
 #[derive(Clone, Debug)]
@@ -199,31 +198,26 @@ pub enum Action {
 }
 
 #[cfg(test)]
-pub fn get_rates() -> Option<Vec<RegionalRates>> {
-    let file_path = "./rates.json";
-    let contents = fs::read_to_string(file_path);
-
-    if let Err(err) = contents {
-        println!("Error reading rates file : {err}");
-        return None;
-    }
-    let contents = contents.unwrap();
-    let rates: Vec<RegionalRates> = serde_json::from_str(&contents).unwrap_or_default();
-    Some(rates)
+pub fn get_rates() -> Vec<RegionalRates> {
+    vec![RegionalRates {
+        region: "ap-south-1".to_owned(),
+        rate_cards: vec![RateCard {
+            instance: "c6a.xlarge".to_owned(),
+            min_rate: U256::from_dec_str("29997916666666").unwrap(),
+            cpu: 4,
+            memory: 8,
+            arch: String::from("amd64"),
+        }],
+    }]
 }
 
 #[cfg(test)]
-pub fn get_gb_rates() -> Option<Vec<GBRateCard>> {
-    let file_path = "./GB_rates.json";
-    let contents = fs::read_to_string(file_path);
-
-    if let Err(err) = contents {
-        println!("Error reading rates file : {err}");
-        return None;
-    }
-    let contents = contents.unwrap();
-    let rates: Vec<GBRateCard> = serde_json::from_str(&contents).unwrap_or_default();
-    Some(rates)
+pub fn get_gb_rates() -> Vec<GBRateCard> {
+    vec![GBRateCard {
+        region: "Asia South (Mumbai)".to_owned(),
+        region_code: "ap-south-1".to_owned(),
+        rate: U256::from_dec_str("109300000000000000").unwrap(),
+    }]
 }
 
 #[cfg(test)]

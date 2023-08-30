@@ -315,30 +315,34 @@ impl Aws {
             }
         }
 
-        // remove previously defined rules
-        let (_, stderr) = Self::ssh_exec(
-            sess,
-            &("sudo tc qdisc del dev ".to_owned() + &interface + " root"),
-        )?;
-        if !stderr.is_empty() {
-            println!("{stderr}");
-            return Err(anyhow!(
-                "Error removing network interface qdisc configuration: {stderr}"
-            ));
-        }
+        if !interface.is_empty() {
+            // remove previously defined rules
+            let (_, stderr) = Self::ssh_exec(
+                sess,
+                &("sudo tc qdisc del dev ".to_owned() + &interface + " root"),
+            )?;
+            if !stderr.is_empty() {
+                println!("{stderr}");
+                return Err(anyhow!(
+                    "Error removing network interface qdisc configuration: {stderr}"
+                ));
+            }
 
-        let (_, stderr) = Self::ssh_exec(
-            sess,
-            &("sudo tc qdisc add dev ".to_owned()
-                + &interface
-                + " root tbf rate "
-                + &bandwidth.to_string()
-                + "kbit burst 4000Mb latency 100ms"),
-        )?;
+            let (_, stderr) = Self::ssh_exec(
+                sess,
+                &("sudo tc qdisc add dev ".to_owned()
+                    + &interface
+                    + " root tbf rate "
+                    + &bandwidth.to_string()
+                    + "kbit burst 4000Mb latency 100ms"),
+            )?;
 
-        if !stderr.is_empty() {
-            println!("{stderr}");
-            return Err(anyhow!("Error setting up bandwidth limit: {stderr}"));
+            if !stderr.is_empty() {
+                println!("{stderr}");
+                return Err(anyhow!("Error setting up bandwidth limit: {stderr}"));
+            }
+        } else {
+            return Err(anyhow!("Error fetching network interface name"));
         }
 
         let iptables_rules: [&str; 4] = [

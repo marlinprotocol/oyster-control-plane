@@ -729,14 +729,14 @@ impl Aws {
             .await
             .context("could not describe instances")?;
         // response parsing from here
-        let instances = res
+        let reservations = res
             .reservations()
             .ok_or(anyhow!("could not parse reservations"))?;
 
-        if instances.is_empty() {
+        if reservations.is_empty() {
             Ok((false, "".to_owned(), "".to_owned()))
         } else {
-            let instance = instances[0]
+            let instance = reservations[0]
                 .instances()
                 .ok_or(anyhow!("could not parse instances"))?
                 .first()

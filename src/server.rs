@@ -42,11 +42,11 @@ struct SpecResponse {
 }
 
 async fn get_ip(
-    mut client: impl InfraProvider + Send + Sync + Clone,
+    client: &(impl InfraProvider + Send + Sync + Clone),
     job_id: &str,
     region: String,
 ) -> Result<String> {
-    let ip = client.get_ip_from_job_id(job_id, region).await?;
+    let ip = client.get_job_ip(job_id, region).await?;
 
     Ok(ip)
 }
@@ -67,7 +67,7 @@ async fn handle_ip_request(
 
     let client = &state.0;
 
-    let ip = get_ip(client.clone(), &query.id.unwrap(), query.region.unwrap()).await;
+    let ip = get_ip(client, &query.id.unwrap(), query.region.unwrap()).await;
     if ip.is_err() {
         return Err(Error::GetIPFail);
     }
@@ -150,7 +150,7 @@ mod tests {
         let job_id = H256::from_low_u64_be(1).encode_hex();
         let region = "ap-south-1".to_string();
 
-        let res = get_ip(aws.clone(), &job_id, region).await;
+        let res = get_ip(&aws, &job_id, region).await;
         assert!(res.is_ok());
 
         let res = res.unwrap();
@@ -174,7 +174,7 @@ mod tests {
         let job_id = H256::from_low_u64_be(5).encode_hex();
         let region = "ap-south-1".to_string();
 
-        let res = get_ip(aws.clone(), &job_id, region).await;
+        let res = get_ip(&aws, &job_id, region).await;
         assert!(res.is_err());
 
         let err = res.as_ref().unwrap_err().to_string();
@@ -188,7 +188,7 @@ mod tests {
         let job_id = H256::from_low_u64_be(1).encode_hex();
         let region = "ap-south-1".to_string();
 
-        let res = get_ip(aws, &job_id, region).await;
+        let res = get_ip(&aws, &job_id, region).await;
         assert!(res.is_err());
 
         let err = res.as_ref().unwrap_err().to_string();

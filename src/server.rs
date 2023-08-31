@@ -142,12 +142,13 @@ pub async fn serve(
     regions: Vec<String>,
     rates: &'static [RegionalRates],
     bandwidth: &'static [GBRateCard],
+    port: Option<u16>,
 ) {
     let state = Arc::from((client, regions, rates, bandwidth));
 
     let router = Router::new().merge(all_routes(state));
-
-    let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
+    let port = port.unwrap_or(8080);
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
     println!("Listening for connections on {}", addr);
     axum::Server::bind(&addr)
         .serve(router.into_make_service())
@@ -157,10 +158,13 @@ pub async fn serve(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{get_ip, serve};
 
+    use anyhow;
     use ethers::{abi::AbiEncode, prelude::*};
+    use serde_json::json;
 
+    use crate::market::{GBRateCard, RateCard, RegionalRates};
     use crate::test::{InstanceMetadata, TestAws};
 
     #[tokio::test]
@@ -221,5 +225,106 @@ mod tests {
 
         let err = res.as_ref().unwrap_err().to_string();
         assert_eq!(err, format!("Instance not found for job - {job_id}"));
+    }
+
+    #[tokio::test]
+    async fn test_handle_spec_request() -> anyhow::Result<()> {
+        let aws: TestAws = Default::default();
+        let regions: Vec<String> = vec![String::from("ap-south-1")];
+        let compute_rates: &'static [RegionalRates] = Box::leak(
+            vec![RegionalRates {
+                region: String::from("ap-south-1"),
+                rate_cards: vec![
+                    RateCard {
+                        instance: String::from("m5a.16xlarge"),
+                        min_rate: U256::try_from(810833333333333 as i64)?,
+                        cpu: 64,
+                        memory: 256,
+                        arch: String::from("amd64"),
+                    },
+                    RateCard {
+                        instance: String::from("c6g.16xlarge"),
+                        min_rate: U256::try_from(640722222222222 as i64)?,
+                        cpu: 64,
+                        memory: 128,
+                        arch: String::from("arm64"),
+                    },
+                    RateCard {
+                        instance: String::from("c6i.4xlarge"),
+                        min_rate: U256::try_from(207777777777777 as i64)?,
+                        cpu: 16,
+                        memory: 32,
+                        arch: String::from("amd64"),
+                    },
+                ],
+            }]
+            .into_boxed_slice(),
+        );
+
+        let bandwidth_rates: &'static [GBRateCard] = Box::leak(vec![].into_boxed_slice());
+        let port = Some(8081);
+        tokio::spawn(serve(aws, regions, compute_rates, bandwidth_rates, port));
+
+        let hc = httpc_test::new_client(format!("http://localhost:{}", port.unwrap()))?;
+
+        let res = hc.do_get("/spec").await?;
+        assert_eq!(res.status(), 200);
+
+        let body = res.json_body();
+        assert!(body.is_ok());
+
+        let body = json!(body.unwrap());
+        let body: Vec<RegionalRates> =
+            serde_json::from_value(body.get("min_rates").unwrap().clone()).unwrap();
+
+        assert_eq!(body, compute_rates);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_handle_bandwidth_request() -> anyhow::Result<()> {
+        let aws: TestAws = Default::default();
+        let regions: Vec<String> = vec![String::from("ap-south-1")];
+        let compute_rates: &'static [RegionalRates] = Box::leak(vec![].into_boxed_slice());
+
+        let bandwidth_rates: &'static [GBRateCard] = Box::leak(
+            vec![
+                GBRateCard {
+                    region: String::from("US East (Ohio)"),
+                    region_code: String::from("us-east-2"),
+                    rate: U256::try_from(90000000000000000 as i64)?,
+                },
+                GBRateCard {
+                    region: String::from("US East (N. Virginia)"),
+                    region_code: String::from("us-east-1"),
+                    rate: U256::try_from(90000000000000000 as i64)?,
+                },
+                GBRateCard {
+                    region: String::from("US West (N. California)"),
+                    region_code: String::from("us-west-1"),
+                    rate: U256::try_from(90000000000000000 as i64)?,
+                },
+            ]
+            .into_boxed_slice(),
+        );
+        let port = Some(8082);
+        tokio::spawn(serve(aws, regions, compute_rates, bandwidth_rates, port));
+
+        let hc = httpc_test::new_client(format!("http://localhost:{}", port.unwrap()))?;
+
+        let res = hc.do_get("/bandwidth").await?;
+        assert_eq!(res.status(), 200);
+
+        let body = res.json_body();
+        assert!(body.is_ok());
+
+        let body = json!(body.unwrap());
+        let body: Vec<GBRateCard> =
+            serde_json::from_value(body.get("rates").unwrap().clone()).unwrap_or_default();
+
+        assert_eq!(body, bandwidth_rates);
+
+        Ok(())
     }
 }

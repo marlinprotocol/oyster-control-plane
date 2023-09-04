@@ -472,6 +472,7 @@ impl Aws {
     ) -> Result<String> {
         let req_client = reqwest::Client::builder()
             .no_gzip()
+            .timeout(Duration::from_secs(10))
             .build()
             .context("failed to build reqwest client")?;
         let size = req_client

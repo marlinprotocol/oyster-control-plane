@@ -1,6 +1,6 @@
-use std::{fs, net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc};
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use axum::{
     extract::{Query, State},
     http::StatusCode,
@@ -10,11 +10,10 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{aws::Aws, market::RegionalRates};
+use crate::market::{InfraProvider, RegionalRates};
 
 enum Error {
     GetIPFail,
-    GetSpecFail,
 }
 
 impl IntoResponse for Error {
@@ -42,72 +41,81 @@ struct SpecResponse {
     min_rates: Vec<RegionalRates>,
 }
 
-async fn get_ip(client: &Aws, id: &str, region: String) -> Result<String> {
-    let instance = client.get_job_instance_id(id, region.clone()).await?;
-
-    if !instance.0 {
-        return Err(anyhow!("Instance not found: {id}"));
-    }
-
-    let ip = client.get_instance_ip(&instance.1, region).await?;
+async fn get_ip(
+    client: &(impl InfraProvider + Send + Sync + Clone),
+    job_id: &str,
+    region: String,
+) -> Result<String> {
+    let ip = client.get_job_ip(job_id, region).await?;
 
     Ok(ip)
 }
 
 async fn handle_ip_request(
-    State(state): State<Arc<(Aws, Vec<String>, String)>>,
+    State(state): State<
+        Arc<(
+            impl InfraProvider + Send + Sync + Clone,
+            Vec<String>,
+            &'static [RegionalRates],
+        )>,
+    >,
     Query(query): Query<GetIPRequest>,
 ) -> HandlerResult<Json<GetIPResponse>> {
-    let client = &state.0;
-
     if !query.id.is_some() || !query.region.is_some() {
         return Err(Error::GetIPFail);
     }
+
+    let client = &state.0;
 
     let ip = get_ip(client, &query.id.unwrap(), query.region.unwrap()).await;
     if ip.is_err() {
         return Err(Error::GetIPFail);
     }
-    let ip = ip.unwrap();
+    let ip = ip.unwrap().to_string();
     let ip = GetIPResponse { ip };
 
     Ok(Json(ip))
 }
 
 async fn handle_spec_request(
-    State(state): State<Arc<(Aws, Vec<String>, String)>>,
+    State(state): State<
+        Arc<(
+            impl InfraProvider + Send + Sync + Clone,
+            Vec<String>,
+            &'static [RegionalRates],
+        )>,
+    >,
 ) -> HandlerResult<Json<SpecResponse>> {
     let regions = &state.1;
-    let rates_path = &state.2;
+    let rates = state.2;
 
-    let contents = fs::read_to_string(rates_path);
+    let res = SpecResponse {
+        allowed_regions: regions.to_owned(),
+        min_rates: rates.to_owned(),
+    };
 
-    if let Err(err) = contents {
-        println!("Server: Error reading rates file: {err:?}");
-    } else {
-        let contents = contents.unwrap();
-        let data: Vec<RegionalRates> = serde_json::from_str(&contents).unwrap_or_default();
-        if !data.is_empty() {
-            let res = SpecResponse {
-                allowed_regions: regions.to_owned(),
-                min_rates: data,
-            };
-
-            return Ok(Json(res));
-        }
-    }
-    return Err(Error::GetSpecFail);
+    return Ok(Json(res));
 }
 
-fn all_routes(state: Arc<(Aws, Vec<String>, String)>) -> Router {
+fn all_routes(
+    state: Arc<(
+        impl InfraProvider + Send + Sync + Clone + 'static,
+        Vec<String>,
+        &'static [RegionalRates],
+    )>,
+) -> Router {
     Router::new()
         .route("/ip", get(handle_ip_request))
         .route("/spec", get(handle_spec_request))
         .with_state(state)
 }
 
-pub async fn serve(client: Aws, regions: Vec<String>, rates_path: String) {
-    let state: Arc<(Aws, Vec<String>, String)> = Arc::from((client, regions, rates_path));
+pub async fn serve(
+    client: impl InfraProvider + Send + Sync + Clone + 'static,
+    regions: Vec<String>,
+    rates: &'static [RegionalRates],
+) {
+    let state = Arc::from((client, regions, rates));
 
     let router = Router::new().merge(all_routes(state));
 
@@ -117,4 +125,73 @@ pub async fn serve(client: Aws, regions: Vec<String>, rates_path: String) {
         .serve(router.into_make_service())
         .await
         .unwrap();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use ethers::{abi::AbiEncode, prelude::*};
+
+    use crate::test::{InstanceMetadata, TestAws};
+
+    #[tokio::test]
+    async fn test_get_ip_happy_case() {
+        let mut aws: TestAws = Default::default();
+
+        for id in 1..4 {
+            let temp_job_id = H256::from_low_u64_be(id).encode_hex();
+            let instance_metadata = InstanceMetadata::new(None, None).await;
+
+            aws.instances
+                .insert(temp_job_id.clone(), instance_metadata.clone());
+        }
+
+        let job_id = H256::from_low_u64_be(1).encode_hex();
+        let region = "ap-south-1".to_string();
+
+        let res = get_ip(&aws, &job_id, region).await;
+        assert!(res.is_ok());
+
+        let res = res.unwrap();
+
+        let actual_ip = &aws.instances.get_key_value(&job_id).unwrap().1.ip_address;
+        assert_eq!(&res, actual_ip)
+    }
+
+    #[tokio::test]
+    async fn test_get_ip_bad_case() {
+        let mut aws: TestAws = Default::default();
+
+        for id in 1..4 {
+            let temp_job_id = H256::from_low_u64_be(id).encode_hex();
+            let instance_metadata = InstanceMetadata::new(None, None).await;
+
+            aws.instances
+                .insert(temp_job_id.clone(), instance_metadata.clone());
+        }
+
+        let job_id = H256::from_low_u64_be(5).encode_hex();
+        let region = "ap-south-1".to_string();
+
+        let res = get_ip(&aws, &job_id, region).await;
+        assert!(res.is_err());
+
+        let err = res.as_ref().unwrap_err().to_string();
+        assert_eq!(err, format!("Instance not found for job - {job_id}"));
+    }
+
+    #[tokio::test]
+    async fn test_get_ip_bad_case_no_instances() {
+        let aws: TestAws = Default::default();
+
+        let job_id = H256::from_low_u64_be(1).encode_hex();
+        let region = "ap-south-1".to_string();
+
+        let res = get_ip(&aws, &job_id, region).await;
+        assert!(res.is_err());
+
+        let err = res.as_ref().unwrap_err().to_string();
+        assert_eq!(err, format!("Instance not found for job - {job_id}"));
+    }
 }

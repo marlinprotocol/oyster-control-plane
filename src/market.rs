@@ -36,11 +36,9 @@ pub trait InfraProvider {
 
     async fn spin_down(&mut self, instance_id: &str, job: String, region: String) -> Result<bool>;
 
-    async fn get_job_instance(
-        &mut self,
-        job: &str,
-        region: String,
-    ) -> Result<(bool, String, String)>;
+    async fn get_job_instance(&self, job: &str, region: String) -> Result<(bool, String, String)>;
+
+    async fn get_job_ip(&self, job: &str, region: String) -> Result<String>;
 
     async fn check_instance_running(&mut self, instance_id: &str, region: String) -> Result<bool>;
 
@@ -61,7 +59,7 @@ pub trait InfraProvider {
 #[async_trait]
 impl<'a, T> InfraProvider for &'a mut T
 where
-    T: InfraProvider + Send,
+    T: InfraProvider + Send + Sync,
 {
     async fn spin_up(
         &mut self,
@@ -94,12 +92,12 @@ where
         (**self).spin_down(instance_id, job, region).await
     }
 
-    async fn get_job_instance(
-        &mut self,
-        job: &str,
-        region: String,
-    ) -> Result<(bool, String, String)> {
+    async fn get_job_instance(&self, job: &str, region: String) -> Result<(bool, String, String)> {
         (**self).get_job_instance(job, region).await
+    }
+
+    async fn get_job_ip(&self, job: &str, region: String) -> Result<String> {
+        (**self).get_job_ip(job, region).await
     }
 
     async fn check_instance_running(&mut self, instance_id: &str, region: String) -> Result<bool> {

@@ -1157,15 +1157,27 @@ impl InfraProvider for Aws {
         Ok(true)
     }
 
-    async fn get_job_instance(
-        &mut self,
-        job: &str,
-        region: String,
-    ) -> Result<(bool, String, String)> {
+    async fn get_job_instance(&self, job: &str, region: String) -> Result<(bool, String, String)> {
         Ok(self
             .get_job_instance_id(job, region)
             .await
             .context("could not get instance id for job")?)
+    }
+
+    async fn get_job_ip(&self, job_id: &str, region: String) -> Result<String> {
+        let instance = self
+            .get_job_instance(job_id, region.clone())
+            .await
+            .context("could not get instance id for job instance ip")?;
+
+        if !instance.0 {
+            return Err(anyhow!("Instance not found for job - {job_id}"));
+        }
+
+        Ok(self
+            .get_instance_ip(&instance.1, region)
+            .await
+            .context("could not get instance ip")?)
     }
 
     async fn check_instance_running(&mut self, instance_id: &str, region: String) -> Result<bool> {

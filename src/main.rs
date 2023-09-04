@@ -160,7 +160,13 @@ pub async fn main() -> Result<()> {
     let address_whitelist: &'static [String] = Box::leak(address_whitelist_vec.into_boxed_slice());
     let address_blacklist: &'static [String] = Box::leak(address_blacklist_vec.into_boxed_slice());
 
-    tokio::spawn(server::serve(aws.clone(), regions.clone(), compute_rates));
+    tokio::spawn(server::serve(
+        aws.clone(),
+        regions.clone(),
+        compute_rates,
+        bandwidth_rates,
+        None,
+    ));
 
     let ethers = market::EthersProvider {
         contract: cli

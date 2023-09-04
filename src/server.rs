@@ -1,6 +1,3 @@
-use std::{net::SocketAddr, sync::Arc};
-
-use anyhow::Result;
 use axum::{
     extract::{Query, State},
     http::StatusCode,
@@ -9,6 +6,7 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use std::{net::SocketAddr, sync::Arc};
 
 use crate::market::{GBRateCard, InfraProvider, RegionalRates};
 
@@ -46,16 +44,6 @@ struct BandwidthResponse {
     rates: Vec<GBRateCard>,
 }
 
-async fn get_ip(
-    client: &(impl InfraProvider + Send + Sync + Clone),
-    job_id: &str,
-    region: String,
-) -> Result<String> {
-    let ip = client.get_job_ip(job_id, region).await?;
-
-    Ok(ip)
-}
-
 async fn handle_ip_request(
     State(state): State<
         Arc<(
@@ -73,7 +61,10 @@ async fn handle_ip_request(
 
     let client = &state.0;
 
-    let ip = get_ip(client, &query.id.unwrap(), query.region.unwrap()).await;
+    let ip = client
+        .get_job_ip(&query.id.unwrap(), query.region.unwrap())
+        .await;
+
     if ip.is_err() {
         return Err(Error::GetIPFail);
     }
@@ -158,7 +149,7 @@ pub async fn serve(
 
 #[cfg(test)]
 mod tests {
-    use super::{get_ip, serve};
+    use super::serve;
 
     use anyhow;
     use ethers::{abi::AbiEncode, prelude::*};
@@ -168,7 +159,7 @@ mod tests {
     use crate::test::{InstanceMetadata, TestAws};
 
     #[tokio::test]
-    async fn test_get_ip_happy_case() {
+    async fn test_get_ip_happy_case() -> anyhow::Result<()> {
         let mut aws: TestAws = Default::default();
 
         for id in 1..4 {
@@ -179,20 +170,45 @@ mod tests {
                 .insert(temp_job_id.clone(), instance_metadata.clone());
         }
 
+        let regions: Vec<String> = vec![String::from("ap-south-1")];
+        let compute_rates: &'static [RegionalRates] = Box::leak(vec![].into_boxed_slice());
+        let bandwidth_rates: &'static [GBRateCard] = Box::leak(vec![].into_boxed_slice());
+        let port = Some(8081);
+
+        tokio::spawn(serve(
+            aws.clone(),
+            regions,
+            compute_rates,
+            bandwidth_rates,
+            port,
+        ));
+
+        let hc = httpc_test::new_client(format!("http://localhost:{}", port.unwrap()))?;
+
         let job_id = H256::from_low_u64_be(1).encode_hex();
-        let region = "ap-south-1".to_string();
 
-        let res = get_ip(&aws, &job_id, region).await;
-        assert!(res.is_ok());
+        let res = hc
+            .do_get(&format!("/ip?id={}&region=ap-south-1", job_id))
+            .await?;
+        assert_eq!(res.status(), 200);
 
-        let res = res.unwrap();
+        let body = res.json_body();
+        assert!(body.is_ok());
+
+        let body = body.unwrap();
+        let ip = body.get("ip");
+        assert!(ip.is_some());
+
+        let ip = ip.unwrap();
 
         let actual_ip = &aws.instances.get_key_value(&job_id).unwrap().1.ip_address;
-        assert_eq!(&res, actual_ip)
+        assert_eq!(ip, actual_ip);
+
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_get_ip_bad_case() {
+    async fn test_get_ip_bad_case() -> anyhow::Result<()> {
         let mut aws: TestAws = Default::default();
 
         for id in 1..4 {
@@ -203,28 +219,69 @@ mod tests {
                 .insert(temp_job_id.clone(), instance_metadata.clone());
         }
 
+        let regions: Vec<String> = vec![String::from("ap-south-1")];
+        let compute_rates: &'static [RegionalRates] = Box::leak(vec![].into_boxed_slice());
+        let bandwidth_rates: &'static [GBRateCard] = Box::leak(vec![].into_boxed_slice());
+        let port = Some(8082);
+
+        tokio::spawn(serve(aws, regions, compute_rates, bandwidth_rates, port));
+
+        let hc = httpc_test::new_client(format!("http://localhost:{}", port.unwrap()))?;
+
         let job_id = H256::from_low_u64_be(5).encode_hex();
-        let region = "ap-south-1".to_string();
 
-        let res = get_ip(&aws, &job_id, region).await;
-        assert!(res.is_err());
+        let res = hc
+            .do_get(&format!("/ip?id={}&region=ap-south-1", job_id))
+            .await?;
+        assert_eq!(res.status(), 400);
 
-        let err = res.as_ref().unwrap_err().to_string();
-        assert_eq!(err, format!("Instance not found for job - {job_id}"));
+        let body = res.json_body();
+        assert!(body.is_err());
+
+        let body = res.text_body();
+        assert!(body.is_ok());
+
+        let err_message = body.unwrap();
+        assert_eq!(err_message, "BAD_REQUEST");
+
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_get_ip_bad_case_no_instances() {
+    async fn test_get_ip_bad_case_no_instances() -> anyhow::Result<()> {
         let aws: TestAws = Default::default();
+        let regions: Vec<String> = vec![String::from("ap-south-1")];
+        let compute_rates: &'static [RegionalRates] = Box::leak(vec![].into_boxed_slice());
+        let bandwidth_rates: &'static [GBRateCard] = Box::leak(vec![].into_boxed_slice());
+        let port = Some(8083);
+
+        tokio::spawn(serve(aws, regions, compute_rates, bandwidth_rates, port));
+
+        let hc = httpc_test::new_client(format!("http://localhost:{}", port.unwrap()))?;
+
+        let res = hc.do_get("/spec").await?;
+        assert_eq!(res.status(), 200);
+
+        let body = res.json_body();
+        assert!(body.is_ok());
 
         let job_id = H256::from_low_u64_be(1).encode_hex();
-        let region = "ap-south-1".to_string();
 
-        let res = get_ip(&aws, &job_id, region).await;
-        assert!(res.is_err());
+        let res = hc
+            .do_get(&format!("/ip?id={}&region=ap-south-1", job_id))
+            .await?;
+        assert_eq!(res.status(), 400);
 
-        let err = res.as_ref().unwrap_err().to_string();
-        assert_eq!(err, format!("Instance not found for job - {job_id}"));
+        let body = res.json_body();
+        assert!(body.is_err());
+
+        let body = res.text_body();
+        assert!(body.is_ok());
+
+        let err_message = body.unwrap();
+        assert_eq!(err_message, "BAD_REQUEST");
+
+        Ok(())
     }
 
     #[tokio::test]
@@ -262,7 +319,7 @@ mod tests {
         );
 
         let bandwidth_rates: &'static [GBRateCard] = Box::leak(vec![].into_boxed_slice());
-        let port = Some(8081);
+        let port = Some(8084);
         tokio::spawn(serve(aws, regions, compute_rates, bandwidth_rates, port));
 
         let hc = httpc_test::new_client(format!("http://localhost:{}", port.unwrap()))?;
@@ -308,7 +365,7 @@ mod tests {
             ]
             .into_boxed_slice(),
         );
-        let port = Some(8082);
+        let port = Some(8085);
         tokio::spawn(serve(aws, regions, compute_rates, bandwidth_rates, port));
 
         let hc = httpc_test::new_client(format!("http://localhost:{}", port.unwrap()))?;

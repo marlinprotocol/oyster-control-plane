@@ -1165,8 +1165,10 @@ impl InfraProvider for Aws {
     }
 
     async fn get_job_ip(&self, job_id: &str, region: String) -> Result<String> {
-        // Get the instance id for the job whose ip is required.
-        let instance = self.get_job_instance(job_id, region.clone()).await?;
+        let instance = self
+            .get_job_instance(job_id, region.clone())
+            .await
+            .context("could not get instance id for job instance ip")?;
 
         if !instance.0 {
             return Err(anyhow!("Instance not found for job - {job_id}"));

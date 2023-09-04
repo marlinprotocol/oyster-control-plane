@@ -316,16 +316,35 @@ impl Aws {
         }
 
         if !interface.is_empty() {
-            // remove previously defined rules
-            let (_, stderr) = Self::ssh_exec(
+            let (stdout, stderr) = Self::ssh_exec(
                 sess,
-                &("sudo tc qdisc del dev ".to_owned() + &interface + " root"),
-            )?;
-            if !stderr.is_empty() {
+                &("sudo tc qdisc show dev ".to_owned() + &interface + " root"),
+            )
+            .context("Failed to fetch tc config")?;
+            if !stderr.is_empty() || stdout.is_empty() {
                 println!("{stderr}");
                 return Err(anyhow!(
-                    "Error removing network interface qdisc configuration: {stderr}"
+                    "Error fetching network interface qdisc configuration: {stderr}"
                 ));
+            }
+            let entries: Vec<&str> = stdout.trim().split('\n').collect();
+            let mut is_any_rule_set = true;
+            if entries[0].to_lowercase().contains(&"qdisc mq 0: root") && entries.len() == 1 {
+                is_any_rule_set = false;
+            }
+
+            // remove previously defined rules
+            if is_any_rule_set {
+                let (_, stderr) = Self::ssh_exec(
+                    sess,
+                    &("sudo tc qdisc del dev ".to_owned() + &interface + " root"),
+                )?;
+                if !stderr.is_empty() {
+                    println!("{stderr}");
+                    return Err(anyhow!(
+                        "Error removing network interface qdisc configuration: {stderr}"
+                    ));
+                }
             }
 
             let (_, stderr) = Self::ssh_exec(

@@ -32,7 +32,7 @@ struct GetIPRequest {
 }
 
 #[derive(Debug, Serialize)]
-struct GetIPAndStatusResponse {
+struct GetIPResponse {
     ip: String,
     enclave_state: String,
     enclave_eif_prc: PRC,
@@ -59,7 +59,7 @@ async fn handle_ip_request(
         )>,
     >,
     Query(query): Query<GetIPRequest>,
-) -> HandlerResult<Json<GetIPAndStatusResponse>> {
+) -> HandlerResult<Json<GetIPResponse>> {
     if !query.id.is_some() || !query.region.is_some() {
         return Err(Error::GetIPFail);
     }
@@ -83,7 +83,7 @@ async fn handle_ip_request(
     }
     let enclave_data: (String, PRC) = enclave_data.unwrap();
 
-    let res = GetIPAndStatusResponse {
+    let res = GetIPResponse {
         ip,
         enclave_state: enclave_data.0,
         enclave_eif_prc: enclave_data.1,

@@ -18,7 +18,7 @@ use whoami::username;
 
 use crate::market::InfraProvider;
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct PRC {
     pub prc0: String,
     pub prc1: String,

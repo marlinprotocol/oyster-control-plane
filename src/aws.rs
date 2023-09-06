@@ -2,6 +2,7 @@ use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use aws_types::region::Region;
 use rand_core::OsRng;
+use serde::Serialize;
 use serde_json::Value;
 use ssh2::Session;
 use ssh_key::{Algorithm, LineEnding, PrivateKey};
@@ -16,6 +17,13 @@ use tokio::time::{sleep, Duration};
 use whoami::username;
 
 use crate::market::InfraProvider;
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct PRC {
+    pub prc0: String,
+    pub prc1: String,
+    pub prc2: String,
+}
 
 #[derive(Clone)]
 pub struct Aws {
@@ -809,6 +817,38 @@ impl Aws {
             .to_owned())
     }
 
+    pub async fn get_enclave_image_prc(&self, instance_id: &str, region: String) -> Result<PRC> {
+        let public_ip_address = self
+            .get_instance_ip(instance_id, region.clone())
+            .await
+            .context("could not fetch instance ip")?;
+        let sess = self
+            .ssh_connect(&(public_ip_address + ":22"))
+            .await
+            .context("error establishing ssh connection")?;
+
+        let (stdout, stderr) =
+            Self::ssh_exec(&sess, "nitro-cli describe-eif --eif-path enclave.eif")
+                .context("could not describe eif")?;
+        if !stderr.is_empty() {
+            println!("{stderr}");
+            return Err(anyhow!("Error describing eif image: {stderr}"));
+        }
+
+        let eif_data: HashMap<String, HashMap<String, String>> = serde_json::from_str(&stdout)
+            .context("could not parse enclave image eif description.")?;
+
+        if let Some(measurement) = eif_data.get("Measurements") {
+            let prc = PRC {
+                prc0: measurement.get("prc0").unwrap().to_owned(),
+                prc1: measurement.get("prc1").unwrap().to_owned(),
+                prc2: measurement.get("prc2").unwrap().to_owned(),
+            };
+            return Ok(prc);
+        }
+        Err(anyhow!("Could not find measurements in eif image"))
+    }
+
     async fn allocate_ip_addr(&self, job: String, region: String) -> Result<(String, String)> {
         let (exist, alloc_id, public_ip) = self
             .get_job_elastic_ip(&job, region.clone())
@@ -1206,6 +1246,26 @@ impl InfraProvider for Aws {
             .await
             .context("could not get current instance state")?;
         Ok(res == "running" || res == "pending")
+    }
+
+    async fn get_job_enclave_state(&self, job_id: &str, region: String) -> Result<(String, PRC)> {
+        let instance = self
+            .get_job_instance(job_id, region.clone())
+            .await
+            .context("could not get instance id for job enclave state")?;
+
+        if !instance.0 {
+            return Err(anyhow!("Instance not found for job - {job_id}"));
+        }
+
+        let state = self
+            .get_enclave_state(&instance.1, region.clone())
+            .await
+            .context("could not get current enclace state")?;
+
+        let prc = self.get_enclave_image_prc(&instance.1, region).await?;
+
+        Ok((state, prc))
     }
 
     async fn check_enclave_running(&mut self, instance_id: &str, region: String) -> Result<bool> {

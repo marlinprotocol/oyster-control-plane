@@ -8,7 +8,10 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::{net::SocketAddr, sync::Arc};
 
-use crate::market::{GBRateCard, InfraProvider, RegionalRates};
+use crate::{
+    aws::PRC,
+    market::{GBRateCard, InfraProvider, RegionalRates},
+};
 
 enum Error {
     GetIPFail,
@@ -29,8 +32,10 @@ struct GetIPRequest {
 }
 
 #[derive(Debug, Serialize)]
-struct GetIPResponse {
+struct GetIPAndStatusResponse {
     ip: String,
+    enclave_state: String,
+    enclave_eif_prc: PRC,
 }
 
 #[derive(Debug, Serialize)]
@@ -54,24 +59,37 @@ async fn handle_ip_request(
         )>,
     >,
     Query(query): Query<GetIPRequest>,
-) -> HandlerResult<Json<GetIPResponse>> {
+) -> HandlerResult<Json<GetIPAndStatusResponse>> {
     if !query.id.is_some() || !query.region.is_some() {
         return Err(Error::GetIPFail);
     }
 
     let client = &state.0;
 
-    let ip = client
-        .get_job_ip(&query.id.unwrap(), query.region.unwrap())
-        .await;
+    let job_id = query.id.unwrap();
+    let region = query.region.unwrap();
+
+    let ip = client.get_job_ip(&job_id, region.clone()).await;
 
     if ip.is_err() {
         return Err(Error::GetIPFail);
     }
-    let ip = ip.unwrap().to_string();
-    let ip = GetIPResponse { ip };
+    let ip = ip.unwrap();
 
-    Ok(Json(ip))
+    let enclave_data = client.get_job_enclave_state(&job_id, region).await;
+
+    if enclave_data.is_err() {
+        return Err(Error::GetIPFail);
+    }
+    let enclave_data: (String, PRC) = enclave_data.unwrap();
+
+    let res = GetIPAndStatusResponse {
+        ip,
+        enclave_state: enclave_data.0,
+        enclave_eif_prc: enclave_data.1,
+    };
+
+    Ok(Json(res))
 }
 
 async fn handle_spec_request(
@@ -164,7 +182,7 @@ mod tests {
 
         for id in 1..4 {
             let temp_job_id = H256::from_low_u64_be(id).encode_hex();
-            let instance_metadata = InstanceMetadata::new(None, None).await;
+            let instance_metadata = InstanceMetadata::new(None, None, None).await;
 
             aws.instances
                 .insert(temp_job_id.clone(), instance_metadata.clone());
@@ -196,13 +214,27 @@ mod tests {
         assert!(body.is_ok());
 
         let body = body.unwrap();
-        let ip = body.get("ip");
-        assert!(ip.is_some());
 
-        let ip = ip.unwrap();
+        let instance_metadata = aws.instances.get_key_value(&job_id).unwrap().1;
 
-        let actual_ip = &aws.instances.get_key_value(&job_id).unwrap().1.ip_address;
-        assert_eq!(ip, actual_ip);
+        assert_eq!(body.get("ip").unwrap(), &instance_metadata.ip_address);
+        assert_eq!(
+            body.get("enclave_state").unwrap(),
+            &instance_metadata.enclave_metadata.state
+        );
+        let enclave_eif_prc = body.get("enclave_eif_prc").unwrap();
+        assert_eq!(
+            enclave_eif_prc.get("prc0").unwrap(),
+            &instance_metadata.enclave_metadata.prc.prc0
+        );
+        assert_eq!(
+            enclave_eif_prc.get("prc1").unwrap(),
+            &instance_metadata.enclave_metadata.prc.prc1
+        );
+        assert_eq!(
+            enclave_eif_prc.get("prc2").unwrap(),
+            &instance_metadata.enclave_metadata.prc.prc2
+        );
 
         Ok(())
     }
@@ -213,7 +245,7 @@ mod tests {
 
         for id in 1..4 {
             let temp_job_id = H256::from_low_u64_be(id).encode_hex();
-            let instance_metadata = InstanceMetadata::new(None, None).await;
+            let instance_metadata = InstanceMetadata::new(None, None, None).await;
 
             aws.instances
                 .insert(temp_job_id.clone(), instance_metadata.clone());

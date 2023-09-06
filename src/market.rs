@@ -13,6 +13,8 @@ use tokio_stream::Stream;
 
 use ethers::types::Log;
 
+use crate::aws::PRC;
+
 // IMPORTANT: do not import SystemTime, use the now_timestamp helper
 
 // Basic architecture:
@@ -41,6 +43,8 @@ pub trait InfraProvider {
     async fn get_job_ip(&self, job: &str, region: String) -> Result<String>;
 
     async fn check_instance_running(&mut self, instance_id: &str, region: String) -> Result<bool>;
+
+    async fn get_job_enclave_state(&self, job: &str, region: String) -> Result<(String, PRC)>;
 
     async fn check_enclave_running(&mut self, instance_id: &str, region: String) -> Result<bool>;
 
@@ -102,6 +106,10 @@ where
 
     async fn check_instance_running(&mut self, instance_id: &str, region: String) -> Result<bool> {
         (**self).check_instance_running(instance_id, region).await
+    }
+
+    async fn get_job_enclave_state(&self, job: &str, region: String) -> Result<(String, PRC)> {
+        (**self).get_job_enclave_state(job, region).await
     }
 
     async fn check_enclave_running(&mut self, instance_id: &str, region: String) -> Result<bool> {

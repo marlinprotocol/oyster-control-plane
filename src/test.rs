@@ -10,7 +10,10 @@ use std::str::FromStr;
 use tokio::time::{Duration, Instant};
 use tokio_stream::{Stream, StreamExt};
 
-use crate::market::{GBRateCard, InfraProvider, LogsProvider, RateCard, RegionalRates};
+use crate::{
+    aws::PRC,
+    market::{GBRateCard, InfraProvider, LogsProvider, RateCard, RegionalRates},
+};
 
 #[cfg(test)]
 #[derive(Clone, Debug)]
@@ -65,21 +68,44 @@ pub async fn generate_random_ip() -> String {
 
 #[cfg(test)]
 #[derive(Clone, Debug)]
+pub struct EnclaveMetadata {
+    pub state: String,
+    pub prc: PRC,
+}
+
+#[cfg(test)]
+#[derive(Clone, Debug)]
 pub struct InstanceMetadata {
     pub instance_id: String,
     pub ip_address: String,
+    pub enclave_metadata: EnclaveMetadata,
 }
 
 #[cfg(test)]
 impl InstanceMetadata {
-    pub async fn new(instance_id: Option<String>, ip_address: Option<String>) -> Self {
-        let instance_id = "i-".to_string()
-            + &instance_id.unwrap_or(generate_random_string(Some(b"1234567890abcdef"), 17).await);
+    pub async fn new(
+        instance_id: Option<String>,
+        ip_address: Option<String>,
+        enclave_state: Option<String>,
+    ) -> Self {
+        let instance_id = instance_id.unwrap_or(
+            "i-".to_string() + &generate_random_string(Some(b"1234567890abcdef"), 17).await,
+        );
 
         let ip_address = ip_address.unwrap_or(generate_random_ip().await);
+        let enclave_metadata = EnclaveMetadata {
+            state: enclave_state.unwrap_or("RUNNING".to_string()),
+            prc: PRC {
+                prc0: generate_random_string(None, 96).await,
+                prc1: generate_random_string(None, 96).await,
+                prc2: generate_random_string(None, 96).await,
+            },
+        };
+
         Self {
             instance_id,
             ip_address,
+            enclave_metadata,
         }
     }
 }
@@ -126,7 +152,7 @@ impl InfraProvider for TestAws {
             return Ok(x.1.instance_id.clone());
         }
 
-        let instance_metadata: InstanceMetadata = InstanceMetadata::new(None, None).await;
+        let instance_metadata: InstanceMetadata = InstanceMetadata::new(None, None, None).await;
         self.instances.insert(job, instance_metadata.clone());
 
         Ok(instance_metadata.instance_id)
@@ -170,6 +196,20 @@ impl InfraProvider for TestAws {
     ) -> Result<bool> {
         // println!("TEST: check_instance_running | instance_id: {}, region: {}", instance_id, region);
         Ok(true)
+    }
+
+    async fn get_job_enclave_state(&self, job_id: &str, _region: String) -> Result<(String, PRC)> {
+        let instance_metadata = self.instances.get(job_id);
+        if instance_metadata.is_none() {
+            return Err(anyhow!("Instance not found for job - {job_id}"));
+        }
+
+        let instance_metadata = instance_metadata.unwrap();
+
+        Ok((
+            instance_metadata.enclave_metadata.state.clone(),
+            instance_metadata.enclave_metadata.prc.clone(),
+        ))
     }
 
     async fn check_enclave_running(&mut self, _instance_id: &str, _region: String) -> Result<bool> {

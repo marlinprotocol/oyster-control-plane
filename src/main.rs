@@ -1,8 +1,6 @@
-mod aws;
-mod market;
-mod server;
-#[cfg(test)]
-mod test;
+use cp::aws;
+use cp::market;
+use cp::server;
 
 use anyhow::Context;
 use anyhow::Result;

@@ -26,6 +26,7 @@ pub trait InfraProvider {
         eif_url: &str,
         job: String,
         instance_type: &str,
+        family: &str,
         region: String,
         req_mem: i64,
         req_vcpu: i32,
@@ -66,6 +67,7 @@ where
         eif_url: &str,
         job: String,
         instance_type: &str,
+        family: &str,
         region: String,
         req_mem: i64,
         req_vcpu: i32,
@@ -78,6 +80,7 @@ where
                 eif_url,
                 job,
                 instance_type,
+                family,
                 region,
                 req_mem,
                 req_vcpu,
@@ -428,6 +431,7 @@ struct JobState {
     rate: U256,
     original_rate: U256,
     instance_id: String,
+    family: String,
     min_rate: U256,
     bandwidth: u64,
     eif_url: String,
@@ -465,6 +469,8 @@ impl JobState {
             rate: U256::one(),
             original_rate: U256::one(),
             instance_id: String::new(),
+            // salmon is the default for jobs (usually old) without any family specified
+            family: "salmon".to_owned(),
             min_rate: U256::MAX,
             bandwidth: 0,
             eif_url: String::new(),
@@ -633,6 +639,7 @@ impl JobState {
                     self.eif_url.as_str(),
                     job.encode_hex(),
                     self.instance_type.as_str(),
+                    self.family.as_str(),
                     self.region.clone(),
                     self.req_mem,
                     self.req_vcpus,
@@ -802,6 +809,12 @@ impl JobState {
                     return -2;
                 }
                 self.eif_url = url.unwrap().to_string();
+
+                let family = v["family"].as_str();
+                // we leave the default family unchanged if not found for backward compatibility
+                if family.is_some() {
+                    self.family = family.unwrap().to_owned();
+                }
 
                 // blacklist whitelist check
                 let allowed =
@@ -1182,6 +1195,74 @@ mod tests {
             assert!(
                 H256::from_str(&out.job).unwrap() == job_num
                     && out.instance_type == "c6a.xlarge"
+                    && out.family == "salmon"
+                    && out.region == "ap-south-1"
+                    && out.req_mem == 4096
+                    && out.req_vcpu == 2
+                    && out.bandwidth == 76
+                    && out.eif_url == "https://example.com/enclave.eif"
+                    && out.contract_address == "xyz"
+                    && out.chain_id == "123"
+            )
+        } else {
+            panic!();
+        };
+
+        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
+            assert_eq!((out.time - spin_up_tv_sec).as_secs(), 1);
+            assert!(H256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
+        } else {
+            panic!();
+        };
+
+        assert!(!aws.instances.contains_key(&job_num.to_string()))
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_instance_launch_after_delay_on_spin_up_with_specific_family() {
+        let _ = market::START.set(Instant::now());
+
+        let job_num = H256::from_low_u64_be(1);
+        let job_logs: Vec<(u64, Log)> = vec![
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2,\"family\":\"tuna\"}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).encode()),
+            (301, Action::Close, [].into()),
+        ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
+
+        let start_time = Instant::now();
+        // pending stream appended so job stream never ends
+        let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
+            .then(|(moment, log)| async move {
+                let delay = start_time + Duration::from_secs(moment) - Instant::now();
+                sleep(delay).await;
+                log
+            })
+            .chain(tokio_stream::pending()));
+        let mut aws: TestAws = Default::default();
+        let res = market::job_manager_once(
+            job_stream,
+            &mut aws,
+            job_num,
+            vec!["ap-south-1".into()],
+            300,
+            &test::get_rates(),
+            &test::get_gb_rates(),
+            &Vec::new(),
+            &Vec::new(),
+            "xyz".into(),
+            "123".into(),
+        )
+        .await;
+
+        // job manager should have finished successfully
+        assert_eq!(res, 0);
+        println!("{:?}", aws.outcomes);
+        let spin_up_tv_sec: Instant;
+        if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
+            spin_up_tv_sec = out.time;
+            assert!(
+                H256::from_str(&out.job).unwrap() == job_num
+                    && out.instance_type == "c6a.xlarge"
+                    && out.family == "tuna"
                     && out.region == "ap-south-1"
                     && out.req_mem == 4096
                     && out.req_vcpu == 2
@@ -1251,6 +1332,7 @@ mod tests {
             assert!(
                 H256::from_str(&out.job).unwrap() == job_num
                     && out.instance_type == "c6a.xlarge"
+                    && out.family == "salmon"
                     && out.region == "ap-south-1"
                     && out.req_mem == 4096
                     && out.req_vcpu == 2
@@ -1321,6 +1403,7 @@ mod tests {
             assert!(
                 H256::from_str(&out.job).unwrap() == job_num
                     && out.instance_type == "c6a.xlarge"
+                    && out.family == "salmon"
                     && out.region == "ap-south-1"
                     && out.req_mem == 4096
                     && out.req_vcpu == 2
@@ -1675,6 +1758,7 @@ mod tests {
             assert!(
                 H256::from_str(&out.job).unwrap() == job_num
                     && out.instance_type == "c6a.xlarge"
+                    && out.family == "salmon"
                     && out.region == "ap-south-1"
                     && out.req_mem == 4096
                     && out.req_vcpu == 2
@@ -1744,6 +1828,7 @@ mod tests {
             assert!(
                 H256::from_str(&out.job).unwrap() == job_num
                     && out.instance_type == "c6a.xlarge"
+                    && out.family == "salmon"
                     && out.region == "ap-south-1"
                     && out.req_mem == 4096
                     && out.req_vcpu == 2
@@ -1812,6 +1897,7 @@ mod tests {
             assert!(
                 H256::from_str(&out.job).unwrap() == job_num
                     && out.instance_type == "c6a.xlarge"
+                    && out.family == "salmon"
                     && out.region == "ap-south-1"
                     && out.req_mem == 4096
                     && out.req_vcpu == 2
@@ -1966,6 +2052,7 @@ mod tests {
             assert!(
                 H256::from_str(&out.job).unwrap() == job_num
                     && out.instance_type == "c6a.xlarge"
+                    && out.family == "salmon"
                     && out.region == "ap-south-1"
                     && out.req_mem == 4096
                     && out.req_vcpu == 2

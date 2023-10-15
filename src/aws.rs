@@ -465,6 +465,7 @@ impl Aws {
         job: String,
         instance_type: aws_sdk_ec2::model::InstanceType,
         image_url: &str,
+        family: &str,
         architecture: &str,
         region: String,
         contract_address: String,
@@ -494,7 +495,7 @@ impl Aws {
         }
 
         let instance_ami = self
-            .get_amis(region.clone(), architecture)
+            .get_amis(region.clone(), family, architecture)
             .await
             .context("could not get amis")?;
 
@@ -590,14 +591,14 @@ impl Aws {
         Ok(())
     }
 
-    async fn get_amis(&self, region: String, architecture: &str) -> Result<String> {
+    async fn get_amis(&self, region: String, family: &str, architecture: &str) -> Result<String> {
         let project_filter = aws_sdk_ec2::model::Filter::builder()
             .name("tag:project")
             .values("oyster")
             .build();
         let name_filter = aws_sdk_ec2::model::Filter::builder()
             .name("name")
-            .values("marlin/oyster/worker-".to_owned() + architecture + "-????????")
+            .values("marlin/oyster/worker-".to_owned() + family + "-" + architecture + "-????????")
             .build();
 
         let own_ami = self
@@ -623,17 +624,22 @@ impl Aws {
                 .ok_or(anyhow!("could not parse image id"))?
                 .to_string())
         } else {
-            self.get_community_amis(region, architecture)
+            self.get_community_amis(region, family, architecture)
                 .await
                 .context("could not get community ami")
         }
     }
 
-    async fn get_community_amis(&self, region: String, architecture: &str) -> Result<String> {
+    async fn get_community_amis(
+        &self,
+        region: String,
+        family: &str,
+        architecture: &str,
+    ) -> Result<String> {
         let owner = "753722448458";
         let name_filter = aws_sdk_ec2::model::Filter::builder()
             .name("name")
-            .values("marlin/oyster/worker-".to_owned() + architecture + "-????????")
+            .values("marlin/oyster/worker-".to_owned() + family + "-" + architecture + "-????????")
             .build();
 
         Ok(self
@@ -989,6 +995,7 @@ impl Aws {
         image_url: &str,
         job: String,
         instance_type: &str,
+        family: &str,
         region: String,
         req_mem: i64,
         req_vcpu: i32,
@@ -1049,6 +1056,7 @@ impl Aws {
                 job.clone(),
                 instance_type,
                 image_url,
+                family,
                 &architecture,
                 region.clone(),
                 contract_address,
@@ -1145,6 +1153,7 @@ impl InfraProvider for Aws {
         eif_url: &str,
         job: String,
         instance_type: &str,
+        family: &str,
         region: String,
         req_mem: i64,
         req_vcpu: i32,
@@ -1157,6 +1166,7 @@ impl InfraProvider for Aws {
                 eif_url,
                 job,
                 instance_type,
+                family,
                 region,
                 req_mem,
                 req_vcpu,

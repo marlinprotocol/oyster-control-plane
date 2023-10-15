@@ -630,7 +630,7 @@ impl Aws {
         }
     }
 
-    async fn get_community_amis(
+    pub async fn get_community_amis(
         &self,
         region: String,
         family: &str,

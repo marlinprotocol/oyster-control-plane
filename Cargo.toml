@@ -7,6 +7,10 @@ edition = "2021"
 name = "cp"
 path = "src/lib.rs"
 
+[[bin]]
+name = "ami"
+path = "src/ami.rs"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]

@@ -49,6 +49,7 @@ pub trait InfraProvider {
         &mut self,
         job: String,
         instance_id: &str,
+        family: &str,
         region: String,
         image_url: &str,
         req_vcpu: i32,
@@ -115,6 +116,7 @@ where
         &mut self,
         job: String,
         instance_id: &str,
+        family: &str,
         region: String,
         image_url: &str,
         req_vcpu: i32,
@@ -125,6 +127,7 @@ where
             .run_enclave(
                 job,
                 instance_id,
+                family,
                 region,
                 image_url,
                 req_vcpu,
@@ -523,6 +526,7 @@ impl JobState {
                                     .run_enclave(
                                         job.encode_hex(),
                                         &self.instance_id,
+                                        &self.family,
                                         self.region.clone(),
                                         &self.eif_url,
                                         self.req_vcpus,

@@ -190,6 +190,24 @@ impl Aws {
 
     pub async fn run_enclave_impl(
         &self,
+        family: &str,
+        instance_id: &str,
+        region: String,
+        image_url: &str,
+        req_vcpu: i32,
+        req_mem: i64,
+        bandwidth: u64,
+    ) -> Result<()> {
+        if family == "salmon" {
+            self.run_enclave_salmon(instance_id, region, image_url, req_vcpu, req_mem, bandwidth)
+                .await
+        } else {
+            Err(anyhow!("unsupported image family"))
+        }
+    }
+
+    async fn run_enclave_salmon(
+        &self,
         instance_id: &str,
         region: String,
         image_url: &str,
@@ -1070,6 +1088,7 @@ impl Aws {
             .post_spin_up(
                 image_url,
                 job.clone(),
+                family,
                 &instance,
                 region.clone(),
                 req_mem,
@@ -1092,6 +1111,7 @@ impl Aws {
         &self,
         image_url: &str,
         job: String,
+        family: &str,
         instance: &str,
         region: String,
         req_mem: i64,
@@ -1107,9 +1127,11 @@ impl Aws {
         self.associate_address(instance, &alloc_id, region.clone())
             .await
             .context("could not associate ip address")?;
-        self.run_enclave_impl(instance, region, image_url, req_vcpu, req_mem, bandwidth)
-            .await
-            .context("could not run enclave")?;
+        self.run_enclave_impl(
+            family, instance, region, image_url, req_vcpu, req_mem, bandwidth,
+        )
+        .await
+        .context("could not run enclave")?;
         Ok(())
     }
 
@@ -1231,15 +1253,24 @@ impl InfraProvider for Aws {
         &mut self,
         _job: String,
         instance_id: &str,
+        family: &str,
         region: String,
         image_url: &str,
         req_vcpu: i32,
         req_mem: i64,
         bandwidth: u64,
     ) -> Result<()> {
-        self.run_enclave_impl(instance_id, region, image_url, req_vcpu, req_mem, bandwidth)
-            .await
-            .context("could not run enclave")?;
+        self.run_enclave_impl(
+            family,
+            instance_id,
+            region,
+            image_url,
+            req_vcpu,
+            req_mem,
+            bandwidth,
+        )
+        .await
+        .context("could not run enclave")?;
         Ok(())
     }
 }

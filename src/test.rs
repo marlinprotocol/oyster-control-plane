@@ -183,6 +183,7 @@ impl InfraProvider for TestAws {
         &mut self,
         _job: String,
         _instance_id: &str,
+        _family: &str,
         _region: String,
         _image_url: &str,
         _req_vcpu: i32,

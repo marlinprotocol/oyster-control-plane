@@ -12,6 +12,10 @@ struct Cli {
     #[clap(long, value_parser)]
     profile: String,
 
+    /// SSH key name
+    #[clap(long, value_parser)]
+    key_name: String,
+
     /// Instance id
     #[clap(long, value_parser)]
     instance: String,
@@ -23,16 +27,28 @@ struct Cli {
     /// AMI family
     #[clap(long, value_parser, default_value = "salmon")]
     family: String,
+
+    /// Enclave image URL
+    #[clap(long, value_parser)]
+    url: String,
 }
 
 #[tokio::main]
 pub async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    let aws = aws::Aws::new(cli.profile, String::new(), String::new(), String::new()).await;
-    aws.run_enclave_impl(&cli.family, &cli.instance, cli.region, "", 2, 4096, 32)
-        .await
-        .context("could not deploy enclave")?;
+    let aws = aws::Aws::new(cli.profile, cli.key_name, String::new(), String::new()).await;
+    aws.run_enclave_impl(
+        &cli.family,
+        &cli.instance,
+        cli.region,
+        &cli.url,
+        2,
+        4096,
+        32,
+    )
+    .await
+    .context("could not deploy enclave")?;
 
     Ok(())
 }

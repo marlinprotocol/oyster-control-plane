@@ -11,6 +11,10 @@ path = "src/lib.rs"
 name = "ami"
 path = "src/ami.rs"
 
+[[bin]]
+name = "enclaver"
+path = "src/enclaver.rs"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]

@@ -39,6 +39,7 @@ pub async fn main() -> Result<()> {
 
     let aws = aws::Aws::new(cli.profile, cli.key_name, String::new(), String::new()).await;
     aws.run_enclave_impl(
+        "0x01020304",
         &cli.family,
         &cli.instance,
         cli.region,

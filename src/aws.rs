@@ -190,6 +190,7 @@ impl Aws {
 
     pub async fn run_enclave_impl(
         &self,
+        job_id: &str,
         family: &str,
         instance_id: &str,
         region: String,
@@ -199,8 +200,16 @@ impl Aws {
         bandwidth: u64,
     ) -> Result<()> {
         if family == "salmon" {
-            self.run_enclave_salmon(instance_id, region, image_url, req_vcpu, req_mem, bandwidth)
-                .await
+            self.run_enclave_salmon(
+                job_id,
+                instance_id,
+                region,
+                image_url,
+                req_vcpu,
+                req_mem,
+                bandwidth,
+            )
+            .await
         } else {
             Err(anyhow!("unsupported image family"))
         }
@@ -208,6 +217,7 @@ impl Aws {
 
     async fn run_enclave_salmon(
         &self,
+        _job_id: &str,
         instance_id: &str,
         region: String,
         image_url: &str,
@@ -1128,7 +1138,7 @@ impl Aws {
             .await
             .context("could not associate ip address")?;
         self.run_enclave_impl(
-            family, instance, region, image_url, req_vcpu, req_mem, bandwidth,
+            &job, family, instance, region, image_url, req_vcpu, req_mem, bandwidth,
         )
         .await
         .context("could not run enclave")?;
@@ -1251,7 +1261,7 @@ impl InfraProvider for Aws {
 
     async fn run_enclave(
         &mut self,
-        _job: String,
+        job: String,
         instance_id: &str,
         family: &str,
         region: String,
@@ -1261,6 +1271,7 @@ impl InfraProvider for Aws {
         bandwidth: u64,
     ) -> Result<()> {
         self.run_enclave_impl(
+            &job,
             family,
             instance_id,
             region,

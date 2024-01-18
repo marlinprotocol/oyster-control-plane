@@ -54,6 +54,15 @@ pub trait InfraProvider {
         req_mem: i64,
         bandwidth: u64,
     ) -> Result<()>;
+
+    async fn update_enclave_image(
+        &mut self,
+        instance_id: &str,
+        region: String,
+        eif_url: &str,
+        req_vcpu: i32,
+        req_mem: i64,
+    ) -> Result<()>;
 }
 
 #[async_trait]
@@ -128,6 +137,19 @@ where
                 req_mem,
                 bandwidth,
             )
+            .await
+    }
+
+    async fn update_enclave_image(
+        &mut self,
+        instance_id: &str,
+        region: String,
+        eif_url: &str,
+        req_vcpu: i32,
+        req_mem: i64,
+    ) -> Result<()> {
+        (**self)
+            .update_enclave_image(instance_id, region, eif_url, req_vcpu, req_mem)
             .await
     }
 }
@@ -442,6 +464,8 @@ struct JobState {
     infra_change_time: Instant,
     // whether to schedule change
     infra_change_scheduled: bool,
+    // whether to just update the eif
+    eif_update: bool,
 }
 
 impl JobState {
@@ -475,6 +499,7 @@ impl JobState {
             infra_state: false,
             infra_change_time: Instant::now(),
             infra_change_scheduled: false,
+            eif_update: false,
         }
     }
 
@@ -608,6 +633,23 @@ impl JobState {
                     // instance exists and is already running, we are done
                     println!("job {job}: found existing healthy instance: {instance}");
                     self.instance_id = instance;
+                    if self.eif_update {
+                        // update eif
+                        let res = infra_provider
+                            .update_enclave_image(
+                                &self.instance_id,
+                                self.region.clone(),
+                                &self.eif_url,
+                                self.req_vcpus,
+                                self.req_mem,
+                            )
+                            .await;
+                        if let Err(err) = res {
+                            println!("job {job}: ERROR failed to update eif, {err:?}");
+                            return false;
+                        }
+                        self.eif_update = false;
+                    }
                     return true;
                 }
 
@@ -710,6 +752,8 @@ impl JobState {
         #[allow(non_snake_case)]
         let JOB_REVISE_RATE_FINALIZED =
             keccak256("JobReviseRateFinalized(bytes32, uint256)").into();
+        #[allow(non_snake_case)]
+        let EIF_UPDATED = keccak256("EIFUpdated(bytes32,string)").into();
 
         // NOTE: jobs should be killed fully if any individual event would kill it
         // regardless of future events
@@ -990,6 +1034,91 @@ impl JobState {
                     "job {job}: JOB_REVISE_RATE_FINALIZED: Decode failure: {}",
                     log.data
                 );
+            }
+        } else if log.topics[0] == EIF_UPDATED {
+            if let Ok((metadata, timestamp)) = <(String, U256)>::decode(&log.data) {
+                println!(
+                    "job {job}: EIF_UPDATED: metadata: {}, timestamp: {}",
+                    metadata,
+                    self.last_settled.as_secs()
+                );
+
+                self.last_settled = Duration::from_secs(timestamp.low_u64());
+
+                let v = serde_json::from_str(&metadata);
+                if let Err(err) = v {
+                    println!("job {job}: Error reading metadata: {err:?}");
+                    return -2;
+                }
+
+                let v: Value = v.unwrap();
+
+                let r = v["instance"].as_str();
+                match r {
+                    Some(t) => {
+                        if self.instance_type != t.to_string() {
+                            println!("job {job}: Instance type change not allowed");
+                            return -2;
+                        }
+                    }
+                    None => {
+                        println!("job {job}: Instance type not set");
+                        return -2;
+                    }
+                }
+
+                let r = v["region"].as_str();
+                match r {
+                    Some(t) => {
+                        if self.region != t.to_string() {
+                            println!("job {job}: Region change not allowed");
+                            return -2;
+                        }
+                    }
+                    None => {
+                        println!("job {job}: Job region not set");
+                        return -2;
+                    }
+                }
+
+                let r = v["memory"].as_i64();
+                match r {
+                    Some(t) => {
+                        if self.req_mem != t {
+                            println!("job {job}: Memory change not allowed");
+                            return -2;
+                        }
+                    }
+                    None => {
+                        println!("job {job}: memory not set");
+                        return -2;
+                    }
+                }
+
+                let r = v["vcpu"].as_i64();
+                match r {
+                    Some(t) => {
+                        if self.req_vcpus != t.try_into().unwrap_or(2) {
+                            println!("job {job}: vcpu change not allowed");
+                            return -2;
+                        }
+                    }
+                    None => {
+                        println!("job {job}: vcpu not set");
+                        return -2;
+                    }
+                }
+
+                let url = v["url"].as_str();
+                if url.is_none() {
+                    println!("job {job}: eif url not found! Exiting job");
+                    return -2;
+                }
+                self.eif_url = url.unwrap().to_string();
+                self.eif_update = true;
+                self.schedule_launch(self.launch_delay);
+            } else {
+                println!("job {job}: EIF_UPDATED: Decode failure: {}", log.data);
             }
         } else {
             println!("job {job}: Unknown event: {}", log.topics[0]);

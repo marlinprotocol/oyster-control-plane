@@ -2,7 +2,6 @@ use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use aws_types::region::Region;
 use rand_core::OsRng;
-use serde::Serialize;
 use serde_json::Value;
 use ssh2::Session;
 use ssh_key::{Algorithm, LineEnding, PrivateKey};
@@ -27,13 +26,6 @@ pub struct Aws {
     pub_key_location: String,
     whitelist: String,
     blacklist: String,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct PRC {
-    pub prc0: String,
-    pub prc1: String,
-    pub prc2: String,
 }
 
 impl Aws {
@@ -246,6 +238,12 @@ impl Aws {
 
         Self::ssh_exec(sess, &("wget -O enclave.eif ".to_owned() + image_url))
             .context("Failed to download enclave image")?;
+
+        Self::ssh_exec(
+            sess,
+            &("echo \"".to_owned() + image_url + "\" > image_url.txt"),
+        )
+        .context("Failed to write EIF URL to txt file.")?;
 
         if self.whitelist.as_str() != "" || self.blacklist.as_str() != "" {
             let (stdout, stderr) = Self::ssh_exec(sess, "sha256sum /home/ubuntu/enclave.eif")
@@ -817,71 +815,6 @@ impl Aws {
             .to_owned())
     }
 
-    pub async fn get_enclave_prc(&self, instance_id: &str, region: String) -> Result<PRC> {
-        let public_ip_address = self
-            .get_instance_ip(instance_id, region.clone())
-            .await
-            .context("could not fetch instance ip")?;
-        let sess = self
-            .ssh_connect(&(public_ip_address + ":22"))
-            .await
-            .context("error establishing ssh connection")?;
-
-        let (stdout, stderr) = Self::ssh_exec(&sess, "nitro-cli describe-enclaves")
-            .context("could not describe enclaves")?;
-        if !stderr.is_empty() {
-            println!("{stderr}");
-            return Err(anyhow!("Error describing enclave: {stderr}"));
-        }
-
-        let enclave_data: Vec<HashMap<String, HashMap<String, String>>> =
-            serde_json::from_str(&stdout).context("could not parse enclave description.")?;
-
-        if let Some(measurement) = enclave_data[0].get("Measurements") {
-            let prc = PRC {
-                prc0: measurement.get("prc0").unwrap().to_owned(),
-                prc1: measurement.get("prc1").unwrap().to_owned(),
-                prc2: measurement.get("prc2").unwrap().to_owned(),
-            };
-            return Ok(prc);
-        }
-        Err(anyhow!(
-            "Could not find measurements in enclave description"
-        ))
-    }
-
-    pub async fn get_eif_image_prc(&self, instance_id: &str, region: String) -> Result<PRC> {
-        let public_ip_address = self
-            .get_instance_ip(instance_id, region.clone())
-            .await
-            .context("could not fetch instance ip")?;
-        let sess = self
-            .ssh_connect(&(public_ip_address + ":22"))
-            .await
-            .context("error establishing ssh connection")?;
-
-        let (stdout, stderr) =
-            Self::ssh_exec(&sess, "nitro-cli describe-eif --eif-path enclave.eif")
-                .context("could not describe eif")?;
-        if !stderr.is_empty() {
-            println!("{stderr}");
-            return Err(anyhow!("Error describing eif: {stderr}"));
-        }
-
-        let eif_data: HashMap<String, HashMap<String, String>> = serde_json::from_str(&stdout)
-            .context("could not parse enclave image eif description.")?;
-
-        if let Some(measurement) = eif_data.get("Measurements") {
-            let prc = PRC {
-                prc0: measurement.get("prc0").unwrap().to_owned(),
-                prc1: measurement.get("prc1").unwrap().to_owned(),
-                prc2: measurement.get("prc2").unwrap().to_owned(),
-            };
-            return Ok(prc);
-        }
-        Err(anyhow!("Could not find measurements in eif image"))
-    }
-
     async fn allocate_ip_addr(&self, job: String, region: String) -> Result<(String, String)> {
         let (exist, alloc_id, public_ip) = self
             .get_job_elastic_ip(&job, region.clone())
@@ -1218,11 +1151,6 @@ impl Aws {
         req_vcpu: i32,
         req_mem: i64,
     ) -> Result<()> {
-        let enclave_prc = self
-            .get_enclave_prc(instance_id, region.clone())
-            .await
-            .context("Failed to fetch Enclave PRC for updating eif.")?;
-
         let public_ip_address = self
             .get_instance_ip(instance_id, region.clone())
             .await
@@ -1233,43 +1161,40 @@ impl Aws {
             .await
             .context("error establishing ssh connection")?;
 
+        let (stdout, _) =
+            Self::ssh_exec(sess, "cat image_url.txt").context("Failed to read image_url.txt")?;
+
+        if stdout == eif_url {
+            return Ok(());
+        }
+
         Self::ssh_exec(sess, &("wget -O enclave.eif ".to_owned() + &eif_url))
             .context("Failed to download enclave image")?;
 
-        let eif_prc = self
-            .get_eif_image_prc(instance_id, region.clone())
-            .await
-            .context("Failed to fecth EIF File PRC for updating eif.")?;
+        let (_, stderr) = Self::ssh_exec(sess, "nitro-cli terminate-enclave --all")?;
 
-        if enclave_prc.prc0 != eif_prc.prc0
-            || enclave_prc.prc1 != eif_prc.prc1
-            || enclave_prc.prc2 != eif_prc.prc2
-        {
-            let (_, stderr) = Self::ssh_exec(sess, "nitro-cli terminate-enclave --all")?;
-
-            if !stderr.is_empty() {
-                println!("{stderr}");
-                return Err(anyhow!("Error terminating enclave: {stderr}"));
-            }
-
-            let (_, stderr) = Self::ssh_exec(
-                sess,
-                &("nitro-cli run-enclave --cpu-count ".to_owned()
-                    + &((req_vcpu).to_string())
-                    + " --memory "
-                    + &((req_mem).to_string())
-                    + " --eif-path enclave.eif --enclave-cid 88"),
-            )?;
-
-            if !stderr.is_empty() {
-                println!("{stderr}");
-                if !stderr.contains("Started enclave with enclave-cid") {
-                    return Err(anyhow!("Error running enclave image: {stderr}"));
-                }
-            }
-
-            println!("Enclave running");
+        if !stderr.is_empty() {
+            println!("{stderr}");
+            return Err(anyhow!("Error terminating enclave: {stderr}"));
         }
+
+        let (_, stderr) = Self::ssh_exec(
+            sess,
+            &("nitro-cli run-enclave --cpu-count ".to_owned()
+                + &((req_vcpu).to_string())
+                + " --memory "
+                + &((req_mem).to_string())
+                + " --eif-path enclave.eif --enclave-cid 88"),
+        )?;
+
+        if !stderr.is_empty() {
+            println!("{stderr}");
+            if !stderr.contains("Started enclave with enclave-cid") {
+                return Err(anyhow!("Error running enclave image: {stderr}"));
+            }
+        }
+
+        println!("Enclave running");
 
         Ok(())
     }

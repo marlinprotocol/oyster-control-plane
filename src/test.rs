@@ -188,6 +188,63 @@ impl InfraProvider for TestAws {
     ) -> Result<()> {
         Ok(())
     }
+
+    async fn update_enclave_image(
+        &mut self,
+        instance_id: &str,
+        region: String,
+        eif_url: &str,
+        req_vcpu: i32,
+        req_mem: i64,
+    ) -> Result<()> {
+        let job_id = self.instances.iter().find_map(|(key, &ref val)| {
+            if val.instance_id == instance_id {
+                Some(key)
+            } else {
+                None
+            }
+        });
+        if job_id.is_none() {
+            return Err(anyhow!(
+                "Instance not found for instance_id - {instance_id}"
+            ));
+        }
+        let job_id = job_id.unwrap();
+
+        let spin_up_outcome_index =
+            self.outcomes
+                .iter()
+                .enumerate()
+                .find_map(|(i, &ref outcome)| match outcome {
+                    TestAwsOutcome::SpinUp(spin_up) if spin_up.job == instance_id => Some(i),
+                    _ => None,
+                });
+
+        if spin_up_outcome_index.is_none() {
+            return Err(anyhow!("Spin up outcome not found for job - {}", job_id));
+        }
+
+        let spin_up_outcome_index = spin_up_outcome_index.unwrap();
+
+        if let TestAwsOutcome::SpinUp(spin_up_outcome) = &mut self.outcomes[spin_up_outcome_index] {
+            if spin_up_outcome.region != region
+                || spin_up_outcome.req_vcpu != req_vcpu
+                || spin_up_outcome.req_mem != req_mem
+            {
+                return Err(anyhow!("Can only change EIF URL"));
+            }
+
+            if spin_up_outcome.eif_url == eif_url {
+                return Err(anyhow!("Must input a different EIF URL"));
+            }
+
+            spin_up_outcome.eif_url = eif_url.to_owned();
+        } else {
+            panic!("Spin up outcome not found at proper index for the job.")
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -240,6 +297,7 @@ pub enum Action {
     ReviseRateInitiated, // new_rate
     ReviseRateCancelled, //
     ReviseRateFinalized, //
+    MetadataUpdated,
 }
 
 #[cfg(test)]
@@ -319,6 +377,12 @@ pub fn get_log(topic: Action, data: Bytes, idx: H256) -> Log {
         Action::ReviseRateFinalized => {
             log.topics = vec![
                 H256::from(keccak256("JobReviseRateFinalized(bytes32, uint256)")),
+                idx,
+            ];
+        }
+        Action::MetadataUpdated => {
+            log.topics = vec![
+                H256::from(keccak256("JobMetadataUpdated(bytes32,string)")),
                 idx,
             ];
         }

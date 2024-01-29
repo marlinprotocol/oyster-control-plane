@@ -190,6 +190,45 @@ impl Aws {
 
     pub async fn run_enclave_impl(
         &self,
+        job_id: &str,
+        family: &str,
+        instance_id: &str,
+        region: String,
+        image_url: &str,
+        req_vcpu: i32,
+        req_mem: i64,
+        bandwidth: u64,
+    ) -> Result<()> {
+        if family == "salmon" {
+            self.run_enclave_salmon(
+                job_id,
+                instance_id,
+                region,
+                image_url,
+                req_vcpu,
+                req_mem,
+                bandwidth,
+            )
+            .await
+        } else if family == "tuna" {
+            self.run_enclave_tuna(
+                job_id,
+                instance_id,
+                region,
+                image_url,
+                req_vcpu,
+                req_mem,
+                bandwidth,
+            )
+            .await
+        } else {
+            Err(anyhow!("unsupported image family"))
+        }
+    }
+
+    async fn run_enclave_salmon(
+        &self,
+        _job_id: &str,
         instance_id: &str,
         region: String,
         image_url: &str,
@@ -436,6 +475,290 @@ impl Aws {
         Ok(())
     }
 
+    async fn run_enclave_tuna(
+        &self,
+        job_id: &str,
+        instance_id: &str,
+        region: String,
+        image_url: &str,
+        req_vcpu: i32,
+        req_mem: i64,
+        bandwidth: u64,
+    ) -> Result<()> {
+        let public_ip_address = self
+            .get_instance_ip(instance_id, region.clone())
+            .await
+            .context("could not fetch instance ip")?;
+        let sess = &self
+            .ssh_connect(&(public_ip_address + ":22"))
+            .await
+            .context("error establishing ssh connection")?;
+
+        let (_, stderr) = Self::ssh_exec(
+            sess,
+            "sudo sysctl -w net.ipv4.ip_local_port_range=\"61440 65535\"",
+        )
+        .context("Failed to set ephemeral ports")?;
+        if !stderr.is_empty() {
+            println!("{stderr}");
+            return Err(anyhow!("Failed to set ephemeral ports: {stderr}"));
+        }
+
+        Self::ssh_exec(
+            sess,
+            &("echo -e '---\\nmemory_mib: ".to_owned()
+                + &((req_mem).to_string())
+                + "\\ncpu_count: "
+                + &((req_vcpu).to_string())
+                + "' > /home/ubuntu/allocator_new.yaml"),
+        )
+        .context("Failed to set allocator file")?;
+
+        Self::ssh_exec(
+            sess,
+            "sudo cp /home/ubuntu/allocator_new.yaml /etc/nitro_enclaves/allocator.yaml",
+        )
+        .context("Failed to copy allocator file")?;
+
+        let (_, stderr) = Self::ssh_exec(
+            sess,
+            "sudo systemctl restart nitro-enclaves-allocator.service",
+        )
+        .context("Failed to restart allocator service")?;
+        if !stderr.is_empty() {
+            println!("{stderr}");
+            return Err(anyhow!(
+                "Error restarting nitro-enclaves-allocator service: {stderr}"
+            ));
+        }
+
+        println!("Nitro Enclave Service set up with cpus: {req_vcpu} and memory: {req_mem}");
+
+        Self::ssh_exec(sess, &("wget -O enclave.eif ".to_owned() + image_url))
+            .context("Failed to download enclave image")?;
+
+        if self.whitelist.as_str() != "" || self.blacklist.as_str() != "" {
+            let (stdout, stderr) = Self::ssh_exec(sess, "sha256sum /home/ubuntu/enclave.eif")
+                .context("Failed to calculate image hash")?;
+            if !stderr.is_empty() {
+                println!("{stderr}");
+                return Err(anyhow!("Error calculating hash of enclave image: {stderr}"));
+            }
+
+            let line = stdout
+                .split_whitespace()
+                .next()
+                .ok_or(anyhow!("Failed to retrieve image hash: {stdout}"))?;
+
+            println!("Hash: {line}");
+
+            if self.whitelist.as_str() != "" {
+                println!("Checking whitelist...");
+                let file_path = self.whitelist.as_str();
+                let contents =
+                    fs::read_to_string(file_path).context("Error reading whitelist file")?;
+
+                let entries = contents.lines();
+                let mut allowed = false;
+                for entry in entries {
+                    if entry.contains(line) {
+                        allowed = true;
+                        break;
+                    }
+                }
+                if allowed {
+                    println!("EIF ALLOWED!");
+                } else {
+                    println!("EIF NOT ALLOWED!");
+                    return Err(anyhow!("EIF NOT ALLOWED"));
+                }
+            }
+
+            if self.blacklist.as_str() != "" {
+                println!("Checking blacklist...");
+                let file_path = self.blacklist.as_str();
+                let contents =
+                    fs::read_to_string(file_path).context("Error reading blacklist file")?;
+
+                let entries = contents.lines();
+                let mut allowed = true;
+                for entry in entries {
+                    if entry.contains(line) {
+                        allowed = false;
+                        break;
+                    }
+                }
+                if allowed {
+                    println!("EIF ALLOWED!");
+                } else {
+                    println!("EIF NOT ALLOWED!");
+                    return Err(anyhow!("EIF NOT ALLOWED"));
+                }
+            }
+        }
+
+        let (stdout, stderr) =
+            Self::ssh_exec(sess, "nmcli device status").context("Failed to get nmcli status")?;
+        if !stderr.is_empty() || stdout.is_empty() {
+            println!("{stderr}");
+            return Err(anyhow!("Error fetching network interface name: {stderr}"));
+        }
+        let mut interface = String::new();
+        let entries: Vec<&str> = stdout.split('\n').collect();
+        for line in entries {
+            let entry: Vec<&str> = line.split_whitespace().collect();
+            if entry.len() > 1 && entry[1] == "ethernet" {
+                interface = entry[0].to_string();
+                break;
+            }
+        }
+
+        if !interface.is_empty() {
+            let (stdout, stderr) = Self::ssh_exec(
+                sess,
+                &("sudo tc qdisc show dev ".to_owned() + &interface + " root"),
+            )
+            .context("Failed to fetch tc config")?;
+            if !stderr.is_empty() || stdout.is_empty() {
+                println!("{stderr}");
+                return Err(anyhow!(
+                    "Error fetching network interface qdisc configuration: {stderr}"
+                ));
+            }
+            let entries: Vec<&str> = stdout.trim().split('\n').collect();
+            let mut is_any_rule_set = true;
+            if entries[0].to_lowercase().contains(&"qdisc mq 0: root") && entries.len() == 1 {
+                is_any_rule_set = false;
+            }
+
+            // remove previously defined rules
+            if is_any_rule_set {
+                let (_, stderr) = Self::ssh_exec(
+                    sess,
+                    &("sudo tc qdisc del dev ".to_owned() + &interface + " root"),
+                )?;
+                if !stderr.is_empty() {
+                    println!("{stderr}");
+                    return Err(anyhow!(
+                        "Error removing network interface qdisc configuration: {stderr}"
+                    ));
+                }
+            }
+
+            let (_, stderr) = Self::ssh_exec(
+                sess,
+                &("sudo tc qdisc add dev ".to_owned()
+                    + &interface
+                    + " root tbf rate "
+                    + &bandwidth.to_string()
+                    + "kbit burst 4000Mb latency 100ms"),
+            )?;
+
+            if !stderr.is_empty() {
+                println!("{stderr}");
+                return Err(anyhow!("Error setting up bandwidth limit: {stderr}"));
+            }
+        } else {
+            return Err(anyhow!("Error fetching network interface name"));
+        }
+
+        let iptables_rules: [&str; 4] = [
+            "-P INPUT ACCEPT",
+            "-A INPUT -i ens5 -p tcp -m tcp --dport 80 -j NFQUEUE --queue-num 0",
+            "-A INPUT -i ens5 -p tcp -m tcp --dport 443 -j NFQUEUE --queue-num 0",
+            "-A INPUT -i ens5 -p tcp -m tcp --dport 1024:61439 -j NFQUEUE --queue-num 0",
+        ];
+        let (stdout, stderr) =
+            Self::ssh_exec(sess, "sudo iptables -S INPUT").context("Failed to query iptables")?;
+
+        if !stderr.is_empty() || stdout.is_empty() {
+            println!("{stderr}");
+            return Err(anyhow!("Failed to get iptables rules: {stderr}"));
+        }
+
+        let rules: Vec<&str> = stdout.trim().split('\n').map(|s| s.trim()).collect();
+
+        if rules[0] != iptables_rules[0] {
+            println!("Got '{}' instead of '{}'", rules[0], iptables_rules[0]);
+            return Err(anyhow!("Failed to get PREROUTING ACCEPT rules"));
+        }
+
+        if !rules.contains(&iptables_rules[1]) {
+            let (_, stderr) = Self::ssh_exec(
+                sess,
+                "sudo iptables -A INPUT -p tcp -i ens5 --dport 80 -j NFQUEUE --queue-num 0",
+            )
+            .context("Failed to set iptables rule")?;
+            if !stderr.is_empty() {
+                println!("{stderr}");
+                return Err(anyhow!("Failed to set iptables rule: {stderr}"));
+            }
+        }
+
+        if !rules.contains(&iptables_rules[2]) {
+            let (_, stderr) = Self::ssh_exec(
+                sess,
+                "sudo iptables -A INPUT -p tcp -i ens5 --dport 443 -j NFQUEUE --queue-num 0",
+            )
+            .context("Failed to set iptables rule")?;
+            if !stderr.is_empty() {
+                println!("{stderr}");
+                return Err(anyhow!("Failed to set iptables rule: {stderr}"));
+            }
+        }
+
+        if !rules.contains(&iptables_rules[3]) {
+            let (_, stderr) = Self::ssh_exec(
+                sess,
+                "sudo iptables -A INPUT -p tcp -i ens5 --dport 1024:61439 -j NFQUEUE --queue-num 0",
+            )
+            .context("Failed to set iptables rule")?;
+            if !stderr.is_empty() {
+                println!("{stderr}");
+                return Err(anyhow!("Failed to set iptables rule: {stderr}"));
+            }
+        }
+
+        let (_, stderr) = Self::ssh_exec(
+            sess,
+            &("sudo sed -i -e 's/placeholder_job_id/".to_owned()
+                + job_id
+                + "/g' /etc/supervisor/conf.d/oyster-init-server.conf"),
+        )
+        .context("Failed to set job id for init server")?;
+        if !stderr.is_empty() {
+            println!("{stderr}");
+            return Err(anyhow!("Failed to set job id for init server: {stderr}"));
+        }
+
+        let (_, stderr) = Self::ssh_exec(sess, "sudo supervisorctl update")
+            .context("Failed to update init server")?;
+        if !stderr.is_empty() {
+            println!("{stderr}");
+            return Err(anyhow!("Failed to update init server: {stderr}"));
+        }
+
+        let (_, stderr) = Self::ssh_exec(
+            sess,
+            &("nitro-cli run-enclave --cpu-count ".to_owned()
+                + &((req_vcpu).to_string())
+                + " --memory "
+                + &((req_mem).to_string())
+                + " --eif-path enclave.eif --enclave-cid 88"),
+        )?;
+
+        if !stderr.is_empty() {
+            println!("{stderr}");
+            if !stderr.contains("Started enclave with enclave-cid") {
+                return Err(anyhow!("Error running enclave image: {stderr}"));
+            }
+        }
+
+        println!("Enclave running");
+
+        Ok(())
+    }
+
     /* AWS EC2 UTILITY */
 
     pub async fn get_instance_ip(&self, instance_id: &str, region: String) -> Result<String> {
@@ -471,6 +794,7 @@ impl Aws {
         job: String,
         instance_type: aws_sdk_ec2::model::InstanceType,
         image_url: &str,
+        family: &str,
         architecture: &str,
         region: String,
         contract_address: String,
@@ -500,7 +824,7 @@ impl Aws {
         }
 
         let instance_ami = self
-            .get_amis(region.clone(), architecture)
+            .get_amis(region.clone(), family, architecture)
             .await
             .context("could not get amis")?;
 
@@ -596,14 +920,14 @@ impl Aws {
         Ok(())
     }
 
-    async fn get_amis(&self, region: String, architecture: &str) -> Result<String> {
+    async fn get_amis(&self, region: String, family: &str, architecture: &str) -> Result<String> {
         let project_filter = aws_sdk_ec2::model::Filter::builder()
             .name("tag:project")
             .values("oyster")
             .build();
         let name_filter = aws_sdk_ec2::model::Filter::builder()
             .name("name")
-            .values("marlin/oyster/worker-".to_owned() + architecture + "-????????")
+            .values("marlin/oyster/worker-".to_owned() + family + "-" + architecture + "-????????")
             .build();
 
         let own_ami = self
@@ -629,17 +953,22 @@ impl Aws {
                 .ok_or(anyhow!("could not parse image id"))?
                 .to_string())
         } else {
-            self.get_community_amis(region, architecture)
+            self.get_community_amis(region, family, architecture)
                 .await
                 .context("could not get community ami")
         }
     }
 
-    async fn get_community_amis(&self, region: String, architecture: &str) -> Result<String> {
+    pub async fn get_community_amis(
+        &self,
+        region: String,
+        family: &str,
+        architecture: &str,
+    ) -> Result<String> {
         let owner = "753722448458";
         let name_filter = aws_sdk_ec2::model::Filter::builder()
             .name("name")
-            .values("marlin/oyster/worker-".to_owned() + architecture + "-????????")
+            .values("marlin/oyster/worker-".to_owned() + family + "-" + architecture + "-????????")
             .build();
 
         Ok(self
@@ -995,6 +1324,7 @@ impl Aws {
         image_url: &str,
         job: String,
         instance_type: &str,
+        family: &str,
         region: String,
         req_mem: i64,
         req_vcpu: i32,
@@ -1055,6 +1385,7 @@ impl Aws {
                 job.clone(),
                 instance_type,
                 image_url,
+                family,
                 &architecture,
                 region.clone(),
                 contract_address,
@@ -1068,6 +1399,7 @@ impl Aws {
             .post_spin_up(
                 image_url,
                 job.clone(),
+                family,
                 &instance,
                 region.clone(),
                 req_mem,
@@ -1090,6 +1422,7 @@ impl Aws {
         &self,
         image_url: &str,
         job: String,
+        family: &str,
         instance: &str,
         region: String,
         req_mem: i64,
@@ -1105,9 +1438,11 @@ impl Aws {
         self.associate_address(instance, &alloc_id, region.clone())
             .await
             .context("could not associate ip address")?;
-        self.run_enclave_impl(instance, region, image_url, req_vcpu, req_mem, bandwidth)
-            .await
-            .context("could not run enclave")?;
+        self.run_enclave_impl(
+            &job, family, instance, region, image_url, req_vcpu, req_mem, bandwidth,
+        )
+        .await
+        .context("could not run enclave")?;
         Ok(())
     }
 
@@ -1207,6 +1542,7 @@ impl InfraProvider for Aws {
         eif_url: &str,
         job: String,
         instance_type: &str,
+        family: &str,
         region: String,
         req_mem: i64,
         req_vcpu: i32,
@@ -1219,6 +1555,7 @@ impl InfraProvider for Aws {
                 eif_url,
                 job,
                 instance_type,
+                family,
                 region,
                 req_mem,
                 req_vcpu,
@@ -1281,17 +1618,27 @@ impl InfraProvider for Aws {
 
     async fn run_enclave(
         &mut self,
-        _job: String,
+        job: String,
         instance_id: &str,
+        family: &str,
         region: String,
         image_url: &str,
         req_vcpu: i32,
         req_mem: i64,
         bandwidth: u64,
     ) -> Result<()> {
-        self.run_enclave_impl(instance_id, region, image_url, req_vcpu, req_mem, bandwidth)
-            .await
-            .context("could not run enclave")?;
+        self.run_enclave_impl(
+            &job,
+            family,
+            instance_id,
+            region,
+            image_url,
+            req_vcpu,
+            req_mem,
+            bandwidth,
+        )
+        .await
+        .context("could not run enclave")?;
         Ok(())
     }
 

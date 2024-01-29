@@ -2538,7 +2538,7 @@ mod tests {
         .await;
 
         // job manager should have finished successfully
-        assert_eq!(res, -2);
+        assert_eq!(res, 0);
         assert!(aws.outcomes.is_empty());
         assert!(!aws.instances.contains_key(&job_num.to_string()))
     }
@@ -2581,7 +2581,7 @@ mod tests {
         .await;
 
         // job manager should have finished successfully
-        assert_eq!(res, -2);
+        assert_eq!(res, 0);
         assert!(aws.outcomes.is_empty());
         assert!(!aws.instances.contains_key(&job_num.to_string()))
     }

@@ -537,6 +537,12 @@ impl Aws {
         Self::ssh_exec(sess, &("wget -O enclave.eif ".to_owned() + image_url))
             .context("Failed to download enclave image")?;
 
+        Self::ssh_exec(
+            sess,
+            &("echo \"".to_owned() + image_url + "\" > image_url.txt"),
+        )
+        .context("Failed to write EIF URL to txt file.")?;
+
         if self.whitelist.as_str() != "" || self.blacklist.as_str() != "" {
             let (stdout, stderr) = Self::ssh_exec(sess, "sha256sum /home/ubuntu/enclave.eif")
                 .context("Failed to calculate image hash")?;
@@ -1505,6 +1511,12 @@ impl Aws {
 
         Self::ssh_exec(sess, &("wget -O enclave.eif ".to_owned() + &eif_url))
             .context("Failed to download enclave image")?;
+
+        Self::ssh_exec(
+            sess,
+            &("echo \"".to_owned() + eif_url + "\" > image_url.txt"),
+        )
+        .context("Failed to write EIF URL to txt file.")?;
 
         let (_, stderr) = Self::ssh_exec(sess, "nitro-cli terminate-enclave --all")?;
 

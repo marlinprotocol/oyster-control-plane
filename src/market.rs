@@ -1126,6 +1126,12 @@ impl JobState {
                     }
                 }
 
+                let family = v["family"].as_str();
+                if family.is_some() && self.family != family.unwrap().to_owned() {
+                    println!("job {job}: family change not allowed");
+                    return -2;
+                }
+
                 let url = v["url"].as_str();
                 match url {
                     Some(t) => {
@@ -2459,6 +2465,7 @@ mod tests {
             assert!(
                 H256::from_str(&out.job).unwrap() == job_num
                     && out.instance_type == "c6a.xlarge"
+                    && out.family == "salmon"
                     && out.region == "ap-south-1"
                     && out.req_mem == 4096
                     && out.req_vcpu == 2

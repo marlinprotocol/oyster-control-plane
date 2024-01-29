@@ -1065,7 +1065,8 @@ impl JobState {
                 let v = serde_json::from_str(&metadata);
                 if let Err(err) = v {
                     println!("job {job}: Error reading metadata: {err:?}");
-                    return -2;
+                    self.schedule_termination(0);
+                    return -3;
                 }
 
                 let v: Value = v.unwrap();
@@ -1075,12 +1076,14 @@ impl JobState {
                     Some(t) => {
                         if self.instance_type != t.to_string() {
                             println!("job {job}: Instance type change not allowed");
-                            return -2;
+                            self.schedule_termination(0);
+                            return -3;
                         }
                     }
                     None => {
                         println!("job {job}: Instance type not set");
-                        return -2;
+                        self.schedule_termination(0);
+                        return -3;
                     }
                 }
 
@@ -1089,12 +1092,14 @@ impl JobState {
                     Some(t) => {
                         if self.region != t.to_string() {
                             println!("job {job}: Region change not allowed");
-                            return -2;
+                            self.schedule_termination(0);
+                            return -3;
                         }
                     }
                     None => {
                         println!("job {job}: Job region not set");
-                        return -2;
+                        self.schedule_termination(0);
+                        return -3;
                     }
                 }
 
@@ -1103,12 +1108,14 @@ impl JobState {
                     Some(t) => {
                         if self.req_mem != t {
                             println!("job {job}: Memory change not allowed");
-                            return -2;
+                            self.schedule_termination(0);
+                            return -3;
                         }
                     }
                     None => {
                         println!("job {job}: memory not set");
-                        return -2;
+                        self.schedule_termination(0);
+                        return -3;
                     }
                 }
 
@@ -1117,19 +1124,22 @@ impl JobState {
                     Some(t) => {
                         if self.req_vcpus != t.try_into().unwrap_or(2) {
                             println!("job {job}: vcpu change not allowed");
-                            return -2;
+                            self.schedule_termination(0);
+                            return -3;
                         }
                     }
                     None => {
                         println!("job {job}: vcpu not set");
-                        return -2;
+                        self.schedule_termination(0);
+                        return -3;
                     }
                 }
 
                 let family = v["family"].as_str();
                 if family.is_some() && self.family != family.unwrap().to_owned() {
                     println!("job {job}: family change not allowed");
-                    return -2;
+                    self.schedule_termination(0);
+                    return -3;
                 }
 
                 let url = v["url"].as_str();
@@ -1137,12 +1147,14 @@ impl JobState {
                     Some(t) => {
                         if self.eif_url == t {
                             println!("job {job}: no url change for EIF update event");
-                            return -2;
+                            self.schedule_termination(0);
+                            return -3;
                         }
                     }
                     None => {
                         println!("job {job}: url not set");
-                        return -2;
+                        self.schedule_termination(0);
+                        return -3;
                     }
                 }
                 self.eif_url = url.unwrap().to_string();

@@ -1502,10 +1502,10 @@ impl Aws {
             .await
             .context("error establishing ssh connection")?;
 
-        let (stdout, _) =
+        let (stdout, stderr) =
             Self::ssh_exec(sess, "cat image_url.txt").context("Failed to read image_url.txt")?;
 
-        if stdout == eif_url {
+        if stderr.is_empty() && stdout == eif_url {
             return Ok(());
         }
 

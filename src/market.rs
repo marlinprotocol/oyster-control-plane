@@ -56,6 +56,15 @@ pub trait InfraProvider {
         req_mem: i64,
         bandwidth: u64,
     ) -> Result<()>;
+
+    async fn update_enclave_image(
+        &mut self,
+        instance_id: &str,
+        region: String,
+        eif_url: &str,
+        req_vcpu: i32,
+        req_mem: i64,
+    ) -> Result<()>;
 }
 
 #[async_trait]
@@ -134,6 +143,19 @@ where
                 req_mem,
                 bandwidth,
             )
+            .await
+    }
+
+    async fn update_enclave_image(
+        &mut self,
+        instance_id: &str,
+        region: String,
+        eif_url: &str,
+        req_vcpu: i32,
+        req_mem: i64,
+    ) -> Result<()> {
+        (**self)
+            .update_enclave_image(instance_id, region, eif_url, req_vcpu, req_mem)
             .await
     }
 }
@@ -449,6 +471,8 @@ struct JobState {
     infra_change_time: Instant,
     // whether to schedule change
     infra_change_scheduled: bool,
+    // whether to just update the eif
+    eif_update: bool,
 }
 
 impl JobState {
@@ -484,6 +508,7 @@ impl JobState {
             infra_state: false,
             infra_change_time: Instant::now(),
             infra_change_scheduled: false,
+            eif_update: false,
         }
     }
 
@@ -618,6 +643,23 @@ impl JobState {
                     // instance exists and is already running, we are done
                     println!("job {job}: found existing healthy instance: {instance}");
                     self.instance_id = instance;
+                    if self.eif_update {
+                        // update eif
+                        let res = infra_provider
+                            .update_enclave_image(
+                                &self.instance_id,
+                                self.region.clone(),
+                                &self.eif_url,
+                                self.req_vcpus,
+                                self.req_mem,
+                            )
+                            .await;
+                        if let Err(err) = res {
+                            println!("job {job}: ERROR failed to update eif, {err:?}");
+                            return false;
+                        }
+                        self.eif_update = false;
+                    }
                     return true;
                 }
 
@@ -721,6 +763,8 @@ impl JobState {
         #[allow(non_snake_case)]
         let JOB_REVISE_RATE_FINALIZED =
             keccak256("JobReviseRateFinalized(bytes32, uint256)").into();
+        #[allow(non_snake_case)]
+        let METADATA_UPDATED = keccak256("JobMetadataUpdated(bytes32,string)").into();
 
         // NOTE: jobs should be killed fully if any individual event would kill it
         // regardless of future events
@@ -1007,6 +1051,117 @@ impl JobState {
                     "job {job}: JOB_REVISE_RATE_FINALIZED: Decode failure: {}",
                     log.data
                 );
+            }
+        } else if log.topics[0] == METADATA_UPDATED {
+            if let Ok((metadata, timestamp)) = <(String, U256)>::decode(&log.data) {
+                println!(
+                    "job {job}: METADATA_UPDATED: metadata: {}, timestamp: {}",
+                    metadata,
+                    self.last_settled.as_secs()
+                );
+
+                self.last_settled = Duration::from_secs(timestamp.low_u64());
+
+                let v = serde_json::from_str(&metadata);
+                if let Err(err) = v {
+                    println!("job {job}: Error reading metadata: {err:?}");
+                    self.schedule_termination(0);
+                    return -3;
+                }
+
+                let v: Value = v.unwrap();
+
+                let r = v["instance"].as_str();
+                match r {
+                    Some(t) => {
+                        if self.instance_type != t.to_string() {
+                            println!("job {job}: Instance type change not allowed");
+                            self.schedule_termination(0);
+                            return -3;
+                        }
+                    }
+                    None => {
+                        println!("job {job}: Instance type not set");
+                        self.schedule_termination(0);
+                        return -3;
+                    }
+                }
+
+                let r = v["region"].as_str();
+                match r {
+                    Some(t) => {
+                        if self.region != t.to_string() {
+                            println!("job {job}: Region change not allowed");
+                            self.schedule_termination(0);
+                            return -3;
+                        }
+                    }
+                    None => {
+                        println!("job {job}: Job region not set");
+                        self.schedule_termination(0);
+                        return -3;
+                    }
+                }
+
+                let r = v["memory"].as_i64();
+                match r {
+                    Some(t) => {
+                        if self.req_mem != t {
+                            println!("job {job}: Memory change not allowed");
+                            self.schedule_termination(0);
+                            return -3;
+                        }
+                    }
+                    None => {
+                        println!("job {job}: memory not set");
+                        self.schedule_termination(0);
+                        return -3;
+                    }
+                }
+
+                let r = v["vcpu"].as_i64();
+                match r {
+                    Some(t) => {
+                        if self.req_vcpus != t.try_into().unwrap_or(2) {
+                            println!("job {job}: vcpu change not allowed");
+                            self.schedule_termination(0);
+                            return -3;
+                        }
+                    }
+                    None => {
+                        println!("job {job}: vcpu not set");
+                        self.schedule_termination(0);
+                        return -3;
+                    }
+                }
+
+                let family = v["family"].as_str();
+                if family.is_some() && self.family != family.unwrap().to_owned() {
+                    println!("job {job}: family change not allowed");
+                    self.schedule_termination(0);
+                    return -3;
+                }
+
+                let url = v["url"].as_str();
+                match url {
+                    Some(t) => {
+                        if self.eif_url == t {
+                            println!("job {job}: no url change for EIF update event");
+                            self.schedule_termination(0);
+                            return -3;
+                        }
+                    }
+                    None => {
+                        println!("job {job}: url not set");
+                        self.schedule_termination(0);
+                        return -3;
+                    }
+                }
+                self.eif_url = url.unwrap().to_string();
+                self.eif_update = true;
+                self.schedule_launch(self.launch_delay);
+            } else {
+                println!("job {job}: METADATA_UPDATED: Decode failure: {}", log.data);
             }
         } else {
             println!("job {job}: Unknown event: {}", log.topics[0]);
@@ -2275,5 +2430,159 @@ mod tests {
                 rate: U256::from(10000u16),
             }
         );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_eif_update_after_spin_up() {
+        let _ = market::START.set(Instant::now());
+
+        let job_num = H256::from_low_u64_be(1);
+        let job_logs: Vec<(u64, Log)> = vec![
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).encode()),
+            (100, Action::MetadataUpdated, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/updated-enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string()).encode()),
+            (505, Action::Close, [].into()),
+        ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
+
+        let start_time = Instant::now();
+        // pending stream appended so job stream never ends
+        let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
+            .then(|(moment, log)| async move {
+                let delay = start_time + Duration::from_secs(moment) - Instant::now();
+                sleep(delay).await;
+                log
+            })
+            .chain(tokio_stream::pending()));
+        let mut aws: TestAws = Default::default();
+        let res = market::job_manager_once(
+            job_stream,
+            &mut aws,
+            job_num,
+            vec!["ap-south-1".into()],
+            300,
+            &test::get_rates(),
+            &test::get_gb_rates(),
+            &Vec::new(),
+            &Vec::new(),
+            "xyz".into(),
+            "123".into(),
+        )
+        .await;
+
+        // job manager should have finished successfully
+        assert_eq!(res, 0);
+        println!("{:?}", aws.outcomes);
+        let spin_up_tv_sec: Instant;
+        if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
+            spin_up_tv_sec = out.time;
+            assert!(
+                H256::from_str(&out.job).unwrap() == job_num
+                    && out.instance_type == "c6a.xlarge"
+                    && out.family == "salmon"
+                    && out.region == "ap-south-1"
+                    && out.req_mem == 4096
+                    && out.req_vcpu == 2
+                    && out.bandwidth == 76
+                    && out.eif_url == "https://example.com/updated-enclave.eif"
+                    && out.contract_address == "xyz"
+                    && out.chain_id == "123"
+            )
+        } else {
+            panic!();
+        };
+
+        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
+            assert_eq!((out.time - spin_up_tv_sec).as_secs(), 105);
+            assert!(H256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
+        } else {
+            panic!();
+        };
+
+        assert!(!aws.instances.contains_key(&job_num.to_string()))
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_other_metadata_update_after_spin_up() {
+        let _ = market::START.set(Instant::now());
+
+        let job_num = H256::from_low_u64_be(1);
+        let job_logs: Vec<(u64, Log)> = vec![
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).encode()),
+            // instance type has also been updated in the metadata. should fail this job.
+            (100, Action::MetadataUpdated, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/updated-enclave.eif\",\"instance\":\"c6a.large\",\"memory\":4096,\"vcpu\":2}".to_string()).encode()),
+            (505, Action::Close, [].into()),
+        ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
+
+        let start_time = Instant::now();
+        // pending stream appended so job stream never ends
+        let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
+            .then(|(moment, log)| async move {
+                let delay = start_time + Duration::from_secs(moment) - Instant::now();
+                sleep(delay).await;
+                log
+            })
+            .chain(tokio_stream::pending()));
+        let mut aws: TestAws = Default::default();
+        let res = market::job_manager_once(
+            job_stream,
+            &mut aws,
+            job_num,
+            vec!["ap-south-1".into()],
+            300,
+            &test::get_rates(),
+            &test::get_gb_rates(),
+            &Vec::new(),
+            &Vec::new(),
+            "xyz".into(),
+            "123".into(),
+        )
+        .await;
+
+        // job manager should have finished successfully
+        assert_eq!(res, 0);
+        assert!(aws.outcomes.is_empty());
+        assert!(!aws.instances.contains_key(&job_num.to_string()))
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_metadata_update_event_with_no_updates_after_spin_up() {
+        let _ = market::START.set(Instant::now());
+
+        let job_num = H256::from_low_u64_be(1);
+        let job_logs: Vec<(u64, Log)> = vec![
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).encode()),
+            // instance type has also been updated in the metadata. should fail this job.
+            (100, Action::MetadataUpdated, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string()).encode()),
+            (505, Action::Close, [].into()),
+        ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
+
+        let start_time = Instant::now();
+        // pending stream appended so job stream never ends
+        let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
+            .then(|(moment, log)| async move {
+                let delay = start_time + Duration::from_secs(moment) - Instant::now();
+                sleep(delay).await;
+                log
+            })
+            .chain(tokio_stream::pending()));
+        let mut aws: TestAws = Default::default();
+        let res = market::job_manager_once(
+            job_stream,
+            &mut aws,
+            job_num,
+            vec!["ap-south-1".into()],
+            300,
+            &test::get_rates(),
+            &test::get_gb_rates(),
+            &Vec::new(),
+            &Vec::new(),
+            "xyz".into(),
+            "123".into(),
+        )
+        .await;
+
+        // job manager should have finished successfully
+        assert_eq!(res, 0);
+        assert!(aws.outcomes.is_empty());
+        assert!(!aws.instances.contains_key(&job_num.to_string()))
     }
 }

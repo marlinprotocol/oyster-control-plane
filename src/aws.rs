@@ -278,6 +278,12 @@ impl Aws {
         Self::ssh_exec(sess, &("wget -O enclave.eif ".to_owned() + image_url))
             .context("Failed to download enclave image")?;
 
+        Self::ssh_exec(
+            sess,
+            &("echo \"".to_owned() + image_url + "\" > image_url.txt"),
+        )
+        .context("Failed to write EIF URL to txt file.")?;
+
         if self.whitelist.as_str() != "" || self.blacklist.as_str() != "" {
             let (stdout, stderr) = Self::ssh_exec(sess, "sha256sum /home/ubuntu/enclave.eif")
                 .context("Failed to calculate image hash")?;
@@ -530,6 +536,12 @@ impl Aws {
 
         Self::ssh_exec(sess, &("wget -O enclave.eif ".to_owned() + image_url))
             .context("Failed to download enclave image")?;
+
+        Self::ssh_exec(
+            sess,
+            &("echo \"".to_owned() + image_url + "\" > image_url.txt"),
+        )
+        .context("Failed to write EIF URL to txt file.")?;
 
         if self.whitelist.as_str() != "" || self.blacklist.as_str() != "" {
             let (stdout, stderr) = Self::ssh_exec(sess, "sha256sum /home/ubuntu/enclave.eif")
@@ -1471,6 +1483,68 @@ impl Aws {
             .context("could not terminate instance")?;
         Ok(())
     }
+
+    pub async fn update_enclave_image_impl(
+        &self,
+        instance_id: &str,
+        region: String,
+        eif_url: &str,
+        req_vcpu: i32,
+        req_mem: i64,
+    ) -> Result<()> {
+        let public_ip_address = self
+            .get_instance_ip(instance_id, region.clone())
+            .await
+            .context("could not fetch instance ip")?;
+
+        let sess = &self
+            .ssh_connect(&(public_ip_address + ":22"))
+            .await
+            .context("error establishing ssh connection")?;
+
+        let (stdout, stderr) =
+            Self::ssh_exec(sess, "cat image_url.txt").context("Failed to read image_url.txt")?;
+
+        if stderr.is_empty() && stdout == eif_url {
+            return Ok(());
+        }
+
+        Self::ssh_exec(sess, &("wget -O enclave.eif ".to_owned() + &eif_url))
+            .context("Failed to download enclave image")?;
+
+        Self::ssh_exec(
+            sess,
+            &("echo \"".to_owned() + eif_url + "\" > image_url.txt"),
+        )
+        .context("Failed to write EIF URL to txt file.")?;
+
+        let (_, stderr) = Self::ssh_exec(sess, "nitro-cli terminate-enclave --all")?;
+
+        if !stderr.is_empty() {
+            println!("{stderr}");
+            return Err(anyhow!("Error terminating enclave: {stderr}"));
+        }
+
+        let (_, stderr) = Self::ssh_exec(
+            sess,
+            &("nitro-cli run-enclave --cpu-count ".to_owned()
+                + &((req_vcpu).to_string())
+                + " --memory "
+                + &((req_mem).to_string())
+                + " --eif-path enclave.eif --enclave-cid 88"),
+        )?;
+
+        if !stderr.is_empty() {
+            println!("{stderr}");
+            if !stderr.contains("Started enclave with enclave-cid") {
+                return Err(anyhow!("Error running enclave image: {stderr}"));
+            }
+        }
+
+        println!("Enclave running");
+
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -1577,6 +1651,20 @@ impl InfraProvider for Aws {
         )
         .await
         .context("could not run enclave")?;
+        Ok(())
+    }
+
+    async fn update_enclave_image(
+        &mut self,
+        instance_id: &str,
+        region: String,
+        eif_url: &str,
+        req_vcpu: i32,
+        req_mem: i64,
+    ) -> Result<()> {
+        self.update_enclave_image_impl(instance_id, region, eif_url, req_vcpu, req_mem)
+            .await
+            .context("could not update enclave image")?;
         Ok(())
     }
 }

@@ -1358,7 +1358,7 @@ impl Aws {
             mem = instance
                 .memory_info()
                 .ok_or(anyhow!("error fetching instance memory info"))?
-                .size_in_mi_b()
+                .size_in_mib()
                 .ok_or(anyhow!("error fetching instance v_cpu info"))?;
             println!("memory: {mem}");
         }

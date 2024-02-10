@@ -140,7 +140,7 @@ impl Aws {
             .await
             .describe_key_pairs()
             .filters(
-                aws_sdk_ec2::model::Filter::builder()
+                aws_sdk_ec2::types::Filter::builder()
                     .name("key-name")
                     .values(&self.key_name)
                     .build(),
@@ -773,7 +773,7 @@ impl Aws {
             .await
             .describe_instances()
             .filters(
-                aws_sdk_ec2::model::Filter::builder()
+                aws_sdk_ec2::types::Filter::builder()
                     .name("instance-id")
                     .values(instance_id)
                     .build(),
@@ -927,11 +927,11 @@ impl Aws {
     }
 
     async fn get_amis(&self, region: String, family: &str, architecture: &str) -> Result<String> {
-        let project_filter = aws_sdk_ec2::model::Filter::builder()
+        let project_filter = aws_sdk_ec2::types::Filter::builder()
             .name("tag:project")
             .values("oyster")
             .build();
-        let name_filter = aws_sdk_ec2::model::Filter::builder()
+        let name_filter = aws_sdk_ec2::types::Filter::builder()
             .name("name")
             .values("marlin/oyster/worker-".to_owned() + family + "-" + architecture + "-????????")
             .build();
@@ -972,7 +972,7 @@ impl Aws {
         architecture: &str,
     ) -> Result<String> {
         let owner = "753722448458";
-        let name_filter = aws_sdk_ec2::model::Filter::builder()
+        let name_filter = aws_sdk_ec2::types::Filter::builder()
             .name("name")
             .values("marlin/oyster/worker-".to_owned() + family + "-" + architecture + "-????????")
             .build();
@@ -997,7 +997,7 @@ impl Aws {
     }
 
     pub async fn get_security_group(&self, region: String) -> Result<String> {
-        let filter = aws_sdk_ec2::model::Filter::builder()
+        let filter = aws_sdk_ec2::types::Filter::builder()
             .name("tag:project")
             .values("oyster")
             .build();
@@ -1021,7 +1021,7 @@ impl Aws {
     }
 
     pub async fn get_subnet(&self, region: String) -> Result<String> {
-        let filter = aws_sdk_ec2::model::Filter::builder()
+        let filter = aws_sdk_ec2::types::Filter::builder()
             .name("tag:project")
             .values("oyster")
             .build();
@@ -1054,7 +1054,7 @@ impl Aws {
             .await
             .describe_instances()
             .filters(
-                aws_sdk_ec2::model::Filter::builder()
+                aws_sdk_ec2::types::Filter::builder()
                     .name("tag:jobId")
                     .values(job)
                     .build(),
@@ -1098,7 +1098,7 @@ impl Aws {
             .await
             .describe_instances()
             .filters(
-                aws_sdk_ec2::model::Filter::builder()
+                aws_sdk_ec2::types::Filter::builder()
                     .name("instance-id")
                     .values(instance_id)
                     .build(),
@@ -1205,12 +1205,12 @@ impl Aws {
         job: &str,
         region: String,
     ) -> Result<(bool, String, String)> {
-        let filter_a = aws_sdk_ec2::model::Filter::builder()
+        let filter_a = aws_sdk_ec2::types::Filter::builder()
             .name("tag:project")
             .values("oyster")
             .build();
 
-        let filter_b = aws_sdk_ec2::model::Filter::builder()
+        let filter_b = aws_sdk_ec2::types::Filter::builder()
             .name("tag:jobId")
             .values(job)
             .build();
@@ -1251,7 +1251,7 @@ impl Aws {
         instance: &str,
         region: String,
     ) -> Result<(bool, String, String)> {
-        let filter_a = aws_sdk_ec2::model::Filter::builder()
+        let filter_a = aws_sdk_ec2::types::Filter::builder()
             .name("instance-id")
             .values(instance)
             .build();

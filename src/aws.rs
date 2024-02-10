@@ -149,7 +149,6 @@ impl Aws {
             .await
             .context("failed to query key pairs")?
             .key_pairs()
-            .ok_or(anyhow!("failed to parse key pairs"))?
             .is_empty())
     }
 
@@ -783,11 +782,9 @@ impl Aws {
             .context("could not describe instances")?
             // response parsing from here
             .reservations()
-            .ok_or(anyhow!("could not parse reservations"))?
             .first()
             .ok_or(anyhow!("no reservation found"))?
             .instances()
-            .ok_or(anyhow!("could not parse instances"))?
             .first()
             .ok_or(anyhow!("no instances with the given id"))?
             .public_ip_address()
@@ -905,7 +902,6 @@ impl Aws {
             .context("could not run instance")?
             // response parsing from here
             .instances()
-            .ok_or(anyhow!("could not parse instances"))?
             .first()
             .ok_or(anyhow!("no instance found"))?
             .instance_id()
@@ -947,10 +943,7 @@ impl Aws {
             .await
             .context("could not describe images")?;
 
-        let own_ami = own_ami
-            .images()
-            .ok_or(anyhow!("could not parse images"))?
-            .first();
+        let own_ami = own_ami.images().first();
 
         if own_ami.is_some() {
             Ok(own_ami
@@ -988,7 +981,6 @@ impl Aws {
             .context("could not describe images")?
             // response parsing from here
             .images()
-            .ok_or(anyhow!("could not parse images"))?
             .first()
             .ok_or(anyhow!("no images found"))?
             .image_id()
@@ -1012,7 +1004,6 @@ impl Aws {
             .context("could not describe security groups")?
             // response parsing from here
             .security_groups()
-            .ok_or(anyhow!("could not parse security groups"))?
             .first()
             .ok_or(anyhow!("no security group found"))?
             .group_id()
@@ -1036,7 +1027,6 @@ impl Aws {
             .context("could not describe subnets")?
             // response parsing from here
             .subnets()
-            .ok_or(anyhow!("Could not parse subnets"))?
             .first()
             .ok_or(anyhow!("no subnet found"))?
             .subnet_id()
@@ -1063,16 +1053,13 @@ impl Aws {
             .await
             .context("could not describe instances")?;
         // response parsing from here
-        let reservations = res
-            .reservations()
-            .ok_or(anyhow!("could not parse reservations"))?;
+        let reservations = res.reservations();
 
         if reservations.is_empty() {
             Ok((false, "".to_owned(), "".to_owned()))
         } else {
             let instance = reservations[0]
                 .instances()
-                .ok_or(anyhow!("could not parse instances"))?
                 .first()
                 .ok_or(anyhow!("instance not found"))?;
             Ok((
@@ -1108,11 +1095,9 @@ impl Aws {
             .context("could not describe instances")?
             // response parsing from here
             .reservations()
-            .ok_or(anyhow!("could not parse reservations"))?
             .first()
             .ok_or(anyhow!("no reservation found"))?
             .instances()
-            .ok_or(anyhow!("could not parse instances"))?
             .first()
             .ok_or(anyhow!("no instances with the given id"))?
             .state()
@@ -1227,7 +1212,6 @@ impl Aws {
                 .context("could not describe elastic ips")?
                 // response parsing starts here
                 .addresses()
-                .ok_or(anyhow!("could not parse addresses"))?
                 .first()
             {
                 None => (false, String::new(), String::new()),
@@ -1267,7 +1251,6 @@ impl Aws {
                 .context("could not describe elastic ips")?
                 // response parsing starts here
                 .addresses()
-                .ok_or(anyhow!("could not parse addresses"))?
                 .first()
             {
                 None => (false, String::new(), String::new()),
@@ -1352,15 +1335,12 @@ impl Aws {
         let mut v_cpus: i32 = 4;
         let mut mem: i64 = 8192;
 
-        let instance_types = resp
-            .instance_types()
-            .ok_or(anyhow!("error fetching instance info"))?;
+        let instance_types = resp.instance_types();
         for instance in instance_types {
             let supported_architectures = instance
                 .processor_info()
                 .ok_or(anyhow!("error fetching instance processor info"))?
-                .supported_architectures()
-                .ok_or(anyhow!("error fetching instance architecture info"))?;
+                .supported_architectures();
             if let Some(arch) = supported_architectures.iter().next() {
                 if arch.as_str() == "x86_64" {
                     architecture = "amd64".to_owned();

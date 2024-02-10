@@ -795,7 +795,7 @@ impl Aws {
     pub async fn launch_instance(
         &self,
         job: String,
-        instance_type: aws_sdk_ec2::model::InstanceType,
+        instance_type: aws_sdk_ec2::types::InstanceType,
         image_url: &str,
         family: &str,
         architecture: &str,
@@ -831,42 +831,42 @@ impl Aws {
             .await
             .context("could not get amis")?;
 
-        let enclave_options = aws_sdk_ec2::model::EnclaveOptionsRequest::builder()
+        let enclave_options = aws_sdk_ec2::types::EnclaveOptionsRequest::builder()
             .set_enabled(Some(true))
             .build();
-        let ebs = aws_sdk_ec2::model::EbsBlockDevice::builder()
+        let ebs = aws_sdk_ec2::types::EbsBlockDevice::builder()
             .volume_size(12)
             .build();
-        let block_device_mapping = aws_sdk_ec2::model::BlockDeviceMapping::builder()
+        let block_device_mapping = aws_sdk_ec2::types::BlockDeviceMapping::builder()
             .set_device_name(Some("/dev/sda1".to_string()))
             .set_ebs(Some(ebs))
             .build();
-        let name_tag = aws_sdk_ec2::model::Tag::builder()
+        let name_tag = aws_sdk_ec2::types::Tag::builder()
             .set_key(Some("Name".to_string()))
             .set_value(Some("JobRunner".to_string()))
             .build();
-        let managed_tag = aws_sdk_ec2::model::Tag::builder()
+        let managed_tag = aws_sdk_ec2::types::Tag::builder()
             .set_key(Some("managedBy".to_string()))
             .set_value(Some("marlin".to_string()))
             .build();
-        let project_tag = aws_sdk_ec2::model::Tag::builder()
+        let project_tag = aws_sdk_ec2::types::Tag::builder()
             .set_key(Some("project".to_string()))
             .set_value(Some("oyster".to_string()))
             .build();
-        let job_tag = aws_sdk_ec2::model::Tag::builder()
+        let job_tag = aws_sdk_ec2::types::Tag::builder()
             .set_key(Some("jobId".to_string()))
             .set_value(Some(job))
             .build();
-        let chain_tag = aws_sdk_ec2::model::Tag::builder()
+        let chain_tag = aws_sdk_ec2::types::Tag::builder()
             .set_key(Some("chainID".to_string()))
             .set_value(Some(chain_id))
             .build();
-        let contract_tag = aws_sdk_ec2::model::Tag::builder()
+        let contract_tag = aws_sdk_ec2::types::Tag::builder()
             .set_key(Some("contractAddress".to_string()))
             .set_value(Some(contract_address))
             .build();
-        let tags = aws_sdk_ec2::model::TagSpecification::builder()
-            .set_resource_type(Some(aws_sdk_ec2::model::ResourceType::Instance))
+        let tags = aws_sdk_ec2::types::TagSpecification::builder()
+            .set_resource_type(Some(aws_sdk_ec2::types::ResourceType::Instance))
             .tags(name_tag)
             .tags(managed_tag)
             .tags(job_tag)
@@ -1146,20 +1146,20 @@ impl Aws {
             return Ok((alloc_id, public_ip));
         }
 
-        let managed_tag = aws_sdk_ec2::model::Tag::builder()
+        let managed_tag = aws_sdk_ec2::types::Tag::builder()
             .set_key(Some("managedBy".to_string()))
             .set_value(Some("marlin".to_string()))
             .build();
-        let project_tag = aws_sdk_ec2::model::Tag::builder()
+        let project_tag = aws_sdk_ec2::types::Tag::builder()
             .set_key(Some("project".to_string()))
             .set_value(Some("oyster".to_string()))
             .build();
-        let job_tag = aws_sdk_ec2::model::Tag::builder()
+        let job_tag = aws_sdk_ec2::types::Tag::builder()
             .set_key(Some("jobId".to_string()))
             .set_value(Some(job))
             .build();
-        let tags = aws_sdk_ec2::model::TagSpecification::builder()
-            .set_resource_type(Some(aws_sdk_ec2::model::ResourceType::ElasticIp))
+        let tags = aws_sdk_ec2::types::TagSpecification::builder()
+            .set_resource_type(Some(aws_sdk_ec2::types::ResourceType::ElasticIp))
             .tags(managed_tag)
             .tags(job_tag)
             .tags(project_tag)
@@ -1169,7 +1169,7 @@ impl Aws {
             .client(region)
             .await
             .allocate_address()
-            .domain(aws_sdk_ec2::model::DomainType::Vpc)
+            .domain(aws_sdk_ec2::types::DomainType::Vpc)
             .tag_specifications(tags)
             .send()
             .await
@@ -1321,7 +1321,7 @@ impl Aws {
         contract_address: String,
         chain_id: String,
     ) -> Result<String> {
-        let instance_type = aws_sdk_ec2::model::InstanceType::from_str(instance_type)
+        let instance_type = aws_sdk_ec2::types::InstanceType::from_str(instance_type)
             .context("cannot parse instance type")?;
         let resp = self
             .client(region.clone())

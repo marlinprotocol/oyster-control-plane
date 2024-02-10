@@ -250,15 +250,9 @@ impl Aws {
                 + &((req_mem).to_string())
                 + "\\ncpu_count: "
                 + &((req_vcpu).to_string())
-                + "' > /home/ubuntu/allocator_new.yaml"),
+                + "' | sudo tee /etc/nitro_enclaves/allocator.yaml"),
         )
         .context("Failed to set allocator file")?;
-
-        Self::ssh_exec(
-            sess,
-            "sudo cp /home/ubuntu/allocator_new.yaml /etc/nitro_enclaves/allocator.yaml",
-        )
-        .context("Failed to copy allocator file")?;
 
         let (_, stderr) = Self::ssh_exec(
             sess,
@@ -509,15 +503,9 @@ impl Aws {
                 + &((req_mem).to_string())
                 + "\\ncpu_count: "
                 + &((req_vcpu).to_string())
-                + "' > /home/ubuntu/allocator_new.yaml"),
+                + "' | sudo tee /etc/nitro_enclaves/allocator.yaml"),
         )
         .context("Failed to set allocator file")?;
-
-        Self::ssh_exec(
-            sess,
-            "sudo cp /home/ubuntu/allocator_new.yaml /etc/nitro_enclaves/allocator.yaml",
-        )
-        .context("Failed to copy allocator file")?;
 
         let (_, stderr) = Self::ssh_exec(
             sess,

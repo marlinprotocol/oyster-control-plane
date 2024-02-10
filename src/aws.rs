@@ -126,7 +126,7 @@ impl Aws {
             .await
             .import_key_pair()
             .key_name(&self.key_name)
-            .public_key_material(aws_sdk_ec2::types::Blob::new(buffer))
+            .public_key_material(aws_sdk_ec2::primitives::Blob::new(buffer))
             .send()
             .await
             .context("Failed to import key pair")?;

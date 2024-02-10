@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
+use aws_sdk_ec2::types::*;
 use aws_types::region::Region;
 use rand_core::OsRng;
 use serde_json::Value;
@@ -140,7 +141,7 @@ impl Aws {
             .await
             .describe_key_pairs()
             .filters(
-                aws_sdk_ec2::types::Filter::builder()
+                Filter::builder()
                     .name("key-name")
                     .values(&self.key_name)
                     .build(),
@@ -760,7 +761,7 @@ impl Aws {
             .await
             .describe_instances()
             .filters(
-                aws_sdk_ec2::types::Filter::builder()
+                Filter::builder()
                     .name("instance-id")
                     .values(instance_id)
                     .build(),
@@ -783,7 +784,7 @@ impl Aws {
     pub async fn launch_instance(
         &self,
         job: String,
-        instance_type: aws_sdk_ec2::types::InstanceType,
+        instance_type: InstanceType,
         image_url: &str,
         family: &str,
         architecture: &str,
@@ -819,13 +820,9 @@ impl Aws {
             .await
             .context("could not get amis")?;
 
-        let enclave_options = aws_sdk_ec2::types::EnclaveOptionsRequest::builder()
-            .set_enabled(Some(true))
-            .build();
-        let ebs = aws_sdk_ec2::types::EbsBlockDevice::builder()
-            .volume_size(12)
-            .build();
-        let block_device_mapping = aws_sdk_ec2::types::BlockDeviceMapping::builder()
+        let enclave_options = EnclaveOptionsRequest::builder().enabled(true).build();
+        let ebs = EbsBlockDevice::builder().volume_size(12).build();
+        let block_device_mapping = BlockDeviceMapping::builder()
             .set_device_name(Some("/dev/sda1".to_string()))
             .set_ebs(Some(ebs))
             .build();
@@ -911,11 +908,11 @@ impl Aws {
     }
 
     async fn get_amis(&self, region: String, family: &str, architecture: &str) -> Result<String> {
-        let project_filter = aws_sdk_ec2::types::Filter::builder()
+        let project_filter = Filter::builder()
             .name("tag:project")
             .values("oyster")
             .build();
-        let name_filter = aws_sdk_ec2::types::Filter::builder()
+        let name_filter = Filter::builder()
             .name("name")
             .values("marlin/oyster/worker-".to_owned() + family + "-" + architecture + "-????????")
             .build();
@@ -953,7 +950,7 @@ impl Aws {
         architecture: &str,
     ) -> Result<String> {
         let owner = "753722448458";
-        let name_filter = aws_sdk_ec2::types::Filter::builder()
+        let name_filter = Filter::builder()
             .name("name")
             .values("marlin/oyster/worker-".to_owned() + family + "-" + architecture + "-????????")
             .build();
@@ -977,7 +974,7 @@ impl Aws {
     }
 
     pub async fn get_security_group(&self, region: String) -> Result<String> {
-        let filter = aws_sdk_ec2::types::Filter::builder()
+        let filter = Filter::builder()
             .name("tag:project")
             .values("oyster")
             .build();
@@ -1000,7 +997,7 @@ impl Aws {
     }
 
     pub async fn get_subnet(&self, region: String) -> Result<String> {
-        let filter = aws_sdk_ec2::types::Filter::builder()
+        let filter = Filter::builder()
             .name("tag:project")
             .values("oyster")
             .build();
@@ -1031,12 +1028,7 @@ impl Aws {
             .client(region)
             .await
             .describe_instances()
-            .filters(
-                aws_sdk_ec2::types::Filter::builder()
-                    .name("tag:jobId")
-                    .values(job)
-                    .build(),
-            )
+            .filters(Filter::builder().name("tag:jobId").values(job).build())
             .send()
             .await
             .context("could not describe instances")?;
@@ -1073,7 +1065,7 @@ impl Aws {
             .await
             .describe_instances()
             .filters(
-                aws_sdk_ec2::types::Filter::builder()
+                Filter::builder()
                     .name("instance-id")
                     .values(instance_id)
                     .build(),
@@ -1134,20 +1126,20 @@ impl Aws {
             return Ok((alloc_id, public_ip));
         }
 
-        let managed_tag = aws_sdk_ec2::types::Tag::builder()
+        let managed_tag = Tag::builder()
             .set_key(Some("managedBy".to_string()))
             .set_value(Some("marlin".to_string()))
             .build();
-        let project_tag = aws_sdk_ec2::types::Tag::builder()
+        let project_tag = Tag::builder()
             .set_key(Some("project".to_string()))
             .set_value(Some("oyster".to_string()))
             .build();
-        let job_tag = aws_sdk_ec2::types::Tag::builder()
+        let job_tag = Tag::builder()
             .set_key(Some("jobId".to_string()))
             .set_value(Some(job))
             .build();
-        let tags = aws_sdk_ec2::types::TagSpecification::builder()
-            .set_resource_type(Some(aws_sdk_ec2::types::ResourceType::ElasticIp))
+        let tags = TagSpecification::builder()
+            .set_resource_type(Some(ResourceType::ElasticIp))
             .tags(managed_tag)
             .tags(job_tag)
             .tags(project_tag)
@@ -1157,7 +1149,7 @@ impl Aws {
             .client(region)
             .await
             .allocate_address()
-            .domain(aws_sdk_ec2::types::DomainType::Vpc)
+            .domain(DomainType::Vpc)
             .tag_specifications(tags)
             .send()
             .await
@@ -1178,15 +1170,12 @@ impl Aws {
         job: &str,
         region: String,
     ) -> Result<(bool, String, String)> {
-        let filter_a = aws_sdk_ec2::types::Filter::builder()
+        let filter_a = Filter::builder()
             .name("tag:project")
             .values("oyster")
             .build();
 
-        let filter_b = aws_sdk_ec2::types::Filter::builder()
-            .name("tag:jobId")
-            .values(job)
-            .build();
+        let filter_b = Filter::builder().name("tag:jobId").values(job).build();
 
         Ok(
             match self
@@ -1223,7 +1212,7 @@ impl Aws {
         instance: &str,
         region: String,
     ) -> Result<(bool, String, String)> {
-        let filter_a = aws_sdk_ec2::types::Filter::builder()
+        let filter_a = Filter::builder()
             .name("instance-id")
             .values(instance)
             .build();
@@ -1309,8 +1298,8 @@ impl Aws {
         contract_address: String,
         chain_id: String,
     ) -> Result<String> {
-        let instance_type = aws_sdk_ec2::types::InstanceType::from_str(instance_type)
-            .context("cannot parse instance type")?;
+        let instance_type =
+            InstanceType::from_str(instance_type).context("cannot parse instance type")?;
         let resp = self
             .client(region.clone())
             .await

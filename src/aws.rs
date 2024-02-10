@@ -126,7 +126,7 @@ impl Aws {
             .await
             .import_key_pair()
             .key_name(&self.key_name)
-            .public_key_material(aws_sdk_ec2::types::Blob::new(buffer))
+            .public_key_material(aws_sdk_ec2::primitives::Blob::new(buffer))
             .send()
             .await
             .context("Failed to import key pair")?;
@@ -140,7 +140,7 @@ impl Aws {
             .await
             .describe_key_pairs()
             .filters(
-                aws_sdk_ec2::model::Filter::builder()
+                aws_sdk_ec2::types::Filter::builder()
                     .name("key-name")
                     .values(&self.key_name)
                     .build(),
@@ -149,7 +149,6 @@ impl Aws {
             .await
             .context("failed to query key pairs")?
             .key_pairs()
-            .ok_or(anyhow!("failed to parse key pairs"))?
             .is_empty())
     }
 
@@ -773,7 +772,7 @@ impl Aws {
             .await
             .describe_instances()
             .filters(
-                aws_sdk_ec2::model::Filter::builder()
+                aws_sdk_ec2::types::Filter::builder()
                     .name("instance-id")
                     .values(instance_id)
                     .build(),
@@ -783,11 +782,9 @@ impl Aws {
             .context("could not describe instances")?
             // response parsing from here
             .reservations()
-            .ok_or(anyhow!("could not parse reservations"))?
             .first()
             .ok_or(anyhow!("no reservation found"))?
             .instances()
-            .ok_or(anyhow!("could not parse instances"))?
             .first()
             .ok_or(anyhow!("no instances with the given id"))?
             .public_ip_address()
@@ -798,7 +795,7 @@ impl Aws {
     pub async fn launch_instance(
         &self,
         job: String,
-        instance_type: aws_sdk_ec2::model::InstanceType,
+        instance_type: aws_sdk_ec2::types::InstanceType,
         image_url: &str,
         family: &str,
         architecture: &str,
@@ -834,42 +831,42 @@ impl Aws {
             .await
             .context("could not get amis")?;
 
-        let enclave_options = aws_sdk_ec2::model::EnclaveOptionsRequest::builder()
+        let enclave_options = aws_sdk_ec2::types::EnclaveOptionsRequest::builder()
             .set_enabled(Some(true))
             .build();
-        let ebs = aws_sdk_ec2::model::EbsBlockDevice::builder()
+        let ebs = aws_sdk_ec2::types::EbsBlockDevice::builder()
             .volume_size(12)
             .build();
-        let block_device_mapping = aws_sdk_ec2::model::BlockDeviceMapping::builder()
+        let block_device_mapping = aws_sdk_ec2::types::BlockDeviceMapping::builder()
             .set_device_name(Some("/dev/sda1".to_string()))
             .set_ebs(Some(ebs))
             .build();
-        let name_tag = aws_sdk_ec2::model::Tag::builder()
+        let name_tag = aws_sdk_ec2::types::Tag::builder()
             .set_key(Some("Name".to_string()))
             .set_value(Some("JobRunner".to_string()))
             .build();
-        let managed_tag = aws_sdk_ec2::model::Tag::builder()
+        let managed_tag = aws_sdk_ec2::types::Tag::builder()
             .set_key(Some("managedBy".to_string()))
             .set_value(Some("marlin".to_string()))
             .build();
-        let project_tag = aws_sdk_ec2::model::Tag::builder()
+        let project_tag = aws_sdk_ec2::types::Tag::builder()
             .set_key(Some("project".to_string()))
             .set_value(Some("oyster".to_string()))
             .build();
-        let job_tag = aws_sdk_ec2::model::Tag::builder()
+        let job_tag = aws_sdk_ec2::types::Tag::builder()
             .set_key(Some("jobId".to_string()))
             .set_value(Some(job))
             .build();
-        let chain_tag = aws_sdk_ec2::model::Tag::builder()
+        let chain_tag = aws_sdk_ec2::types::Tag::builder()
             .set_key(Some("chainID".to_string()))
             .set_value(Some(chain_id))
             .build();
-        let contract_tag = aws_sdk_ec2::model::Tag::builder()
+        let contract_tag = aws_sdk_ec2::types::Tag::builder()
             .set_key(Some("contractAddress".to_string()))
             .set_value(Some(contract_address))
             .build();
-        let tags = aws_sdk_ec2::model::TagSpecification::builder()
-            .set_resource_type(Some(aws_sdk_ec2::model::ResourceType::Instance))
+        let tags = aws_sdk_ec2::types::TagSpecification::builder()
+            .set_resource_type(Some(aws_sdk_ec2::types::ResourceType::Instance))
             .tags(name_tag)
             .tags(managed_tag)
             .tags(job_tag)
@@ -905,7 +902,6 @@ impl Aws {
             .context("could not run instance")?
             // response parsing from here
             .instances()
-            .ok_or(anyhow!("could not parse instances"))?
             .first()
             .ok_or(anyhow!("no instance found"))?
             .instance_id()
@@ -927,11 +923,11 @@ impl Aws {
     }
 
     async fn get_amis(&self, region: String, family: &str, architecture: &str) -> Result<String> {
-        let project_filter = aws_sdk_ec2::model::Filter::builder()
+        let project_filter = aws_sdk_ec2::types::Filter::builder()
             .name("tag:project")
             .values("oyster")
             .build();
-        let name_filter = aws_sdk_ec2::model::Filter::builder()
+        let name_filter = aws_sdk_ec2::types::Filter::builder()
             .name("name")
             .values("marlin/oyster/worker-".to_owned() + family + "-" + architecture + "-????????")
             .build();
@@ -947,10 +943,7 @@ impl Aws {
             .await
             .context("could not describe images")?;
 
-        let own_ami = own_ami
-            .images()
-            .ok_or(anyhow!("could not parse images"))?
-            .first();
+        let own_ami = own_ami.images().first();
 
         if own_ami.is_some() {
             Ok(own_ami
@@ -972,7 +965,7 @@ impl Aws {
         architecture: &str,
     ) -> Result<String> {
         let owner = "753722448458";
-        let name_filter = aws_sdk_ec2::model::Filter::builder()
+        let name_filter = aws_sdk_ec2::types::Filter::builder()
             .name("name")
             .values("marlin/oyster/worker-".to_owned() + family + "-" + architecture + "-????????")
             .build();
@@ -988,7 +981,6 @@ impl Aws {
             .context("could not describe images")?
             // response parsing from here
             .images()
-            .ok_or(anyhow!("could not parse images"))?
             .first()
             .ok_or(anyhow!("no images found"))?
             .image_id()
@@ -997,7 +989,7 @@ impl Aws {
     }
 
     pub async fn get_security_group(&self, region: String) -> Result<String> {
-        let filter = aws_sdk_ec2::model::Filter::builder()
+        let filter = aws_sdk_ec2::types::Filter::builder()
             .name("tag:project")
             .values("oyster")
             .build();
@@ -1012,7 +1004,6 @@ impl Aws {
             .context("could not describe security groups")?
             // response parsing from here
             .security_groups()
-            .ok_or(anyhow!("could not parse security groups"))?
             .first()
             .ok_or(anyhow!("no security group found"))?
             .group_id()
@@ -1021,7 +1012,7 @@ impl Aws {
     }
 
     pub async fn get_subnet(&self, region: String) -> Result<String> {
-        let filter = aws_sdk_ec2::model::Filter::builder()
+        let filter = aws_sdk_ec2::types::Filter::builder()
             .name("tag:project")
             .values("oyster")
             .build();
@@ -1036,7 +1027,6 @@ impl Aws {
             .context("could not describe subnets")?
             // response parsing from here
             .subnets()
-            .ok_or(anyhow!("Could not parse subnets"))?
             .first()
             .ok_or(anyhow!("no subnet found"))?
             .subnet_id()
@@ -1054,7 +1044,7 @@ impl Aws {
             .await
             .describe_instances()
             .filters(
-                aws_sdk_ec2::model::Filter::builder()
+                aws_sdk_ec2::types::Filter::builder()
                     .name("tag:jobId")
                     .values(job)
                     .build(),
@@ -1063,16 +1053,13 @@ impl Aws {
             .await
             .context("could not describe instances")?;
         // response parsing from here
-        let reservations = res
-            .reservations()
-            .ok_or(anyhow!("could not parse reservations"))?;
+        let reservations = res.reservations();
 
         if reservations.is_empty() {
             Ok((false, "".to_owned(), "".to_owned()))
         } else {
             let instance = reservations[0]
                 .instances()
-                .ok_or(anyhow!("could not parse instances"))?
                 .first()
                 .ok_or(anyhow!("instance not found"))?;
             Ok((
@@ -1098,7 +1085,7 @@ impl Aws {
             .await
             .describe_instances()
             .filters(
-                aws_sdk_ec2::model::Filter::builder()
+                aws_sdk_ec2::types::Filter::builder()
                     .name("instance-id")
                     .values(instance_id)
                     .build(),
@@ -1108,11 +1095,9 @@ impl Aws {
             .context("could not describe instances")?
             // response parsing from here
             .reservations()
-            .ok_or(anyhow!("could not parse reservations"))?
             .first()
             .ok_or(anyhow!("no reservation found"))?
             .instances()
-            .ok_or(anyhow!("could not parse instances"))?
             .first()
             .ok_or(anyhow!("no instances with the given id"))?
             .state()
@@ -1161,20 +1146,20 @@ impl Aws {
             return Ok((alloc_id, public_ip));
         }
 
-        let managed_tag = aws_sdk_ec2::model::Tag::builder()
+        let managed_tag = aws_sdk_ec2::types::Tag::builder()
             .set_key(Some("managedBy".to_string()))
             .set_value(Some("marlin".to_string()))
             .build();
-        let project_tag = aws_sdk_ec2::model::Tag::builder()
+        let project_tag = aws_sdk_ec2::types::Tag::builder()
             .set_key(Some("project".to_string()))
             .set_value(Some("oyster".to_string()))
             .build();
-        let job_tag = aws_sdk_ec2::model::Tag::builder()
+        let job_tag = aws_sdk_ec2::types::Tag::builder()
             .set_key(Some("jobId".to_string()))
             .set_value(Some(job))
             .build();
-        let tags = aws_sdk_ec2::model::TagSpecification::builder()
-            .set_resource_type(Some(aws_sdk_ec2::model::ResourceType::ElasticIp))
+        let tags = aws_sdk_ec2::types::TagSpecification::builder()
+            .set_resource_type(Some(aws_sdk_ec2::types::ResourceType::ElasticIp))
             .tags(managed_tag)
             .tags(job_tag)
             .tags(project_tag)
@@ -1184,7 +1169,7 @@ impl Aws {
             .client(region)
             .await
             .allocate_address()
-            .domain(aws_sdk_ec2::model::DomainType::Vpc)
+            .domain(aws_sdk_ec2::types::DomainType::Vpc)
             .tag_specifications(tags)
             .send()
             .await
@@ -1205,12 +1190,12 @@ impl Aws {
         job: &str,
         region: String,
     ) -> Result<(bool, String, String)> {
-        let filter_a = aws_sdk_ec2::model::Filter::builder()
+        let filter_a = aws_sdk_ec2::types::Filter::builder()
             .name("tag:project")
             .values("oyster")
             .build();
 
-        let filter_b = aws_sdk_ec2::model::Filter::builder()
+        let filter_b = aws_sdk_ec2::types::Filter::builder()
             .name("tag:jobId")
             .values(job)
             .build();
@@ -1227,7 +1212,6 @@ impl Aws {
                 .context("could not describe elastic ips")?
                 // response parsing starts here
                 .addresses()
-                .ok_or(anyhow!("could not parse addresses"))?
                 .first()
             {
                 None => (false, String::new(), String::new()),
@@ -1251,7 +1235,7 @@ impl Aws {
         instance: &str,
         region: String,
     ) -> Result<(bool, String, String)> {
-        let filter_a = aws_sdk_ec2::model::Filter::builder()
+        let filter_a = aws_sdk_ec2::types::Filter::builder()
             .name("instance-id")
             .values(instance)
             .build();
@@ -1267,7 +1251,6 @@ impl Aws {
                 .context("could not describe elastic ips")?
                 // response parsing starts here
                 .addresses()
-                .ok_or(anyhow!("could not parse addresses"))?
                 .first()
             {
                 None => (false, String::new(), String::new()),
@@ -1338,7 +1321,7 @@ impl Aws {
         contract_address: String,
         chain_id: String,
     ) -> Result<String> {
-        let instance_type = aws_sdk_ec2::model::InstanceType::from_str(instance_type)
+        let instance_type = aws_sdk_ec2::types::InstanceType::from_str(instance_type)
             .context("cannot parse instance type")?;
         let resp = self
             .client(region.clone())
@@ -1352,15 +1335,12 @@ impl Aws {
         let mut v_cpus: i32 = 4;
         let mut mem: i64 = 8192;
 
-        let instance_types = resp
-            .instance_types()
-            .ok_or(anyhow!("error fetching instance info"))?;
+        let instance_types = resp.instance_types();
         for instance in instance_types {
             let supported_architectures = instance
                 .processor_info()
                 .ok_or(anyhow!("error fetching instance processor info"))?
-                .supported_architectures()
-                .ok_or(anyhow!("error fetching instance architecture info"))?;
+                .supported_architectures();
             if let Some(arch) = supported_architectures.iter().next() {
                 if arch.as_str() == "x86_64" {
                     architecture = "amd64".to_owned();
@@ -1378,7 +1358,7 @@ impl Aws {
             mem = instance
                 .memory_info()
                 .ok_or(anyhow!("error fetching instance memory info"))?
-                .size_in_mi_b()
+                .size_in_mib()
                 .ok_or(anyhow!("error fetching instance v_cpu info"))?;
             println!("memory: {mem}");
         }

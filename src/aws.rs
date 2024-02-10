@@ -823,35 +823,21 @@ impl Aws {
         let enclave_options = EnclaveOptionsRequest::builder().enabled(true).build();
         let ebs = EbsBlockDevice::builder().volume_size(12).build();
         let block_device_mapping = BlockDeviceMapping::builder()
-            .set_device_name(Some("/dev/sda1".to_string()))
-            .set_ebs(Some(ebs))
+            .device_name("/dev/sda1")
+            .ebs(ebs)
             .build();
-        let name_tag = aws_sdk_ec2::types::Tag::builder()
-            .set_key(Some("Name".to_string()))
-            .set_value(Some("JobRunner".to_string()))
+
+        let name_tag = Tag::builder().key("Name").value("JobRunner").build();
+        let managed_tag = Tag::builder().key("managedBy").value("marlin").build();
+        let project_tag = Tag::builder().key("project").value("oyster").build();
+        let job_tag = Tag::builder().key("jobId").value(job).build();
+        let chain_tag = Tag::builder().key("chainID").value(chain_id).build();
+        let contract_tag = Tag::builder()
+            .key("contractAddress")
+            .value(contract_address)
             .build();
-        let managed_tag = aws_sdk_ec2::types::Tag::builder()
-            .set_key(Some("managedBy".to_string()))
-            .set_value(Some("marlin".to_string()))
-            .build();
-        let project_tag = aws_sdk_ec2::types::Tag::builder()
-            .set_key(Some("project".to_string()))
-            .set_value(Some("oyster".to_string()))
-            .build();
-        let job_tag = aws_sdk_ec2::types::Tag::builder()
-            .set_key(Some("jobId".to_string()))
-            .set_value(Some(job))
-            .build();
-        let chain_tag = aws_sdk_ec2::types::Tag::builder()
-            .set_key(Some("chainID".to_string()))
-            .set_value(Some(chain_id))
-            .build();
-        let contract_tag = aws_sdk_ec2::types::Tag::builder()
-            .set_key(Some("contractAddress".to_string()))
-            .set_value(Some(contract_address))
-            .build();
-        let tags = aws_sdk_ec2::types::TagSpecification::builder()
-            .set_resource_type(Some(aws_sdk_ec2::types::ResourceType::Instance))
+        let tags = TagSpecification::builder()
+            .resource_type(ResourceType::Instance)
             .tags(name_tag)
             .tags(managed_tag)
             .tags(job_tag)
@@ -872,12 +858,12 @@ impl Aws {
             .client(region)
             .await
             .run_instances()
-            .set_image_id(Some(instance_ami))
-            .set_instance_type(Some(instance_type))
-            .set_key_name(Some(self.key_name.clone()))
-            .set_min_count(Some(1))
-            .set_max_count(Some(1))
-            .set_enclave_options(Some(enclave_options))
+            .image_id(instance_ami)
+            .instance_type(instance_type)
+            .key_name(self.key_name.clone())
+            .min_count(1)
+            .max_count(1)
+            .enclave_options(enclave_options)
             .block_device_mappings(block_device_mapping)
             .tag_specifications(tags)
             .security_group_ids(sec_group)
@@ -1126,20 +1112,11 @@ impl Aws {
             return Ok((alloc_id, public_ip));
         }
 
-        let managed_tag = Tag::builder()
-            .set_key(Some("managedBy".to_string()))
-            .set_value(Some("marlin".to_string()))
-            .build();
-        let project_tag = Tag::builder()
-            .set_key(Some("project".to_string()))
-            .set_value(Some("oyster".to_string()))
-            .build();
-        let job_tag = Tag::builder()
-            .set_key(Some("jobId".to_string()))
-            .set_value(Some(job))
-            .build();
+        let managed_tag = Tag::builder().key("managedBy").value("marlin").build();
+        let project_tag = Tag::builder().key("project").value("oyster").build();
+        let job_tag = Tag::builder().key("jobId").value(job).build();
         let tags = TagSpecification::builder()
-            .set_resource_type(Some(ResourceType::ElasticIp))
+            .resource_type(ResourceType::ElasticIp)
             .tags(managed_tag)
             .tags(job_tag)
             .tags(project_tag)

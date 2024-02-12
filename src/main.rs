@@ -164,10 +164,11 @@ pub async fn main() -> Result<()> {
         Box::leak(bandwidth_rates.into_boxed_slice());
     let address_whitelist: &'static [String] = Box::leak(address_whitelist_vec.into_boxed_slice());
     let address_blacklist: &'static [String] = Box::leak(address_blacklist_vec.into_boxed_slice());
+    let regions: &'static [String] = Box::leak(regions.into_boxed_slice());
 
     tokio::spawn(server::serve(
         aws.clone(),
-        regions.clone(),
+        regions.to_vec(),
         compute_rates,
         bandwidth_rates,
         None,

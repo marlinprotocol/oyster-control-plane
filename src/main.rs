@@ -168,7 +168,7 @@ pub async fn main() -> Result<()> {
 
     tokio::spawn(server::serve(
         aws.clone(),
-        regions.to_vec(),
+        regions,
         compute_rates,
         bandwidth_rates,
         None,

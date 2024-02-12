@@ -48,7 +48,7 @@ async fn handle_ip_request(
     State(state): State<
         Arc<(
             impl InfraProvider + Send + Sync + Clone,
-            Vec<String>,
+            &'static [String],
             &'static [RegionalRates],
             &'static [GBRateCard],
         )>,
@@ -78,13 +78,13 @@ async fn handle_spec_request(
     State(state): State<
         Arc<(
             impl InfraProvider + Send + Sync + Clone,
-            Vec<String>,
+            &'static [String],
             &'static [RegionalRates],
             &'static [GBRateCard],
         )>,
     >,
 ) -> HandlerResult<Json<SpecResponse>> {
-    let regions = &state.1;
+    let regions = state.1;
     let rates = state.2;
 
     let res = SpecResponse {
@@ -99,7 +99,7 @@ async fn handle_bandwidth_request(
     State(state): State<
         Arc<(
             impl InfraProvider + Send + Sync + Clone,
-            Vec<String>,
+            &'static [String],
             &'static [RegionalRates],
             &'static [GBRateCard],
         )>,
@@ -116,7 +116,7 @@ async fn handle_bandwidth_request(
 fn all_routes(
     state: Arc<(
         impl InfraProvider + Send + Sync + Clone + 'static,
-        Vec<String>,
+        &'static [String],
         &'static [RegionalRates],
         &'static [GBRateCard],
     )>,
@@ -130,7 +130,7 @@ fn all_routes(
 
 pub async fn serve(
     client: impl InfraProvider + Send + Sync + Clone + 'static,
-    regions: Vec<String>,
+    regions: &'static [String],
     rates: &'static [RegionalRates],
     bandwidth: &'static [GBRateCard],
     port: Option<u16>,
@@ -170,7 +170,8 @@ mod tests {
                 .insert(temp_job_id.clone(), instance_metadata.clone());
         }
 
-        let regions: Vec<String> = vec![String::from("ap-south-1")];
+        let regions: &'static [String] =
+            Box::leak(vec![String::from("ap-south-1")].into_boxed_slice());
         let compute_rates: &'static [RegionalRates] = Box::leak(vec![].into_boxed_slice());
         let bandwidth_rates: &'static [GBRateCard] = Box::leak(vec![].into_boxed_slice());
         let port = Some(8081);
@@ -219,7 +220,8 @@ mod tests {
                 .insert(temp_job_id.clone(), instance_metadata.clone());
         }
 
-        let regions: Vec<String> = vec![String::from("ap-south-1")];
+        let regions: &'static [String] =
+            Box::leak(vec![String::from("ap-south-1")].into_boxed_slice());
         let compute_rates: &'static [RegionalRates] = Box::leak(vec![].into_boxed_slice());
         let bandwidth_rates: &'static [GBRateCard] = Box::leak(vec![].into_boxed_slice());
         let port = Some(8082);
@@ -250,7 +252,8 @@ mod tests {
     #[tokio::test]
     async fn test_get_ip_bad_case_no_instances() -> anyhow::Result<()> {
         let aws: TestAws = Default::default();
-        let regions: Vec<String> = vec![String::from("ap-south-1")];
+        let regions: &'static [String] =
+            Box::leak(vec![String::from("ap-south-1")].into_boxed_slice());
         let compute_rates: &'static [RegionalRates] = Box::leak(vec![].into_boxed_slice());
         let bandwidth_rates: &'static [GBRateCard] = Box::leak(vec![].into_boxed_slice());
         let port = Some(8083);
@@ -287,7 +290,8 @@ mod tests {
     #[tokio::test]
     async fn test_handle_spec_request() -> anyhow::Result<()> {
         let aws: TestAws = Default::default();
-        let regions: Vec<String> = vec![String::from("ap-south-1")];
+        let regions: &'static [String] =
+            Box::leak(vec![String::from("ap-south-1")].into_boxed_slice());
         let compute_rates: &'static [RegionalRates] = Box::leak(
             vec![RegionalRates {
                 region: String::from("ap-south-1"),
@@ -342,7 +346,8 @@ mod tests {
     #[tokio::test]
     async fn test_handle_bandwidth_request() -> anyhow::Result<()> {
         let aws: TestAws = Default::default();
-        let regions: Vec<String> = vec![String::from("ap-south-1")];
+        let regions: &'static [String] =
+            Box::leak(vec![String::from("ap-south-1")].into_boxed_slice());
         let compute_rates: &'static [RegionalRates] = Box::leak(vec![].into_boxed_slice());
 
         let bandwidth_rates: &'static [GBRateCard] = Box::leak(

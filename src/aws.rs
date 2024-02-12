@@ -62,13 +62,8 @@ impl Aws {
         }
     }
 
-    async fn client(&self, region: String) -> aws_sdk_ec2::Client {
-        let config = aws_config::from_env()
-            .profile_name(&self.aws_profile)
-            .region(Region::new(region))
-            .load()
-            .await;
-        aws_sdk_ec2::Client::new(&config)
+    async fn client(&self, region: String) -> &aws_sdk_ec2::Client {
+        &self.clients[&region]
     }
 
     pub async fn generate_key_pair(&self) -> Result<()> {

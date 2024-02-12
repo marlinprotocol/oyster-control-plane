@@ -20,7 +20,7 @@ use crate::market::InfraProvider;
 
 #[derive(Clone)]
 pub struct Aws {
-    aws_profile: String,
+    clients: HashMap<String, aws_sdk_ec2::Client>,
     key_name: String,
     // Path cannot be cloned, hence String
     key_location: String,
@@ -32,6 +32,7 @@ pub struct Aws {
 impl Aws {
     pub async fn new(
         aws_profile: String,
+        regions: &[String],
         key_name: String,
         whitelist: String,
         blacklist: String,
@@ -39,8 +40,20 @@ impl Aws {
         let key_location = "/home/".to_owned() + &username() + "/.ssh/" + &key_name + ".pem";
         let pub_key_location = "/home/".to_owned() + &username() + "/.ssh/" + &key_name + ".pub";
 
+        let mut clients = HashMap::<String, aws_sdk_ec2::Client>::new();
+        for region in regions {
+            clients.insert(region.clone(), {
+                let config = aws_config::from_env()
+                    .profile_name(&aws_profile)
+                    .region(Region::new(region.clone()))
+                    .load()
+                    .await;
+                aws_sdk_ec2::Client::new(&config)
+            });
+        }
+
         Aws {
-            aws_profile,
+            clients,
             key_name,
             key_location,
             pub_key_location,

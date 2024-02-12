@@ -55,7 +55,7 @@ async fn handle_ip_request(
     >,
     Query(query): Query<GetIPRequest>,
 ) -> HandlerResult<Json<GetIPResponse>> {
-    if !query.id.is_some() || !query.region.is_some() {
+    if query.id.is_none() || query.region.is_none() {
         return Err(Error::GetIPFail);
     }
 
@@ -92,7 +92,7 @@ async fn handle_spec_request(
         min_rates: rates.to_owned(),
     };
 
-    return Ok(Json(res));
+    Ok(Json(res))
 }
 
 async fn handle_bandwidth_request(
@@ -110,7 +110,7 @@ async fn handle_bandwidth_request(
         rates: bandwidth.to_owned(),
     };
 
-    return Ok(Json(res));
+    Ok(Json(res))
 }
 
 fn all_routes(

@@ -1074,7 +1074,7 @@ impl JobState {
                 let r = v["instance"].as_str();
                 match r {
                     Some(t) => {
-                        if self.instance_type != t.to_string() {
+                        if self.instance_type != t {
                             println!("job {job}: Instance type change not allowed");
                             self.schedule_termination(0);
                             return -3;
@@ -1090,7 +1090,7 @@ impl JobState {
                 let r = v["region"].as_str();
                 match r {
                     Some(t) => {
-                        if self.region != t.to_string() {
+                        if self.region != t {
                             println!("job {job}: Region change not allowed");
                             self.schedule_termination(0);
                             return -3;
@@ -1136,7 +1136,7 @@ impl JobState {
                 }
 
                 let family = v["family"].as_str();
-                if family.is_some() && self.family != family.unwrap().to_owned() {
+                if family.is_some() && self.family != family.unwrap() {
                     println!("job {job}: family change not allowed");
                     self.schedule_termination(0);
                     return -3;

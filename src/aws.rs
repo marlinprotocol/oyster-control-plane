@@ -376,7 +376,7 @@ impl Aws {
             }
             let entries: Vec<&str> = stdout.trim().split('\n').collect();
             let mut is_any_rule_set = true;
-            if entries[0].to_lowercase().contains(&"qdisc mq 0: root") && entries.len() == 1 {
+            if entries[0].to_lowercase().contains("qdisc mq 0: root") && entries.len() == 1 {
                 is_any_rule_set = false;
             }
 
@@ -629,7 +629,7 @@ impl Aws {
             }
             let entries: Vec<&str> = stdout.trim().split('\n').collect();
             let mut is_any_rule_set = true;
-            if entries[0].to_lowercase().contains(&"qdisc mq 0: root") && entries.len() == 1 {
+            if entries[0].to_lowercase().contains("qdisc mq 0: root") && entries.len() == 1 {
                 is_any_rule_set = false;
             }
 
@@ -1103,7 +1103,7 @@ impl Aws {
             serde_json::from_str(&stdout).context("could not parse enclave description")?;
 
         Ok(enclave_data
-            .get(0)
+            .first()
             .and_then(|data| data.get("State").and_then(Value::as_str))
             .unwrap_or("No state found")
             .to_owned())
@@ -1447,7 +1447,7 @@ impl Aws {
             return Ok(());
         }
 
-        Self::ssh_exec(sess, &("wget -O enclave.eif ".to_owned() + &eif_url))
+        Self::ssh_exec(sess, &("wget -O enclave.eif ".to_owned() + eif_url))
             .context("Failed to download enclave image")?;
 
         Self::ssh_exec(
@@ -1506,7 +1506,7 @@ impl InfraProvider for Aws {
                 job,
                 instance_type,
                 family,
-                &region,
+                region,
                 req_mem,
                 req_vcpu,
                 bandwidth,
@@ -1520,7 +1520,7 @@ impl InfraProvider for Aws {
 
     async fn spin_down(&mut self, instance_id: &str, job: String, region: &str) -> Result<bool> {
         let _ = self
-            .spin_down_instance(instance_id, &job, &region)
+            .spin_down_instance(instance_id, &job, region)
             .await
             .context("could not spin down instance")?;
         Ok(true)
@@ -1528,7 +1528,7 @@ impl InfraProvider for Aws {
 
     async fn get_job_instance(&self, job: &str, region: &str) -> Result<(bool, String, String)> {
         Ok(self
-            .get_job_instance_id(job, &region)
+            .get_job_instance_id(job, region)
             .await
             .context("could not get instance id for job")?)
     }
@@ -1544,14 +1544,14 @@ impl InfraProvider for Aws {
         }
 
         Ok(self
-            .get_instance_ip(&instance.1, &region)
+            .get_instance_ip(&instance.1, region)
             .await
             .context("could not get instance ip")?)
     }
 
     async fn check_instance_running(&mut self, instance_id: &str, region: &str) -> Result<bool> {
         let res = self
-            .get_instance_state(instance_id, &region)
+            .get_instance_state(instance_id, region)
             .await
             .context("could not get current instance state")?;
         Ok(res == "running" || res == "pending")
@@ -1559,7 +1559,7 @@ impl InfraProvider for Aws {
 
     async fn check_enclave_running(&mut self, instance_id: &str, region: &str) -> Result<bool> {
         let res = self
-            .get_enclave_state(instance_id, &region)
+            .get_enclave_state(instance_id, region)
             .await
             .context("could not get current enclace state")?;
         // There can be 2 states - RUNNING or TERMINATING
@@ -1581,7 +1581,7 @@ impl InfraProvider for Aws {
             &job,
             family,
             instance_id,
-            &region,
+            region,
             image_url,
             req_vcpu,
             req_mem,
@@ -1600,7 +1600,7 @@ impl InfraProvider for Aws {
         req_vcpu: i32,
         req_mem: i64,
     ) -> Result<()> {
-        self.update_enclave_image_impl(instance_id, &region, eif_url, req_vcpu, req_mem)
+        self.update_enclave_image_impl(instance_id, region, eif_url, req_vcpu, req_mem)
             .await
             .context("could not update enclave image")?;
         Ok(())

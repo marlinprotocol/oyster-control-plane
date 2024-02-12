@@ -127,13 +127,11 @@ pub async fn serve(
     regions: &'static [String],
     rates: &'static [RegionalRates],
     bandwidth: &'static [GBRateCard],
-    port: Option<u16>,
+    addr: SocketAddr,
 ) {
     let state = (client, regions, rates, bandwidth);
 
     let router = Router::new().merge(all_routes(state));
-    let port = port.unwrap_or(8080);
-    let addr = SocketAddr::from(([0, 0, 0, 0], port));
     println!("Listening for connections on {}", addr);
     axum::Server::bind(&addr)
         .serve(router.into_make_service())
@@ -148,6 +146,7 @@ mod tests {
     use anyhow;
     use ethers::{abi::AbiEncode, prelude::*};
     use serde_json::json;
+    use std::net::SocketAddr;
 
     use crate::market::{GBRateCard, RateCard, RegionalRates};
     use crate::test::{InstanceMetadata, TestAws};
@@ -168,17 +167,17 @@ mod tests {
             Box::leak(vec![String::from("ap-south-1")].into_boxed_slice());
         let compute_rates: &'static [RegionalRates] = Box::leak(vec![].into_boxed_slice());
         let bandwidth_rates: &'static [GBRateCard] = Box::leak(vec![].into_boxed_slice());
-        let port = Some(8081);
+        let port = 8081;
 
         tokio::spawn(serve(
             aws.clone(),
             regions,
             compute_rates,
             bandwidth_rates,
-            port,
+            SocketAddr::from(([0, 0, 0, 0], port)),
         ));
 
-        let hc = httpc_test::new_client(format!("http://localhost:{}", port.unwrap()))?;
+        let hc = httpc_test::new_client(format!("http://localhost:{}", port))?;
 
         let job_id = H256::from_low_u64_be(1).encode_hex();
 
@@ -218,11 +217,17 @@ mod tests {
             Box::leak(vec![String::from("ap-south-1")].into_boxed_slice());
         let compute_rates: &'static [RegionalRates] = Box::leak(vec![].into_boxed_slice());
         let bandwidth_rates: &'static [GBRateCard] = Box::leak(vec![].into_boxed_slice());
-        let port = Some(8082);
+        let port = 8082;
 
-        tokio::spawn(serve(aws, regions, compute_rates, bandwidth_rates, port));
+        tokio::spawn(serve(
+            aws,
+            regions,
+            compute_rates,
+            bandwidth_rates,
+            SocketAddr::from(([0, 0, 0, 0], port)),
+        ));
 
-        let hc = httpc_test::new_client(format!("http://localhost:{}", port.unwrap()))?;
+        let hc = httpc_test::new_client(format!("http://localhost:{}", port))?;
 
         let job_id = H256::from_low_u64_be(5).encode_hex();
 
@@ -250,11 +255,17 @@ mod tests {
             Box::leak(vec![String::from("ap-south-1")].into_boxed_slice());
         let compute_rates: &'static [RegionalRates] = Box::leak(vec![].into_boxed_slice());
         let bandwidth_rates: &'static [GBRateCard] = Box::leak(vec![].into_boxed_slice());
-        let port = Some(8083);
+        let port = 8083;
 
-        tokio::spawn(serve(aws, regions, compute_rates, bandwidth_rates, port));
+        tokio::spawn(serve(
+            aws,
+            regions,
+            compute_rates,
+            bandwidth_rates,
+            SocketAddr::from(([0, 0, 0, 0], port)),
+        ));
 
-        let hc = httpc_test::new_client(format!("http://localhost:{}", port.unwrap()))?;
+        let hc = httpc_test::new_client(format!("http://localhost:{}", port))?;
 
         let res = hc.do_get("/spec").await?;
         assert_eq!(res.status(), 200);
@@ -317,10 +328,16 @@ mod tests {
         );
 
         let bandwidth_rates: &'static [GBRateCard] = Box::leak(vec![].into_boxed_slice());
-        let port = Some(8084);
-        tokio::spawn(serve(aws, regions, compute_rates, bandwidth_rates, port));
+        let port = 8084;
+        tokio::spawn(serve(
+            aws,
+            regions,
+            compute_rates,
+            bandwidth_rates,
+            SocketAddr::from(([0, 0, 0, 0], port)),
+        ));
 
-        let hc = httpc_test::new_client(format!("http://localhost:{}", port.unwrap()))?;
+        let hc = httpc_test::new_client(format!("http://localhost:{}", port))?;
 
         let res = hc.do_get("/spec").await?;
         assert_eq!(res.status(), 200);
@@ -364,10 +381,16 @@ mod tests {
             ]
             .into_boxed_slice(),
         );
-        let port = Some(8085);
-        tokio::spawn(serve(aws, regions, compute_rates, bandwidth_rates, port));
+        let port = 8085;
+        tokio::spawn(serve(
+            aws,
+            regions,
+            compute_rates,
+            bandwidth_rates,
+            SocketAddr::from(([0, 0, 0, 0], port)),
+        ));
 
-        let hc = httpc_test::new_client(format!("http://localhost:{}", port.unwrap()))?;
+        let hc = httpc_test::new_client(format!("http://localhost:{}", port))?;
 
         let res = hc.do_get("/bandwidth").await?;
         assert_eq!(res.status(), 200);

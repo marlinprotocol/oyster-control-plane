@@ -8,6 +8,7 @@ use clap::Parser;
 use ethers::prelude::*;
 use ethers::providers::{Provider, Ws};
 use std::fs;
+use std::net::SocketAddr;
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
@@ -171,7 +172,7 @@ pub async fn main() -> Result<()> {
         regions,
         compute_rates,
         bandwidth_rates,
-        None,
+        SocketAddr::from(([0, 0, 0, 0], 8080)),
     ));
 
     let ethers = market::EthersProvider {

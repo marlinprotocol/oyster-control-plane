@@ -49,7 +49,7 @@ pub async fn main() -> Result<()> {
         "0x01020304",
         &cli.family,
         &cli.instance,
-        cli.region,
+        &cli.region,
         &cli.url,
         2,
         4096,

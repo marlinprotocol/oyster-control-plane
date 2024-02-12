@@ -35,13 +35,13 @@ pub async fn main() -> Result<()> {
     .await;
     println!(
         "amd64 ami: {}",
-        aws.get_community_amis(cli.region.clone(), &cli.family, "amd64")
+        aws.get_community_amis(&cli.region, &cli.family, "amd64")
             .await
             .context("failed to fetch amd64 ami")?
     );
     println!(
         "arm64 ami: {}",
-        aws.get_community_amis(cli.region, &cli.family, "arm64")
+        aws.get_community_amis(&cli.region, &cli.family, "arm64")
             .await
             .context("failed to fetch arm64 ami")?
     );

@@ -35,8 +35,8 @@ struct GetIPResponse {
 
 #[derive(Debug, Serialize)]
 struct SpecResponse {
-    allowed_regions: Vec<String>,
-    min_rates: Vec<RegionalRates>,
+    allowed_regions: &'static [String],
+    min_rates: &'static [RegionalRates],
 }
 
 #[derive(Debug, Serialize)]
@@ -88,8 +88,8 @@ async fn handle_spec_request(
     let rates = state.2;
 
     let res = SpecResponse {
-        allowed_regions: regions.to_owned(),
-        min_rates: rates.to_owned(),
+        allowed_regions: regions,
+        min_rates: rates,
     };
 
     Ok(Json(res))

@@ -20,7 +20,7 @@ use crate::market::InfraProvider;
 
 #[derive(Clone)]
 pub struct Aws {
-    aws_profile: String,
+    clients: HashMap<String, aws_sdk_ec2::Client>,
     key_name: String,
     // Path cannot be cloned, hence String
     key_location: String,
@@ -32,6 +32,7 @@ pub struct Aws {
 impl Aws {
     pub async fn new(
         aws_profile: String,
+        regions: &[String],
         key_name: String,
         whitelist: String,
         blacklist: String,
@@ -39,8 +40,20 @@ impl Aws {
         let key_location = "/home/".to_owned() + &username() + "/.ssh/" + &key_name + ".pem";
         let pub_key_location = "/home/".to_owned() + &username() + "/.ssh/" + &key_name + ".pub";
 
+        let mut clients = HashMap::<String, aws_sdk_ec2::Client>::new();
+        for region in regions {
+            clients.insert(region.clone(), {
+                let config = aws_config::from_env()
+                    .profile_name(&aws_profile)
+                    .region(Region::new(region.clone()))
+                    .load()
+                    .await;
+                aws_sdk_ec2::Client::new(&config)
+            });
+        }
+
         Aws {
-            aws_profile,
+            clients,
             key_name,
             key_location,
             pub_key_location,
@@ -49,13 +62,8 @@ impl Aws {
         }
     }
 
-    async fn client(&self, region: String) -> aws_sdk_ec2::Client {
-        let config = aws_config::from_env()
-            .profile_name(&self.aws_profile)
-            .region(Region::new(region))
-            .load()
-            .await;
-        aws_sdk_ec2::Client::new(&config)
+    async fn client(&self, region: &str) -> &aws_sdk_ec2::Client {
+        &self.clients[region]
     }
 
     pub async fn generate_key_pair(&self) -> Result<()> {
@@ -99,12 +107,12 @@ impl Aws {
 
     pub async fn key_setup(&self, region: String) -> Result<()> {
         let key_check = self
-            .check_key_pair(region.clone())
+            .check_key_pair(&region)
             .await
             .context("failed to check key pair")?;
 
         if !key_check {
-            self.import_key_pair(region)
+            self.import_key_pair(&region)
                 .await
                 .context("Failed to import key pair in {region}")?;
         } else {
@@ -114,7 +122,7 @@ impl Aws {
         Ok(())
     }
 
-    pub async fn import_key_pair(&self, region: String) -> Result<()> {
+    pub async fn import_key_pair(&self, region: &str) -> Result<()> {
         let f = File::open(&self.pub_key_location).context("Failed to open pub key file")?;
         let mut reader = BufReader::new(f);
         let mut buffer = Vec::new();
@@ -135,7 +143,7 @@ impl Aws {
         Ok(())
     }
 
-    async fn check_key_pair(&self, region: String) -> Result<bool> {
+    async fn check_key_pair(&self, region: &str) -> Result<bool> {
         Ok(!self
             .client(region)
             .await
@@ -193,7 +201,7 @@ impl Aws {
         job_id: &str,
         family: &str,
         instance_id: &str,
-        region: String,
+        region: &str,
         image_url: &str,
         req_vcpu: i32,
         req_mem: i64,
@@ -230,14 +238,14 @@ impl Aws {
         &self,
         _job_id: &str,
         instance_id: &str,
-        region: String,
+        region: &str,
         image_url: &str,
         req_vcpu: i32,
         req_mem: i64,
         bandwidth: u64,
     ) -> Result<()> {
         let public_ip_address = self
-            .get_instance_ip(instance_id, region.clone())
+            .get_instance_ip(instance_id, region)
             .await
             .context("could not fetch instance ip")?;
         let sess = &self
@@ -368,7 +376,7 @@ impl Aws {
             }
             let entries: Vec<&str> = stdout.trim().split('\n').collect();
             let mut is_any_rule_set = true;
-            if entries[0].to_lowercase().contains(&"qdisc mq 0: root") && entries.len() == 1 {
+            if entries[0].to_lowercase().contains("qdisc mq 0: root") && entries.len() == 1 {
                 is_any_rule_set = false;
             }
 
@@ -473,14 +481,14 @@ impl Aws {
         &self,
         job_id: &str,
         instance_id: &str,
-        region: String,
+        region: &str,
         image_url: &str,
         req_vcpu: i32,
         req_mem: i64,
         bandwidth: u64,
     ) -> Result<()> {
         let public_ip_address = self
-            .get_instance_ip(instance_id, region.clone())
+            .get_instance_ip(instance_id, region)
             .await
             .context("could not fetch instance ip")?;
         let sess = &self
@@ -621,7 +629,7 @@ impl Aws {
             }
             let entries: Vec<&str> = stdout.trim().split('\n').collect();
             let mut is_any_rule_set = true;
-            if entries[0].to_lowercase().contains(&"qdisc mq 0: root") && entries.len() == 1 {
+            if entries[0].to_lowercase().contains("qdisc mq 0: root") && entries.len() == 1 {
                 is_any_rule_set = false;
             }
 
@@ -755,7 +763,7 @@ impl Aws {
 
     /* AWS EC2 UTILITY */
 
-    pub async fn get_instance_ip(&self, instance_id: &str, region: String) -> Result<String> {
+    pub async fn get_instance_ip(&self, instance_id: &str, region: &str) -> Result<String> {
         Ok(self
             .client(region)
             .await
@@ -788,7 +796,7 @@ impl Aws {
         image_url: &str,
         family: &str,
         architecture: &str,
-        region: String,
+        region: &str,
         contract_address: String,
         chain_id: String,
     ) -> Result<String> {
@@ -816,7 +824,7 @@ impl Aws {
         }
 
         let instance_ami = self
-            .get_amis(region.clone(), family, architecture)
+            .get_amis(region, family, architecture)
             .await
             .context("could not get amis")?;
 
@@ -846,11 +854,11 @@ impl Aws {
             .tags(contract_tag)
             .build();
         let subnet = self
-            .get_subnet(region.clone())
+            .get_subnet(region)
             .await
             .context("could not get subnet")?;
         let sec_group = self
-            .get_security_group(region.clone())
+            .get_security_group(region)
             .await
             .context("could not get subnet")?;
 
@@ -880,7 +888,7 @@ impl Aws {
             .to_string())
     }
 
-    async fn terminate_instance(&self, instance_id: &str, region: String) -> Result<()> {
+    async fn terminate_instance(&self, instance_id: &str, region: &str) -> Result<()> {
         let _ = self
             .client(region)
             .await
@@ -893,7 +901,7 @@ impl Aws {
         Ok(())
     }
 
-    async fn get_amis(&self, region: String, family: &str, architecture: &str) -> Result<String> {
+    async fn get_amis(&self, region: &str, family: &str, architecture: &str) -> Result<String> {
         let project_filter = Filter::builder()
             .name("tag:project")
             .values("oyster")
@@ -904,7 +912,7 @@ impl Aws {
             .build();
 
         let own_ami = self
-            .client(region.clone())
+            .client(region)
             .await
             .describe_images()
             .owners("self")
@@ -931,7 +939,7 @@ impl Aws {
 
     pub async fn get_community_amis(
         &self,
-        region: String,
+        region: &str,
         family: &str,
         architecture: &str,
     ) -> Result<String> {
@@ -959,7 +967,7 @@ impl Aws {
             .to_string())
     }
 
-    pub async fn get_security_group(&self, region: String) -> Result<String> {
+    pub async fn get_security_group(&self, region: &str) -> Result<String> {
         let filter = Filter::builder()
             .name("tag:project")
             .values("oyster")
@@ -982,7 +990,7 @@ impl Aws {
             .to_string())
     }
 
-    pub async fn get_subnet(&self, region: String) -> Result<String> {
+    pub async fn get_subnet(&self, region: &str) -> Result<String> {
         let filter = Filter::builder()
             .name("tag:project")
             .values("oyster")
@@ -1008,7 +1016,7 @@ impl Aws {
     pub async fn get_job_instance_id(
         &self,
         job: &str,
-        region: String,
+        region: &str,
     ) -> Result<(bool, String, String)> {
         let res = self
             .client(region)
@@ -1045,7 +1053,7 @@ impl Aws {
         }
     }
 
-    pub async fn get_instance_state(&self, instance_id: &str, region: String) -> Result<String> {
+    pub async fn get_instance_state(&self, instance_id: &str, region: &str) -> Result<String> {
         Ok(self
             .client(region)
             .await
@@ -1074,9 +1082,9 @@ impl Aws {
             .into())
     }
 
-    pub async fn get_enclave_state(&self, instance_id: &str, region: String) -> Result<String> {
+    pub async fn get_enclave_state(&self, instance_id: &str, region: &str) -> Result<String> {
         let public_ip_address = self
-            .get_instance_ip(instance_id, region.clone())
+            .get_instance_ip(instance_id, region)
             .await
             .context("could not fetch instance ip")?;
         let sess = self
@@ -1095,15 +1103,15 @@ impl Aws {
             serde_json::from_str(&stdout).context("could not parse enclave description")?;
 
         Ok(enclave_data
-            .get(0)
+            .first()
             .and_then(|data| data.get("State").and_then(Value::as_str))
             .unwrap_or("No state found")
             .to_owned())
     }
 
-    async fn allocate_ip_addr(&self, job: String, region: String) -> Result<(String, String)> {
+    async fn allocate_ip_addr(&self, job: String, region: &str) -> Result<(String, String)> {
         let (exist, alloc_id, public_ip) = self
-            .get_job_elastic_ip(&job, region.clone())
+            .get_job_elastic_ip(&job, region)
             .await
             .context("could not get elastic ip for job")?;
 
@@ -1142,11 +1150,7 @@ impl Aws {
         ))
     }
 
-    async fn get_job_elastic_ip(
-        &self,
-        job: &str,
-        region: String,
-    ) -> Result<(bool, String, String)> {
+    async fn get_job_elastic_ip(&self, job: &str, region: &str) -> Result<(bool, String, String)> {
         let filter_a = Filter::builder()
             .name("tag:project")
             .values("oyster")
@@ -1187,7 +1191,7 @@ impl Aws {
     async fn get_instance_elastic_ip(
         &self,
         instance: &str,
-        region: String,
+        region: &str,
     ) -> Result<(bool, String, String)> {
         let filter_a = Filter::builder()
             .name("instance-id")
@@ -1227,7 +1231,7 @@ impl Aws {
         &self,
         instance_id: &str,
         alloc_id: &str,
-        region: String,
+        region: &str,
     ) -> Result<()> {
         self.client(region)
             .await
@@ -1240,7 +1244,7 @@ impl Aws {
         Ok(())
     }
 
-    async fn disassociate_address(&self, association_id: &str, region: String) -> Result<()> {
+    async fn disassociate_address(&self, association_id: &str, region: &str) -> Result<()> {
         self.client(region)
             .await
             .disassociate_address()
@@ -1251,7 +1255,7 @@ impl Aws {
         Ok(())
     }
 
-    async fn release_address(&self, alloc_id: &str, region: String) -> Result<()> {
+    async fn release_address(&self, alloc_id: &str, region: &str) -> Result<()> {
         self.client(region)
             .await
             .release_address()
@@ -1268,7 +1272,7 @@ impl Aws {
         job: String,
         instance_type: &str,
         family: &str,
-        region: String,
+        region: &str,
         req_mem: i64,
         req_vcpu: i32,
         bandwidth: u64,
@@ -1278,7 +1282,7 @@ impl Aws {
         let instance_type =
             InstanceType::from_str(instance_type).context("cannot parse instance type")?;
         let resp = self
-            .client(region.clone())
+            .client(region)
             .await
             .describe_instance_types()
             .instance_types(instance_type.clone())
@@ -1327,7 +1331,7 @@ impl Aws {
                 image_url,
                 family,
                 &architecture,
-                region.clone(),
+                region,
                 contract_address,
                 chain_id,
             )
@@ -1341,7 +1345,7 @@ impl Aws {
                 job.clone(),
                 family,
                 &instance,
-                region.clone(),
+                region,
                 req_mem,
                 req_vcpu,
                 bandwidth,
@@ -1350,7 +1354,7 @@ impl Aws {
 
         if let Err(err) = res {
             println!("error during post spin up: {err:?}");
-            self.spin_down_instance(&instance, &job, region.clone())
+            self.spin_down_instance(&instance, &job, region)
                 .await
                 .context("could not spin down instance after error during post spin up")?;
             return Err(err).context("error during post spin up");
@@ -1364,18 +1368,18 @@ impl Aws {
         job: String,
         family: &str,
         instance: &str,
-        region: String,
+        region: &str,
         req_mem: i64,
         req_vcpu: i32,
         bandwidth: u64,
     ) -> Result<()> {
         let (alloc_id, ip) = self
-            .allocate_ip_addr(job.clone(), region.clone())
+            .allocate_ip_addr(job.clone(), region)
             .await
             .context("error allocating ip address")?;
         println!("Elastic Ip allocated: {ip}");
 
-        self.associate_address(instance, &alloc_id, region.clone())
+        self.associate_address(instance, &alloc_id, region)
             .await
             .context("could not associate ip address")?;
         self.run_enclave_impl(
@@ -1390,23 +1394,23 @@ impl Aws {
         &self,
         instance_id: &str,
         job: &str,
-        region: String,
+        region: &str,
     ) -> Result<()> {
         let (exist, _, association_id) = self
-            .get_instance_elastic_ip(instance_id, region.clone())
+            .get_instance_elastic_ip(instance_id, region)
             .await
             .context("could not get elastic ip of instance")?;
         if exist {
-            self.disassociate_address(association_id.as_str(), region.clone())
+            self.disassociate_address(association_id.as_str(), region)
                 .await
                 .context("could not disassociate address")?;
         }
         let (exist, alloc_id, _) = self
-            .get_job_elastic_ip(job, region.clone())
+            .get_job_elastic_ip(job, region)
             .await
             .context("could not get elastic ip of job")?;
         if exist {
-            self.release_address(alloc_id.as_str(), region.clone())
+            self.release_address(alloc_id.as_str(), region)
                 .await
                 .context("could not release address")?;
             println!("Elastic IP released");
@@ -1421,13 +1425,13 @@ impl Aws {
     pub async fn update_enclave_image_impl(
         &self,
         instance_id: &str,
-        region: String,
+        region: &str,
         eif_url: &str,
         req_vcpu: i32,
         req_mem: i64,
     ) -> Result<()> {
         let public_ip_address = self
-            .get_instance_ip(instance_id, region.clone())
+            .get_instance_ip(instance_id, region)
             .await
             .context("could not fetch instance ip")?;
 
@@ -1443,7 +1447,7 @@ impl Aws {
             return Ok(());
         }
 
-        Self::ssh_exec(sess, &("wget -O enclave.eif ".to_owned() + &eif_url))
+        Self::ssh_exec(sess, &("wget -O enclave.eif ".to_owned() + eif_url))
             .context("Failed to download enclave image")?;
 
         Self::ssh_exec(
@@ -1489,7 +1493,7 @@ impl InfraProvider for Aws {
         job: String,
         instance_type: &str,
         family: &str,
-        region: String,
+        region: &str,
         req_mem: i64,
         req_vcpu: i32,
         bandwidth: u64,
@@ -1514,7 +1518,7 @@ impl InfraProvider for Aws {
         Ok(instance)
     }
 
-    async fn spin_down(&mut self, instance_id: &str, job: String, region: String) -> Result<bool> {
+    async fn spin_down(&mut self, instance_id: &str, job: String, region: &str) -> Result<bool> {
         let _ = self
             .spin_down_instance(instance_id, &job, region)
             .await
@@ -1522,16 +1526,16 @@ impl InfraProvider for Aws {
         Ok(true)
     }
 
-    async fn get_job_instance(&self, job: &str, region: String) -> Result<(bool, String, String)> {
+    async fn get_job_instance(&self, job: &str, region: &str) -> Result<(bool, String, String)> {
         Ok(self
             .get_job_instance_id(job, region)
             .await
             .context("could not get instance id for job")?)
     }
 
-    async fn get_job_ip(&self, job_id: &str, region: String) -> Result<String> {
+    async fn get_job_ip(&self, job_id: &str, region: &str) -> Result<String> {
         let instance = self
-            .get_job_instance(job_id, region.clone())
+            .get_job_instance(job_id, region)
             .await
             .context("could not get instance id for job instance ip")?;
 
@@ -1545,7 +1549,7 @@ impl InfraProvider for Aws {
             .context("could not get instance ip")?)
     }
 
-    async fn check_instance_running(&mut self, instance_id: &str, region: String) -> Result<bool> {
+    async fn check_instance_running(&mut self, instance_id: &str, region: &str) -> Result<bool> {
         let res = self
             .get_instance_state(instance_id, region)
             .await
@@ -1553,7 +1557,7 @@ impl InfraProvider for Aws {
         Ok(res == "running" || res == "pending")
     }
 
-    async fn check_enclave_running(&mut self, instance_id: &str, region: String) -> Result<bool> {
+    async fn check_enclave_running(&mut self, instance_id: &str, region: &str) -> Result<bool> {
         let res = self
             .get_enclave_state(instance_id, region)
             .await
@@ -1567,7 +1571,7 @@ impl InfraProvider for Aws {
         job: String,
         instance_id: &str,
         family: &str,
-        region: String,
+        region: &str,
         image_url: &str,
         req_vcpu: i32,
         req_mem: i64,
@@ -1591,7 +1595,7 @@ impl InfraProvider for Aws {
     async fn update_enclave_image(
         &mut self,
         instance_id: &str,
-        region: String,
+        region: &str,
         eif_url: &str,
         req_vcpu: i32,
         req_mem: i64,

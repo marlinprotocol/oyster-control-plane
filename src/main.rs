@@ -8,6 +8,7 @@ use clap::Parser;
 use ethers::prelude::*;
 use ethers::providers::{Provider, Ws};
 use std::fs;
+use std::net::SocketAddr;
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
@@ -122,7 +123,14 @@ pub async fn main() -> Result<()> {
     let regions: Vec<String> = cli.regions.split(',').map(|r| (r.into())).collect();
     println!("Supported regions: {regions:?}");
 
-    let aws = aws::Aws::new(cli.profile, cli.key_name, cli.whitelist, cli.blacklist).await;
+    let aws = aws::Aws::new(
+        cli.profile,
+        &regions,
+        cli.key_name,
+        cli.whitelist,
+        cli.blacklist,
+    )
+    .await;
 
     aws.generate_key_pair()
         .await
@@ -157,13 +165,14 @@ pub async fn main() -> Result<()> {
         Box::leak(bandwidth_rates.into_boxed_slice());
     let address_whitelist: &'static [String] = Box::leak(address_whitelist_vec.into_boxed_slice());
     let address_blacklist: &'static [String] = Box::leak(address_blacklist_vec.into_boxed_slice());
+    let regions: &'static [String] = Box::leak(regions.into_boxed_slice());
 
     tokio::spawn(server::serve(
         aws.clone(),
-        regions.clone(),
+        regions,
         compute_rates,
         bandwidth_rates,
-        None,
+        SocketAddr::from(([0, 0, 0, 0], 8080)),
     ));
 
     let ethers = market::EthersProvider {

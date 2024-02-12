@@ -6,7 +6,7 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
-use std::{net::SocketAddr, sync::Arc};
+use std::net::SocketAddr;
 
 use crate::market::{GBRateCard, InfraProvider, RegionalRates};
 
@@ -35,8 +35,8 @@ struct GetIPResponse {
 
 #[derive(Debug, Serialize)]
 struct SpecResponse {
-    allowed_regions: Vec<String>,
-    min_rates: Vec<RegionalRates>,
+    allowed_regions: &'static [String],
+    min_rates: &'static [RegionalRates],
 }
 
 #[derive(Debug, Serialize)]
@@ -45,24 +45,22 @@ struct BandwidthResponse {
 }
 
 async fn handle_ip_request(
-    State(state): State<
-        Arc<(
-            impl InfraProvider + Send + Sync + Clone,
-            Vec<String>,
-            &'static [RegionalRates],
-            &'static [GBRateCard],
-        )>,
-    >,
+    State(state): State<(
+        impl InfraProvider + Send + Sync + Clone,
+        &'static [String],
+        &'static [RegionalRates],
+        &'static [GBRateCard],
+    )>,
     Query(query): Query<GetIPRequest>,
 ) -> HandlerResult<Json<GetIPResponse>> {
-    if !query.id.is_some() || !query.region.is_some() {
+    if query.id.is_none() || query.region.is_none() {
         return Err(Error::GetIPFail);
     }
 
     let client = &state.0;
 
     let ip = client
-        .get_job_ip(&query.id.unwrap(), query.region.unwrap())
+        .get_job_ip(&query.id.unwrap(), &query.region.unwrap())
         .await;
 
     if ip.is_err() {
@@ -75,51 +73,47 @@ async fn handle_ip_request(
 }
 
 async fn handle_spec_request(
-    State(state): State<
-        Arc<(
-            impl InfraProvider + Send + Sync + Clone,
-            Vec<String>,
-            &'static [RegionalRates],
-            &'static [GBRateCard],
-        )>,
-    >,
+    State(state): State<(
+        impl InfraProvider + Send + Sync + Clone,
+        &'static [String],
+        &'static [RegionalRates],
+        &'static [GBRateCard],
+    )>,
 ) -> HandlerResult<Json<SpecResponse>> {
-    let regions = &state.1;
+    let regions = state.1;
     let rates = state.2;
 
     let res = SpecResponse {
-        allowed_regions: regions.to_owned(),
-        min_rates: rates.to_owned(),
+        allowed_regions: regions,
+        min_rates: rates,
     };
 
-    return Ok(Json(res));
+    Ok(Json(res))
 }
 
 async fn handle_bandwidth_request(
-    State(state): State<
-        Arc<(
-            impl InfraProvider + Send + Sync + Clone,
-            Vec<String>,
-            &'static [RegionalRates],
-            &'static [GBRateCard],
-        )>,
-    >,
+    State(state): State<(
+        impl InfraProvider + Send + Sync + Clone,
+        &'static [String],
+        &'static [RegionalRates],
+        &'static [GBRateCard],
+    )>,
 ) -> HandlerResult<Json<BandwidthResponse>> {
     let bandwidth = state.3;
     let res = BandwidthResponse {
         rates: bandwidth.to_owned(),
     };
 
-    return Ok(Json(res));
+    Ok(Json(res))
 }
 
 fn all_routes(
-    state: Arc<(
+    state: (
         impl InfraProvider + Send + Sync + Clone + 'static,
-        Vec<String>,
+        &'static [String],
         &'static [RegionalRates],
         &'static [GBRateCard],
-    )>,
+    ),
 ) -> Router {
     Router::new()
         .route("/ip", get(handle_ip_request))
@@ -130,16 +124,14 @@ fn all_routes(
 
 pub async fn serve(
     client: impl InfraProvider + Send + Sync + Clone + 'static,
-    regions: Vec<String>,
+    regions: &'static [String],
     rates: &'static [RegionalRates],
     bandwidth: &'static [GBRateCard],
-    port: Option<u16>,
+    addr: SocketAddr,
 ) {
-    let state = Arc::from((client, regions, rates, bandwidth));
+    let state = (client, regions, rates, bandwidth);
 
     let router = Router::new().merge(all_routes(state));
-    let port = port.unwrap_or(8080);
-    let addr = SocketAddr::from(([0, 0, 0, 0], port));
     println!("Listening for connections on {}", addr);
     axum::Server::bind(&addr)
         .serve(router.into_make_service())
@@ -154,6 +146,7 @@ mod tests {
     use anyhow;
     use ethers::{abi::AbiEncode, prelude::*};
     use serde_json::json;
+    use std::net::SocketAddr;
 
     use crate::market::{GBRateCard, RateCard, RegionalRates};
     use crate::test::{InstanceMetadata, TestAws};
@@ -170,20 +163,21 @@ mod tests {
                 .insert(temp_job_id.clone(), instance_metadata.clone());
         }
 
-        let regions: Vec<String> = vec![String::from("ap-south-1")];
+        let regions: &'static [String] =
+            Box::leak(vec![String::from("ap-south-1")].into_boxed_slice());
         let compute_rates: &'static [RegionalRates] = Box::leak(vec![].into_boxed_slice());
         let bandwidth_rates: &'static [GBRateCard] = Box::leak(vec![].into_boxed_slice());
-        let port = Some(8081);
+        let port = 8081;
 
         tokio::spawn(serve(
             aws.clone(),
             regions,
             compute_rates,
             bandwidth_rates,
-            port,
+            SocketAddr::from(([0, 0, 0, 0], port)),
         ));
 
-        let hc = httpc_test::new_client(format!("http://localhost:{}", port.unwrap()))?;
+        let hc = httpc_test::new_client(format!("http://localhost:{}", port))?;
 
         let job_id = H256::from_low_u64_be(1).encode_hex();
 
@@ -219,14 +213,21 @@ mod tests {
                 .insert(temp_job_id.clone(), instance_metadata.clone());
         }
 
-        let regions: Vec<String> = vec![String::from("ap-south-1")];
+        let regions: &'static [String] =
+            Box::leak(vec![String::from("ap-south-1")].into_boxed_slice());
         let compute_rates: &'static [RegionalRates] = Box::leak(vec![].into_boxed_slice());
         let bandwidth_rates: &'static [GBRateCard] = Box::leak(vec![].into_boxed_slice());
-        let port = Some(8082);
+        let port = 8082;
 
-        tokio::spawn(serve(aws, regions, compute_rates, bandwidth_rates, port));
+        tokio::spawn(serve(
+            aws,
+            regions,
+            compute_rates,
+            bandwidth_rates,
+            SocketAddr::from(([0, 0, 0, 0], port)),
+        ));
 
-        let hc = httpc_test::new_client(format!("http://localhost:{}", port.unwrap()))?;
+        let hc = httpc_test::new_client(format!("http://localhost:{}", port))?;
 
         let job_id = H256::from_low_u64_be(5).encode_hex();
 
@@ -250,14 +251,21 @@ mod tests {
     #[tokio::test]
     async fn test_get_ip_bad_case_no_instances() -> anyhow::Result<()> {
         let aws: TestAws = Default::default();
-        let regions: Vec<String> = vec![String::from("ap-south-1")];
+        let regions: &'static [String] =
+            Box::leak(vec![String::from("ap-south-1")].into_boxed_slice());
         let compute_rates: &'static [RegionalRates] = Box::leak(vec![].into_boxed_slice());
         let bandwidth_rates: &'static [GBRateCard] = Box::leak(vec![].into_boxed_slice());
-        let port = Some(8083);
+        let port = 8083;
 
-        tokio::spawn(serve(aws, regions, compute_rates, bandwidth_rates, port));
+        tokio::spawn(serve(
+            aws,
+            regions,
+            compute_rates,
+            bandwidth_rates,
+            SocketAddr::from(([0, 0, 0, 0], port)),
+        ));
 
-        let hc = httpc_test::new_client(format!("http://localhost:{}", port.unwrap()))?;
+        let hc = httpc_test::new_client(format!("http://localhost:{}", port))?;
 
         let res = hc.do_get("/spec").await?;
         assert_eq!(res.status(), 200);
@@ -287,7 +295,8 @@ mod tests {
     #[tokio::test]
     async fn test_handle_spec_request() -> anyhow::Result<()> {
         let aws: TestAws = Default::default();
-        let regions: Vec<String> = vec![String::from("ap-south-1")];
+        let regions: &'static [String] =
+            Box::leak(vec![String::from("ap-south-1")].into_boxed_slice());
         let compute_rates: &'static [RegionalRates] = Box::leak(
             vec![RegionalRates {
                 region: String::from("ap-south-1"),
@@ -319,10 +328,16 @@ mod tests {
         );
 
         let bandwidth_rates: &'static [GBRateCard] = Box::leak(vec![].into_boxed_slice());
-        let port = Some(8084);
-        tokio::spawn(serve(aws, regions, compute_rates, bandwidth_rates, port));
+        let port = 8084;
+        tokio::spawn(serve(
+            aws,
+            regions,
+            compute_rates,
+            bandwidth_rates,
+            SocketAddr::from(([0, 0, 0, 0], port)),
+        ));
 
-        let hc = httpc_test::new_client(format!("http://localhost:{}", port.unwrap()))?;
+        let hc = httpc_test::new_client(format!("http://localhost:{}", port))?;
 
         let res = hc.do_get("/spec").await?;
         assert_eq!(res.status(), 200);
@@ -342,7 +357,8 @@ mod tests {
     #[tokio::test]
     async fn test_handle_bandwidth_request() -> anyhow::Result<()> {
         let aws: TestAws = Default::default();
-        let regions: Vec<String> = vec![String::from("ap-south-1")];
+        let regions: &'static [String] =
+            Box::leak(vec![String::from("ap-south-1")].into_boxed_slice());
         let compute_rates: &'static [RegionalRates] = Box::leak(vec![].into_boxed_slice());
 
         let bandwidth_rates: &'static [GBRateCard] = Box::leak(
@@ -365,10 +381,16 @@ mod tests {
             ]
             .into_boxed_slice(),
         );
-        let port = Some(8085);
-        tokio::spawn(serve(aws, regions, compute_rates, bandwidth_rates, port));
+        let port = 8085;
+        tokio::spawn(serve(
+            aws,
+            regions,
+            compute_rates,
+            bandwidth_rates,
+            SocketAddr::from(([0, 0, 0, 0], port)),
+        ));
 
-        let hc = httpc_test::new_client(format!("http://localhost:{}", port.unwrap()))?;
+        let hc = httpc_test::new_client(format!("http://localhost:{}", port))?;
 
         let res = hc.do_get("/bandwidth").await?;
         assert_eq!(res.status(), 200);

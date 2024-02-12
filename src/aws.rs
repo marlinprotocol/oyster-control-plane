@@ -245,7 +245,7 @@ impl Aws {
         bandwidth: u64,
     ) -> Result<()> {
         let public_ip_address = self
-            .get_instance_ip(instance_id, region.clone())
+            .get_instance_ip(instance_id, region)
             .await
             .context("could not fetch instance ip")?;
         let sess = &self
@@ -488,7 +488,7 @@ impl Aws {
         bandwidth: u64,
     ) -> Result<()> {
         let public_ip_address = self
-            .get_instance_ip(instance_id, region.clone())
+            .get_instance_ip(instance_id, region)
             .await
             .context("could not fetch instance ip")?;
         let sess = &self
@@ -824,7 +824,7 @@ impl Aws {
         }
 
         let instance_ami = self
-            .get_amis(region.clone(), family, architecture)
+            .get_amis(region, family, architecture)
             .await
             .context("could not get amis")?;
 
@@ -854,11 +854,11 @@ impl Aws {
             .tags(contract_tag)
             .build();
         let subnet = self
-            .get_subnet(region.clone())
+            .get_subnet(region)
             .await
             .context("could not get subnet")?;
         let sec_group = self
-            .get_security_group(region.clone())
+            .get_security_group(region)
             .await
             .context("could not get subnet")?;
 
@@ -912,7 +912,7 @@ impl Aws {
             .build();
 
         let own_ami = self
-            .client(region.clone())
+            .client(region)
             .await
             .describe_images()
             .owners("self")
@@ -1084,7 +1084,7 @@ impl Aws {
 
     pub async fn get_enclave_state(&self, instance_id: &str, region: &str) -> Result<String> {
         let public_ip_address = self
-            .get_instance_ip(instance_id, region.clone())
+            .get_instance_ip(instance_id, region)
             .await
             .context("could not fetch instance ip")?;
         let sess = self
@@ -1111,7 +1111,7 @@ impl Aws {
 
     async fn allocate_ip_addr(&self, job: String, region: &str) -> Result<(String, String)> {
         let (exist, alloc_id, public_ip) = self
-            .get_job_elastic_ip(&job, region.clone())
+            .get_job_elastic_ip(&job, region)
             .await
             .context("could not get elastic ip for job")?;
 
@@ -1282,7 +1282,7 @@ impl Aws {
         let instance_type =
             InstanceType::from_str(instance_type).context("cannot parse instance type")?;
         let resp = self
-            .client(region.clone())
+            .client(region)
             .await
             .describe_instance_types()
             .instance_types(instance_type.clone())
@@ -1331,7 +1331,7 @@ impl Aws {
                 image_url,
                 family,
                 &architecture,
-                region.clone(),
+                region,
                 contract_address,
                 chain_id,
             )
@@ -1345,7 +1345,7 @@ impl Aws {
                 job.clone(),
                 family,
                 &instance,
-                region.clone(),
+                region,
                 req_mem,
                 req_vcpu,
                 bandwidth,
@@ -1354,7 +1354,7 @@ impl Aws {
 
         if let Err(err) = res {
             println!("error during post spin up: {err:?}");
-            self.spin_down_instance(&instance, &job, region.clone())
+            self.spin_down_instance(&instance, &job, region)
                 .await
                 .context("could not spin down instance after error during post spin up")?;
             return Err(err).context("error during post spin up");
@@ -1374,12 +1374,12 @@ impl Aws {
         bandwidth: u64,
     ) -> Result<()> {
         let (alloc_id, ip) = self
-            .allocate_ip_addr(job.clone(), region.clone())
+            .allocate_ip_addr(job.clone(), region)
             .await
             .context("error allocating ip address")?;
         println!("Elastic Ip allocated: {ip}");
 
-        self.associate_address(instance, &alloc_id, region.clone())
+        self.associate_address(instance, &alloc_id, region)
             .await
             .context("could not associate ip address")?;
         self.run_enclave_impl(
@@ -1397,20 +1397,20 @@ impl Aws {
         region: &str,
     ) -> Result<()> {
         let (exist, _, association_id) = self
-            .get_instance_elastic_ip(instance_id, region.clone())
+            .get_instance_elastic_ip(instance_id, region)
             .await
             .context("could not get elastic ip of instance")?;
         if exist {
-            self.disassociate_address(association_id.as_str(), region.clone())
+            self.disassociate_address(association_id.as_str(), region)
                 .await
                 .context("could not disassociate address")?;
         }
         let (exist, alloc_id, _) = self
-            .get_job_elastic_ip(job, region.clone())
+            .get_job_elastic_ip(job, region)
             .await
             .context("could not get elastic ip of job")?;
         if exist {
-            self.release_address(alloc_id.as_str(), region.clone())
+            self.release_address(alloc_id.as_str(), region)
                 .await
                 .context("could not release address")?;
             println!("Elastic IP released");
@@ -1431,7 +1431,7 @@ impl Aws {
         req_mem: i64,
     ) -> Result<()> {
         let public_ip_address = self
-            .get_instance_ip(instance_id, region.clone())
+            .get_instance_ip(instance_id, region)
             .await
             .context("could not fetch instance ip")?;
 

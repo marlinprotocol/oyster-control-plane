@@ -25,7 +25,14 @@ struct Cli {
 pub async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    let aws = aws::Aws::new(cli.profile, String::new(), String::new(), String::new()).await;
+    let aws = aws::Aws::new(
+        cli.profile,
+        &[cli.region.clone()],
+        String::new(),
+        String::new(),
+        String::new(),
+    )
+    .await;
     println!(
         "amd64 ami: {}",
         aws.get_community_amis(cli.region.clone(), &cli.family, "amd64")

@@ -6,7 +6,7 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
-use std::{net::SocketAddr, sync::Arc};
+use std::net::SocketAddr;
 
 use crate::market::{GBRateCard, InfraProvider, RegionalRates};
 
@@ -45,14 +45,12 @@ struct BandwidthResponse {
 }
 
 async fn handle_ip_request(
-    State(state): State<
-        Arc<(
-            impl InfraProvider + Send + Sync + Clone,
-            &'static [String],
-            &'static [RegionalRates],
-            &'static [GBRateCard],
-        )>,
-    >,
+    State(state): State<(
+        impl InfraProvider + Send + Sync + Clone,
+        &'static [String],
+        &'static [RegionalRates],
+        &'static [GBRateCard],
+    )>,
     Query(query): Query<GetIPRequest>,
 ) -> HandlerResult<Json<GetIPResponse>> {
     if query.id.is_none() || query.region.is_none() {
@@ -75,14 +73,12 @@ async fn handle_ip_request(
 }
 
 async fn handle_spec_request(
-    State(state): State<
-        Arc<(
-            impl InfraProvider + Send + Sync + Clone,
-            &'static [String],
-            &'static [RegionalRates],
-            &'static [GBRateCard],
-        )>,
-    >,
+    State(state): State<(
+        impl InfraProvider + Send + Sync + Clone,
+        &'static [String],
+        &'static [RegionalRates],
+        &'static [GBRateCard],
+    )>,
 ) -> HandlerResult<Json<SpecResponse>> {
     let regions = state.1;
     let rates = state.2;
@@ -96,14 +92,12 @@ async fn handle_spec_request(
 }
 
 async fn handle_bandwidth_request(
-    State(state): State<
-        Arc<(
-            impl InfraProvider + Send + Sync + Clone,
-            &'static [String],
-            &'static [RegionalRates],
-            &'static [GBRateCard],
-        )>,
-    >,
+    State(state): State<(
+        impl InfraProvider + Send + Sync + Clone,
+        &'static [String],
+        &'static [RegionalRates],
+        &'static [GBRateCard],
+    )>,
 ) -> HandlerResult<Json<BandwidthResponse>> {
     let bandwidth = state.3;
     let res = BandwidthResponse {
@@ -114,12 +108,12 @@ async fn handle_bandwidth_request(
 }
 
 fn all_routes(
-    state: Arc<(
+    state: (
         impl InfraProvider + Send + Sync + Clone + 'static,
         &'static [String],
         &'static [RegionalRates],
         &'static [GBRateCard],
-    )>,
+    ),
 ) -> Router {
     Router::new()
         .route("/ip", get(handle_ip_request))
@@ -135,7 +129,7 @@ pub async fn serve(
     bandwidth: &'static [GBRateCard],
     port: Option<u16>,
 ) {
-    let state = Arc::from((client, regions, rates, bandwidth));
+    let state = (client, regions, rates, bandwidth);
 
     let router = Router::new().merge(all_routes(state));
     let port = port.unwrap_or(8080);

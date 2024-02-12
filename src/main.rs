@@ -122,7 +122,14 @@ pub async fn main() -> Result<()> {
     let regions: Vec<String> = cli.regions.split(',').map(|r| (r.into())).collect();
     println!("Supported regions: {regions:?}");
 
-    let aws = aws::Aws::new(cli.profile, cli.key_name, cli.whitelist, cli.blacklist).await;
+    let aws = aws::Aws::new(
+        cli.profile,
+        &regions,
+        cli.key_name,
+        cli.whitelist,
+        cli.blacklist,
+    )
+    .await;
 
     aws.generate_key_pair()
         .await

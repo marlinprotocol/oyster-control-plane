@@ -1493,7 +1493,7 @@ impl InfraProvider for Aws {
         job: String,
         instance_type: &str,
         family: &str,
-        region: String,
+        region: &str,
         req_mem: i64,
         req_vcpu: i32,
         bandwidth: u64,
@@ -1518,7 +1518,7 @@ impl InfraProvider for Aws {
         Ok(instance)
     }
 
-    async fn spin_down(&mut self, instance_id: &str, job: String, region: String) -> Result<bool> {
+    async fn spin_down(&mut self, instance_id: &str, job: String, region: &str) -> Result<bool> {
         let _ = self
             .spin_down_instance(instance_id, &job, &region)
             .await
@@ -1526,16 +1526,16 @@ impl InfraProvider for Aws {
         Ok(true)
     }
 
-    async fn get_job_instance(&self, job: &str, region: String) -> Result<(bool, String, String)> {
+    async fn get_job_instance(&self, job: &str, region: &str) -> Result<(bool, String, String)> {
         Ok(self
             .get_job_instance_id(job, &region)
             .await
             .context("could not get instance id for job")?)
     }
 
-    async fn get_job_ip(&self, job_id: &str, region: String) -> Result<String> {
+    async fn get_job_ip(&self, job_id: &str, region: &str) -> Result<String> {
         let instance = self
-            .get_job_instance(job_id, region.clone())
+            .get_job_instance(job_id, region)
             .await
             .context("could not get instance id for job instance ip")?;
 
@@ -1549,7 +1549,7 @@ impl InfraProvider for Aws {
             .context("could not get instance ip")?)
     }
 
-    async fn check_instance_running(&mut self, instance_id: &str, region: String) -> Result<bool> {
+    async fn check_instance_running(&mut self, instance_id: &str, region: &str) -> Result<bool> {
         let res = self
             .get_instance_state(instance_id, &region)
             .await
@@ -1557,7 +1557,7 @@ impl InfraProvider for Aws {
         Ok(res == "running" || res == "pending")
     }
 
-    async fn check_enclave_running(&mut self, instance_id: &str, region: String) -> Result<bool> {
+    async fn check_enclave_running(&mut self, instance_id: &str, region: &str) -> Result<bool> {
         let res = self
             .get_enclave_state(instance_id, &region)
             .await
@@ -1571,7 +1571,7 @@ impl InfraProvider for Aws {
         job: String,
         instance_id: &str,
         family: &str,
-        region: String,
+        region: &str,
         image_url: &str,
         req_vcpu: i32,
         req_mem: i64,
@@ -1595,7 +1595,7 @@ impl InfraProvider for Aws {
     async fn update_enclave_image(
         &mut self,
         instance_id: &str,
-        region: String,
+        region: &str,
         eif_url: &str,
         req_vcpu: i32,
         req_mem: i64,

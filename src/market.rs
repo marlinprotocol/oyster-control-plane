@@ -27,7 +27,7 @@ pub trait InfraProvider {
         job: String,
         instance_type: &str,
         family: &str,
-        region: String,
+        region: &str,
         req_mem: i64,
         req_vcpu: i32,
         bandwidth: u64,
@@ -35,22 +35,22 @@ pub trait InfraProvider {
         chain_id: String,
     ) -> Result<String>;
 
-    async fn spin_down(&mut self, instance_id: &str, job: String, region: String) -> Result<bool>;
+    async fn spin_down(&mut self, instance_id: &str, job: String, region: &str) -> Result<bool>;
 
-    async fn get_job_instance(&self, job: &str, region: String) -> Result<(bool, String, String)>;
+    async fn get_job_instance(&self, job: &str, region: &str) -> Result<(bool, String, String)>;
 
-    async fn get_job_ip(&self, job: &str, region: String) -> Result<String>;
+    async fn get_job_ip(&self, job: &str, region: &str) -> Result<String>;
 
-    async fn check_instance_running(&mut self, instance_id: &str, region: String) -> Result<bool>;
+    async fn check_instance_running(&mut self, instance_id: &str, region: &str) -> Result<bool>;
 
-    async fn check_enclave_running(&mut self, instance_id: &str, region: String) -> Result<bool>;
+    async fn check_enclave_running(&mut self, instance_id: &str, region: &str) -> Result<bool>;
 
     async fn run_enclave(
         &mut self,
         job: String,
         instance_id: &str,
         family: &str,
-        region: String,
+        region: &str,
         image_url: &str,
         req_vcpu: i32,
         req_mem: i64,
@@ -60,7 +60,7 @@ pub trait InfraProvider {
     async fn update_enclave_image(
         &mut self,
         instance_id: &str,
-        region: String,
+        region: &str,
         eif_url: &str,
         req_vcpu: i32,
         req_mem: i64,
@@ -78,7 +78,7 @@ where
         job: String,
         instance_type: &str,
         family: &str,
-        region: String,
+        region: &str,
         req_mem: i64,
         req_vcpu: i32,
         bandwidth: u64,
@@ -101,23 +101,23 @@ where
             .await
     }
 
-    async fn spin_down(&mut self, instance_id: &str, job: String, region: String) -> Result<bool> {
+    async fn spin_down(&mut self, instance_id: &str, job: String, region: &str) -> Result<bool> {
         (**self).spin_down(instance_id, job, region).await
     }
 
-    async fn get_job_instance(&self, job: &str, region: String) -> Result<(bool, String, String)> {
+    async fn get_job_instance(&self, job: &str, region: &str) -> Result<(bool, String, String)> {
         (**self).get_job_instance(job, region).await
     }
 
-    async fn get_job_ip(&self, job: &str, region: String) -> Result<String> {
+    async fn get_job_ip(&self, job: &str, region: &str) -> Result<String> {
         (**self).get_job_ip(job, region).await
     }
 
-    async fn check_instance_running(&mut self, instance_id: &str, region: String) -> Result<bool> {
+    async fn check_instance_running(&mut self, instance_id: &str, region: &str) -> Result<bool> {
         (**self).check_instance_running(instance_id, region).await
     }
 
-    async fn check_enclave_running(&mut self, instance_id: &str, region: String) -> Result<bool> {
+    async fn check_enclave_running(&mut self, instance_id: &str, region: &str) -> Result<bool> {
         (**self).check_enclave_running(instance_id, region).await
     }
 
@@ -126,7 +126,7 @@ where
         job: String,
         instance_id: &str,
         family: &str,
-        region: String,
+        region: &str,
         image_url: &str,
         req_vcpu: i32,
         req_mem: i64,
@@ -149,7 +149,7 @@ where
     async fn update_enclave_image(
         &mut self,
         instance_id: &str,
-        region: String,
+        region: &str,
         eif_url: &str,
         req_vcpu: i32,
         req_mem: i64,
@@ -531,7 +531,7 @@ impl JobState {
         // TODO: should check if enclave is running as well
         let job = &self.job;
         let is_running = infra_provider
-            .check_instance_running(&self.instance_id, self.region.clone())
+            .check_instance_running(&self.instance_id, &self.region)
             .await;
         match is_running {
             Err(err) => {
@@ -540,7 +540,7 @@ impl JobState {
             Ok(is_running) => {
                 if is_running {
                     let is_enclave_running = infra_provider
-                        .check_enclave_running(&self.instance_id, self.region.clone())
+                        .check_enclave_running(&self.instance_id, &self.region)
                         .await;
 
                     match is_enclave_running {
@@ -552,7 +552,7 @@ impl JobState {
                                         job.encode_hex(),
                                         &self.instance_id,
                                         &self.family,
-                                        self.region.clone(),
+                                        &self.region,
                                         &self.eif_url,
                                         self.req_vcpus,
                                         self.req_mem,
@@ -626,7 +626,7 @@ impl JobState {
         let job = &self.job;
 
         let res = infra_provider
-            .get_job_instance(&job.encode_hex(), self.region.clone())
+            .get_job_instance(&job.encode_hex(), &self.region)
             .await;
 
         if let Err(err) = res {
@@ -648,7 +648,7 @@ impl JobState {
                         let res = infra_provider
                             .update_enclave_image(
                                 &self.instance_id,
-                                self.region.clone(),
+                                &self.region,
                                 &self.eif_url,
                                 self.req_vcpus,
                                 self.req_mem,
@@ -667,7 +667,7 @@ impl JobState {
                     // instance unhealthy, terminate
                     println!("job {job}: found existing unhealthy instance: {instance}");
                     let res = infra_provider
-                        .spin_down(&instance, job.encode_hex(), self.region.clone())
+                        .spin_down(&instance, job.encode_hex(), &self.region)
                         .await;
                     if let Err(err) = res {
                         println!("job {job}: ERROR failed to terminate instance, {err:?}");
@@ -686,7 +686,7 @@ impl JobState {
                     job.encode_hex(),
                     self.instance_type.as_str(),
                     self.family.as_str(),
-                    self.region.clone(),
+                    &self.region,
                     self.req_mem,
                     self.req_vcpus,
                     self.bandwidth,
@@ -711,7 +711,7 @@ impl JobState {
             // terminate instance
             println!("job {job}: terminating existing instance: {instance}");
             let res = infra_provider
-                .spin_down(&instance, job.encode_hex(), self.region.clone())
+                .spin_down(&instance, job.encode_hex(), &self.region)
                 .await;
             if let Err(err) = res {
                 println!("job {job}: ERROR failed to terminate instance, {err:?}");

@@ -103,7 +103,7 @@ impl InfraProvider for TestAws {
         job: String,
         instance_type: &str,
         family: &str,
-        region: String,
+        region: &str,
         req_mem: i64,
         req_vcpu: i32,
         bandwidth: u64,
@@ -115,7 +115,7 @@ impl InfraProvider for TestAws {
             job: job.clone(),
             instance_type: instance_type.to_owned(),
             family: family.to_owned(),
-            region,
+            region: region.to_owned(),
             req_mem,
             req_vcpu,
             bandwidth,
@@ -135,13 +135,13 @@ impl InfraProvider for TestAws {
         Ok(instance_metadata.instance_id)
     }
 
-    async fn spin_down(&mut self, instance_id: &str, job: String, region: String) -> Result<bool> {
+    async fn spin_down(&mut self, instance_id: &str, job: String, region: &str) -> Result<bool> {
         self.outcomes
             .push(TestAwsOutcome::SpinDown(SpinDownOutcome {
                 time: Instant::now(),
                 job: job.clone(),
                 _instance_id: instance_id.to_owned(),
-                region,
+                region: region.to_owned(),
             }));
 
         self.instances.remove(&job);
@@ -149,7 +149,7 @@ impl InfraProvider for TestAws {
         Ok(true)
     }
 
-    async fn get_job_instance(&self, job: &str, _region: String) -> Result<(bool, String, String)> {
+    async fn get_job_instance(&self, job: &str, _region: &str) -> Result<(bool, String, String)> {
         let res = self.instances.get_key_value(job);
         if let Some(x) = res {
             return Ok((true, x.1.instance_id.clone(), "running".to_owned()));
@@ -158,7 +158,7 @@ impl InfraProvider for TestAws {
         Ok((false, String::new(), String::new()))
     }
 
-    async fn get_job_ip(&self, job_id: &str, _region: String) -> Result<String> {
+    async fn get_job_ip(&self, job_id: &str, _region: &str) -> Result<String> {
         let instance_metadata = self.instances.get(job_id);
         if instance_metadata.is_some() {
             return Ok(instance_metadata.unwrap().ip_address.clone());
@@ -166,16 +166,12 @@ impl InfraProvider for TestAws {
         return Err(anyhow!("Instance not found for job - {job_id}"));
     }
 
-    async fn check_instance_running(
-        &mut self,
-        _instance_id: &str,
-        _region: String,
-    ) -> Result<bool> {
+    async fn check_instance_running(&mut self, _instance_id: &str, _region: &str) -> Result<bool> {
         // println!("TEST: check_instance_running | instance_id: {}, region: {}", instance_id, region);
         Ok(true)
     }
 
-    async fn check_enclave_running(&mut self, _instance_id: &str, _region: String) -> Result<bool> {
+    async fn check_enclave_running(&mut self, _instance_id: &str, _region: &str) -> Result<bool> {
         Ok(true)
     }
 
@@ -184,7 +180,7 @@ impl InfraProvider for TestAws {
         _job: String,
         _instance_id: &str,
         _family: &str,
-        _region: String,
+        _region: &str,
         _image_url: &str,
         _req_vcpu: i32,
         _req_mem: i64,
@@ -196,7 +192,7 @@ impl InfraProvider for TestAws {
     async fn update_enclave_image(
         &mut self,
         instance_id: &str,
-        region: String,
+        region: &str,
         eif_url: &str,
         req_vcpu: i32,
         req_mem: i64,

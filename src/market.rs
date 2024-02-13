@@ -241,6 +241,7 @@ pub async fn run(
     // trying to implicitly resume connections or event streams can cause issues
     // since subscriptions are stateful
 
+    let mut job_count = 0;
     loop {
         println!("main: Connecting to RPC endpoint...");
         let res = Provider::<Ws>::connect(url.clone()).await;
@@ -266,8 +267,10 @@ pub async fn run(
         }
 
         let job_stream = Box::into_pin(res.unwrap());
-        run_once(
-            job_stream,
+        job_count += run_once(
+            // we need to keep track of jobs for whom tasks have already been spawned
+            // and not spawn duplicate tasks
+            job_stream.skip(job_count),
             infra_provider.clone(),
             logs_provider.clone(),
             url.clone(),
@@ -295,7 +298,8 @@ async fn run_once(
     address_blacklist: &'static [String],
     contract_address: String,
     chain_id: String,
-) {
+) -> usize {
+    let mut job_count = 0;
     while let Some((job, removed)) = job_stream.next().await {
         println!("main: New job: {job}, {removed}");
         tokio::spawn(job_manager(
@@ -312,9 +316,12 @@ async fn run_once(
             contract_address.clone(),
             chain_id.clone(),
         ));
+        job_count += 1;
     }
 
     println!("main: Job stream ended");
+
+    job_count
 }
 
 async fn new_jobs(

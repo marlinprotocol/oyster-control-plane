@@ -27,7 +27,7 @@ pub trait InfraProvider {
         job: String,
         instance_type: &str,
         family: &str,
-        region: String,
+        region: &str,
         req_mem: i64,
         req_vcpu: i32,
         bandwidth: u64,
@@ -35,22 +35,22 @@ pub trait InfraProvider {
         chain_id: String,
     ) -> Result<String>;
 
-    async fn spin_down(&mut self, instance_id: &str, job: String, region: String) -> Result<bool>;
+    async fn spin_down(&mut self, instance_id: &str, job: String, region: &str) -> Result<bool>;
 
-    async fn get_job_instance(&self, job: &str, region: String) -> Result<(bool, String, String)>;
+    async fn get_job_instance(&self, job: &str, region: &str) -> Result<(bool, String, String)>;
 
-    async fn get_job_ip(&self, job: &str, region: String) -> Result<String>;
+    async fn get_job_ip(&self, job: &str, region: &str) -> Result<String>;
 
-    async fn check_instance_running(&mut self, instance_id: &str, region: String) -> Result<bool>;
+    async fn check_instance_running(&mut self, instance_id: &str, region: &str) -> Result<bool>;
 
-    async fn check_enclave_running(&mut self, instance_id: &str, region: String) -> Result<bool>;
+    async fn check_enclave_running(&mut self, instance_id: &str, region: &str) -> Result<bool>;
 
     async fn run_enclave(
         &mut self,
         job: String,
         instance_id: &str,
         family: &str,
-        region: String,
+        region: &str,
         image_url: &str,
         req_vcpu: i32,
         req_mem: i64,
@@ -60,7 +60,7 @@ pub trait InfraProvider {
     async fn update_enclave_image(
         &mut self,
         instance_id: &str,
-        region: String,
+        region: &str,
         eif_url: &str,
         req_vcpu: i32,
         req_mem: i64,
@@ -78,7 +78,7 @@ where
         job: String,
         instance_type: &str,
         family: &str,
-        region: String,
+        region: &str,
         req_mem: i64,
         req_vcpu: i32,
         bandwidth: u64,
@@ -101,23 +101,23 @@ where
             .await
     }
 
-    async fn spin_down(&mut self, instance_id: &str, job: String, region: String) -> Result<bool> {
+    async fn spin_down(&mut self, instance_id: &str, job: String, region: &str) -> Result<bool> {
         (**self).spin_down(instance_id, job, region).await
     }
 
-    async fn get_job_instance(&self, job: &str, region: String) -> Result<(bool, String, String)> {
+    async fn get_job_instance(&self, job: &str, region: &str) -> Result<(bool, String, String)> {
         (**self).get_job_instance(job, region).await
     }
 
-    async fn get_job_ip(&self, job: &str, region: String) -> Result<String> {
+    async fn get_job_ip(&self, job: &str, region: &str) -> Result<String> {
         (**self).get_job_ip(job, region).await
     }
 
-    async fn check_instance_running(&mut self, instance_id: &str, region: String) -> Result<bool> {
+    async fn check_instance_running(&mut self, instance_id: &str, region: &str) -> Result<bool> {
         (**self).check_instance_running(instance_id, region).await
     }
 
-    async fn check_enclave_running(&mut self, instance_id: &str, region: String) -> Result<bool> {
+    async fn check_enclave_running(&mut self, instance_id: &str, region: &str) -> Result<bool> {
         (**self).check_enclave_running(instance_id, region).await
     }
 
@@ -126,7 +126,7 @@ where
         job: String,
         instance_id: &str,
         family: &str,
-        region: String,
+        region: &str,
         image_url: &str,
         req_vcpu: i32,
         req_mem: i64,
@@ -149,7 +149,7 @@ where
     async fn update_enclave_image(
         &mut self,
         instance_id: &str,
-        region: String,
+        region: &str,
         eif_url: &str,
         req_vcpu: i32,
         req_mem: i64,
@@ -226,7 +226,7 @@ pub async fn run(
     infra_provider: impl InfraProvider + Send + Sync + Clone + 'static,
     logs_provider: impl LogsProvider + Send + Sync + Clone + 'static,
     url: String,
-    regions: Vec<String>,
+    regions: &'static [String],
     rates: &'static [RegionalRates],
     gb_rates: &'static [GBRateCard],
     address_whitelist: &'static [String],
@@ -241,6 +241,7 @@ pub async fn run(
     // trying to implicitly resume connections or event streams can cause issues
     // since subscriptions are stateful
 
+    let mut job_count = 0;
     loop {
         println!("main: Connecting to RPC endpoint...");
         let res = Provider::<Ws>::connect(url.clone()).await;
@@ -266,12 +267,14 @@ pub async fn run(
         }
 
         let job_stream = Box::into_pin(res.unwrap());
-        run_once(
-            job_stream,
+        job_count += run_once(
+            // we need to keep track of jobs for whom tasks have already been spawned
+            // and not spawn duplicate tasks
+            job_stream.skip(job_count),
             infra_provider.clone(),
             logs_provider.clone(),
             url.clone(),
-            regions.clone(),
+            regions,
             rates,
             gb_rates,
             address_whitelist,
@@ -288,14 +291,15 @@ async fn run_once(
     infra_provider: impl InfraProvider + Send + Sync + Clone + 'static,
     logs_provider: impl LogsProvider + Send + Sync + Clone + 'static,
     url: String,
-    regions: Vec<String>,
+    regions: &'static [String],
     rates: &'static [RegionalRates],
     gb_rates: &'static [GBRateCard],
     address_whitelist: &'static [String],
     address_blacklist: &'static [String],
     contract_address: String,
     chain_id: String,
-) {
+) -> usize {
+    let mut job_count = 0;
     while let Some((job, removed)) = job_stream.next().await {
         println!("main: New job: {job}, {removed}");
         tokio::spawn(job_manager(
@@ -303,7 +307,7 @@ async fn run_once(
             logs_provider.clone(),
             url.clone(),
             job,
-            regions.clone(),
+            regions,
             3,
             rates,
             gb_rates,
@@ -312,9 +316,12 @@ async fn run_once(
             contract_address.clone(),
             chain_id.clone(),
         ));
+        job_count += 1;
     }
 
     println!("main: Job stream ended");
+
+    job_count
 }
 
 async fn new_jobs(
@@ -347,7 +354,7 @@ async fn job_manager(
     logs_provider: impl LogsProvider + Send + Sync,
     url: String,
     job: H256,
-    allowed_regions: Vec<String>,
+    allowed_regions: &[String],
     aws_delay_duration: u64,
     rates: &[RegionalRates],
     gb_rates: &[GBRateCard],
@@ -391,7 +398,7 @@ async fn job_manager(
             job_stream,
             infra_provider.clone(),
             job,
-            allowed_regions.clone(),
+            allowed_regions,
             aws_delay_duration,
             rates,
             gb_rates,
@@ -444,10 +451,10 @@ fn whitelist_blacklist_check(
 
     true
 }
-struct JobState {
+struct JobState<'a> {
     job: H256,
     launch_delay: u64,
-    allowed_regions: Vec<String>,
+    allowed_regions: &'a [String],
     contract_address: String,
     chain_id: String,
 
@@ -475,11 +482,11 @@ struct JobState {
     eif_update: bool,
 }
 
-impl JobState {
+impl<'a> JobState<'a> {
     fn new(
         job: H256,
         launch_delay: u64,
-        allowed_regions: Vec<String>,
+        allowed_regions: &[String],
         contract_address: String,
         chain_id: String,
     ) -> JobState {
@@ -531,7 +538,7 @@ impl JobState {
         // TODO: should check if enclave is running as well
         let job = &self.job;
         let is_running = infra_provider
-            .check_instance_running(&self.instance_id, self.region.clone())
+            .check_instance_running(&self.instance_id, &self.region)
             .await;
         match is_running {
             Err(err) => {
@@ -540,7 +547,7 @@ impl JobState {
             Ok(is_running) => {
                 if is_running {
                     let is_enclave_running = infra_provider
-                        .check_enclave_running(&self.instance_id, self.region.clone())
+                        .check_enclave_running(&self.instance_id, &self.region)
                         .await;
 
                     match is_enclave_running {
@@ -552,7 +559,7 @@ impl JobState {
                                         job.encode_hex(),
                                         &self.instance_id,
                                         &self.family,
-                                        self.region.clone(),
+                                        &self.region,
                                         &self.eif_url,
                                         self.req_vcpus,
                                         self.req_mem,
@@ -626,7 +633,7 @@ impl JobState {
         let job = &self.job;
 
         let res = infra_provider
-            .get_job_instance(&job.encode_hex(), self.region.clone())
+            .get_job_instance(&job.encode_hex(), &self.region)
             .await;
 
         if let Err(err) = res {
@@ -648,7 +655,7 @@ impl JobState {
                         let res = infra_provider
                             .update_enclave_image(
                                 &self.instance_id,
-                                self.region.clone(),
+                                &self.region,
                                 &self.eif_url,
                                 self.req_vcpus,
                                 self.req_mem,
@@ -667,7 +674,7 @@ impl JobState {
                     // instance unhealthy, terminate
                     println!("job {job}: found existing unhealthy instance: {instance}");
                     let res = infra_provider
-                        .spin_down(&instance, job.encode_hex(), self.region.clone())
+                        .spin_down(&instance, job.encode_hex(), &self.region)
                         .await;
                     if let Err(err) = res {
                         println!("job {job}: ERROR failed to terminate instance, {err:?}");
@@ -686,7 +693,7 @@ impl JobState {
                     job.encode_hex(),
                     self.instance_type.as_str(),
                     self.family.as_str(),
-                    self.region.clone(),
+                    &self.region,
                     self.req_mem,
                     self.req_vcpus,
                     self.bandwidth,
@@ -711,7 +718,7 @@ impl JobState {
             // terminate instance
             println!("job {job}: terminating existing instance: {instance}");
             let res = infra_provider
-                .spin_down(&instance, job.encode_hex(), self.region.clone())
+                .spin_down(&instance, job.encode_hex(), &self.region)
                 .await;
             if let Err(err) = res {
                 println!("job {job}: ERROR failed to terminate instance, {err:?}");
@@ -1074,7 +1081,7 @@ impl JobState {
                 let r = v["instance"].as_str();
                 match r {
                     Some(t) => {
-                        if self.instance_type != t.to_string() {
+                        if self.instance_type != t {
                             println!("job {job}: Instance type change not allowed");
                             self.schedule_termination(0);
                             return -3;
@@ -1090,7 +1097,7 @@ impl JobState {
                 let r = v["region"].as_str();
                 match r {
                     Some(t) => {
-                        if self.region != t.to_string() {
+                        if self.region != t {
                             println!("job {job}: Region change not allowed");
                             self.schedule_termination(0);
                             return -3;
@@ -1136,7 +1143,7 @@ impl JobState {
                 }
 
                 let family = v["family"].as_str();
-                if family.is_some() && self.family != family.unwrap().to_owned() {
+                if family.is_some() && self.family != family.unwrap() {
                     println!("job {job}: family change not allowed");
                     self.schedule_termination(0);
                     return -3;
@@ -1177,7 +1184,7 @@ async fn job_manager_once(
     mut job_stream: impl Stream<Item = Log> + Unpin,
     mut infra_provider: impl InfraProvider + Send + Sync,
     job: H256,
-    allowed_regions: Vec<String>,
+    allowed_regions: &[String],
     aws_delay_duration: u64,
     rates: &[RegionalRates],
     gb_rates: &[GBRateCard],
@@ -1334,7 +1341,7 @@ mod tests {
             job_stream,
             &mut aws,
             job_num,
-            vec!["ap-south-1".into()],
+            &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
@@ -1401,7 +1408,7 @@ mod tests {
             job_stream,
             &mut aws,
             job_num,
-            vec!["ap-south-1".into()],
+            &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
@@ -1471,7 +1478,7 @@ mod tests {
             job_stream,
             &mut aws,
             job_num,
-            vec!["ap-south-1".into()],
+            &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
@@ -1542,7 +1549,7 @@ mod tests {
             job_stream,
             &mut aws,
             job_num,
-            vec!["ap-south-1".into()],
+            &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
@@ -1609,7 +1616,7 @@ mod tests {
             job_stream,
             &mut aws,
             job_num,
-            vec!["ap-south-1".into()],
+            &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
@@ -1650,7 +1657,7 @@ mod tests {
             job_stream,
             &mut aws,
             job_num,
-            vec!["ap-south-1".into()],
+            &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
@@ -1691,7 +1698,7 @@ mod tests {
             job_stream,
             &mut aws,
             job_num,
-            vec!["ap-south-1".into()],
+            &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
@@ -1732,7 +1739,7 @@ mod tests {
             job_stream,
             &mut aws,
             job_num,
-            vec!["ap-south-1".into()],
+            &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
@@ -1773,7 +1780,7 @@ mod tests {
             job_stream,
             &mut aws,
             job_num,
-            vec!["ap-south-1".into()],
+            &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
@@ -1814,7 +1821,7 @@ mod tests {
             job_stream,
             &mut aws,
             job_num,
-            vec!["ap-south-1".into()],
+            &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
@@ -1855,7 +1862,7 @@ mod tests {
             job_stream,
             &mut aws,
             job_num,
-            vec!["ap-south-1".into()],
+            &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
@@ -1897,7 +1904,7 @@ mod tests {
             job_stream,
             &mut aws,
             job_num,
-            vec!["ap-south-1".into()],
+            &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
@@ -1967,7 +1974,7 @@ mod tests {
             job_stream,
             &mut aws,
             job_num,
-            vec!["ap-south-1".into()],
+            &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
@@ -2034,7 +2041,7 @@ mod tests {
             job_stream,
             &mut aws,
             job_num,
-            vec!["ap-south-1".into()],
+            &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
@@ -2103,7 +2110,7 @@ mod tests {
             job_stream,
             &mut aws,
             job_num,
-            vec!["ap-south-1".into()],
+            &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
@@ -2146,7 +2153,7 @@ mod tests {
             job_stream,
             &mut aws,
             job_num,
-            vec!["ap-south-1".into()],
+            &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
@@ -2189,7 +2196,7 @@ mod tests {
             job_stream,
             &mut aws,
             job_num,
-            vec!["ap-south-1".into()],
+            &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
@@ -2457,7 +2464,7 @@ mod tests {
             job_stream,
             &mut aws,
             job_num,
-            vec!["ap-south-1".into()],
+            &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
@@ -2526,7 +2533,7 @@ mod tests {
             job_stream,
             &mut aws,
             job_num,
-            vec!["ap-south-1".into()],
+            &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
@@ -2569,7 +2576,7 @@ mod tests {
             job_stream,
             &mut aws,
             job_num,
-            vec!["ap-south-1".into()],
+            &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),

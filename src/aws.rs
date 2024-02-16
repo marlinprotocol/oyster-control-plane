@@ -278,12 +278,6 @@ impl Aws {
         Self::ssh_exec(sess, &("wget -O enclave.eif ".to_owned() + image_url))
             .context("Failed to download enclave image")?;
 
-        Self::ssh_exec(
-            sess,
-            &("echo \"".to_owned() + image_url + "\" > image_url.txt"),
-        )
-        .context("Failed to write EIF URL to txt file.")?;
-
         if self.whitelist.as_str() != "" || self.blacklist.as_str() != "" {
             let (stdout, stderr) = Self::ssh_exec(sess, "sha256sum /home/ubuntu/enclave.eif")
                 .context("Failed to calculate image hash")?;
@@ -343,6 +337,13 @@ impl Aws {
                 }
             }
         }
+
+        // store eif_url only when the image is allowed
+        Self::ssh_exec(
+            sess,
+            &("echo \"".to_owned() + image_url + "\" > image_url.txt"),
+        )
+        .context("Failed to write EIF URL to txt file.")?;
 
         let (stdout, stderr) =
             Self::ssh_exec(sess, "nmcli device status").context("Failed to get nmcli status")?;
@@ -537,12 +538,6 @@ impl Aws {
         Self::ssh_exec(sess, &("wget -O enclave.eif ".to_owned() + image_url))
             .context("Failed to download enclave image")?;
 
-        Self::ssh_exec(
-            sess,
-            &("echo \"".to_owned() + image_url + "\" > image_url.txt"),
-        )
-        .context("Failed to write EIF URL to txt file.")?;
-
         if self.whitelist.as_str() != "" || self.blacklist.as_str() != "" {
             let (stdout, stderr) = Self::ssh_exec(sess, "sha256sum /home/ubuntu/enclave.eif")
                 .context("Failed to calculate image hash")?;
@@ -602,6 +597,13 @@ impl Aws {
                 }
             }
         }
+
+        // store eif_url only when the image is allowed
+        Self::ssh_exec(
+            sess,
+            &("echo \"".to_owned() + image_url + "\" > image_url.txt"),
+        )
+        .context("Failed to write EIF URL to txt file.")?;
 
         let (stdout, stderr) =
             Self::ssh_exec(sess, "nmcli device status").context("Failed to get nmcli status")?;

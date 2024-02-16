@@ -188,6 +188,69 @@ impl Aws {
         Ok((stdout, stderr))
     }
 
+    async fn check_eif_blacklist_whitelist(&self, sess: &Session) -> Result<bool> {
+        if self.whitelist.as_str() != "" || self.blacklist.as_str() != "" {
+            let (stdout, stderr) = Self::ssh_exec(sess, "sha256sum /home/ubuntu/enclave.eif")
+                .context("Failed to calculate image hash")?;
+            if !stderr.is_empty() {
+                println!("{stderr}");
+                return Err(anyhow!("Error calculating hash of enclave image: {stderr}"));
+            }
+
+            let line = stdout
+                .split_whitespace()
+                .next()
+                .ok_or(anyhow!("Failed to retrieve image hash: {stdout}"))?;
+
+            println!("Hash: {line}");
+
+            if self.whitelist.as_str() != "" {
+                println!("Checking whitelist...");
+                let file_path = self.whitelist.as_str();
+                let contents =
+                    fs::read_to_string(file_path).context("Error reading whitelist file")?;
+
+                let entries = contents.lines();
+                let mut allowed = false;
+                for entry in entries {
+                    if entry.contains(line) {
+                        allowed = true;
+                        break;
+                    }
+                }
+                if allowed {
+                    println!("EIF ALLOWED!");
+                } else {
+                    println!("EIF NOT ALLOWED!");
+                    return Ok(false);
+                }
+            }
+
+            if self.blacklist.as_str() != "" {
+                println!("Checking blacklist...");
+                let file_path = self.blacklist.as_str();
+                let contents =
+                    fs::read_to_string(file_path).context("Error reading blacklist file")?;
+
+                let entries = contents.lines();
+                let mut allowed = true;
+                for entry in entries {
+                    if entry.contains(line) {
+                        allowed = false;
+                        break;
+                    }
+                }
+                if allowed {
+                    println!("EIF ALLOWED!");
+                } else {
+                    println!("EIF NOT ALLOWED!");
+                    return Ok(false);
+                }
+            }
+        }
+        Ok(true)
+    }
+
     pub async fn run_enclave_impl(
         &self,
         job_id: &str,
@@ -278,64 +341,13 @@ impl Aws {
         Self::ssh_exec(sess, &("wget -O enclave.eif ".to_owned() + image_url))
             .context("Failed to download enclave image")?;
 
-        if self.whitelist.as_str() != "" || self.blacklist.as_str() != "" {
-            let (stdout, stderr) = Self::ssh_exec(sess, "sha256sum /home/ubuntu/enclave.eif")
-                .context("Failed to calculate image hash")?;
-            if !stderr.is_empty() {
-                println!("{stderr}");
-                return Err(anyhow!("Error calculating hash of enclave image: {stderr}"));
-            }
+        let is_eif_allowed = self
+            .check_eif_blacklist_whitelist(sess)
+            .await
+            .context("Failed to retrieve image hash")?;
 
-            let line = stdout
-                .split_whitespace()
-                .next()
-                .ok_or(anyhow!("Failed to retrieve image hash: {stdout}"))?;
-
-            println!("Hash: {line}");
-
-            if self.whitelist.as_str() != "" {
-                println!("Checking whitelist...");
-                let file_path = self.whitelist.as_str();
-                let contents =
-                    fs::read_to_string(file_path).context("Error reading whitelist file")?;
-
-                let entries = contents.lines();
-                let mut allowed = false;
-                for entry in entries {
-                    if entry.contains(line) {
-                        allowed = true;
-                        break;
-                    }
-                }
-                if allowed {
-                    println!("EIF ALLOWED!");
-                } else {
-                    println!("EIF NOT ALLOWED!");
-                    return Err(anyhow!("EIF NOT ALLOWED"));
-                }
-            }
-
-            if self.blacklist.as_str() != "" {
-                println!("Checking blacklist...");
-                let file_path = self.blacklist.as_str();
-                let contents =
-                    fs::read_to_string(file_path).context("Error reading blacklist file")?;
-
-                let entries = contents.lines();
-                let mut allowed = true;
-                for entry in entries {
-                    if entry.contains(line) {
-                        allowed = false;
-                        break;
-                    }
-                }
-                if allowed {
-                    println!("EIF ALLOWED!");
-                } else {
-                    println!("EIF NOT ALLOWED!");
-                    return Err(anyhow!("EIF NOT ALLOWED"));
-                }
-            }
+        if !is_eif_allowed {
+            return Err(anyhow!("EIF NOT ALLOWED"));
         }
 
         // store eif_url only when the image is allowed
@@ -538,64 +550,13 @@ impl Aws {
         Self::ssh_exec(sess, &("wget -O enclave.eif ".to_owned() + image_url))
             .context("Failed to download enclave image")?;
 
-        if self.whitelist.as_str() != "" || self.blacklist.as_str() != "" {
-            let (stdout, stderr) = Self::ssh_exec(sess, "sha256sum /home/ubuntu/enclave.eif")
-                .context("Failed to calculate image hash")?;
-            if !stderr.is_empty() {
-                println!("{stderr}");
-                return Err(anyhow!("Error calculating hash of enclave image: {stderr}"));
-            }
+        let is_eif_allowed = self
+            .check_eif_blacklist_whitelist(sess)
+            .await
+            .context("Failed to retrieve image hash")?;
 
-            let line = stdout
-                .split_whitespace()
-                .next()
-                .ok_or(anyhow!("Failed to retrieve image hash: {stdout}"))?;
-
-            println!("Hash: {line}");
-
-            if self.whitelist.as_str() != "" {
-                println!("Checking whitelist...");
-                let file_path = self.whitelist.as_str();
-                let contents =
-                    fs::read_to_string(file_path).context("Error reading whitelist file")?;
-
-                let entries = contents.lines();
-                let mut allowed = false;
-                for entry in entries {
-                    if entry.contains(line) {
-                        allowed = true;
-                        break;
-                    }
-                }
-                if allowed {
-                    println!("EIF ALLOWED!");
-                } else {
-                    println!("EIF NOT ALLOWED!");
-                    return Err(anyhow!("EIF NOT ALLOWED"));
-                }
-            }
-
-            if self.blacklist.as_str() != "" {
-                println!("Checking blacklist...");
-                let file_path = self.blacklist.as_str();
-                let contents =
-                    fs::read_to_string(file_path).context("Error reading blacklist file")?;
-
-                let entries = contents.lines();
-                let mut allowed = true;
-                for entry in entries {
-                    if entry.contains(line) {
-                        allowed = false;
-                        break;
-                    }
-                }
-                if allowed {
-                    println!("EIF ALLOWED!");
-                } else {
-                    println!("EIF NOT ALLOWED!");
-                    return Err(anyhow!("EIF NOT ALLOWED"));
-                }
-            }
+        if !is_eif_allowed {
+            return Err(anyhow!("EIF NOT ALLOWED"));
         }
 
         // store eif_url only when the image is allowed
@@ -1513,6 +1474,15 @@ impl Aws {
 
         Self::ssh_exec(sess, &("wget -O enclave.eif ".to_owned() + &eif_url))
             .context("Failed to download enclave image")?;
+
+        let is_eif_allowed = self
+            .check_eif_blacklist_whitelist(sess)
+            .await
+            .context("Failed to retrieve image hash")?;
+
+        if !is_eif_allowed {
+            return Err(anyhow!("EIF NOT ALLOWED"));
+        }
 
         Self::ssh_exec(
             sess,

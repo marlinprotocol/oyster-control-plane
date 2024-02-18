@@ -116,8 +116,8 @@ impl InfraProvider for TestAws {
             req_vcpu,
             bandwidth,
             eif_url: eif_url.to_owned(),
-            contract_address: job.contract_address,
-            chain_id: job.chain_id,
+            contract_address: job.contract,
+            chain_id: job.chain,
         }));
 
         let res = self.instances.get_key_value(&job.id);

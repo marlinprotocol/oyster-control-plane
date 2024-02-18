@@ -1478,8 +1478,8 @@ impl InfraProvider for Aws {
                 req_mem,
                 req_vcpu,
                 bandwidth,
-                job.contract_address,
-                job.chain_id,
+                job.contract,
+                job.chain,
             )
             .await
             .context("could not spin up instance")?;

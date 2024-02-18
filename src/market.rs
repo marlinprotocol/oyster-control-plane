@@ -24,9 +24,9 @@ use ethers::types::Log;
 // This is needed to cleanly support multiple operators/contracts/chains at the infra level
 pub struct Job {
     pub id: String,
-    pub operator_address: String,
-    pub contract_address: String,
-    pub chain_id: String,
+    pub operator: String,
+    pub contract: String,
+    pub chain: String,
 }
 
 pub trait InfraProvider {
@@ -708,9 +708,9 @@ impl<'a> JobState<'a> {
                     Job {
                         id: job.encode_hex(),
                         // TODO: change this to be the operator address
-                        operator_address: self.contract_address.clone(),
-                        contract_address: self.contract_address.clone(),
-                        chain_id: self.chain_id.clone(),
+                        operator: self.contract_address.clone(),
+                        contract: self.contract_address.clone(),
+                        chain: self.chain_id.clone(),
                     },
                     self.instance_type.as_str(),
                     self.family.as_str(),

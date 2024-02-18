@@ -180,7 +180,7 @@ pub trait LogsProvider {
     fn new_jobs<'a>(
         &'a self,
         client: &'a Provider<Ws>,
-    ) -> impl Future<Output = Result<Box<dyn Stream<Item = (H256, bool)> + 'a>>>;
+    ) -> impl Future<Output = Result<impl Stream<Item = (H256, bool)> + 'a>>;
 
     fn job_logs<'a>(
         &'a self,
@@ -199,7 +199,7 @@ impl LogsProvider for EthersProvider {
     async fn new_jobs<'a>(
         &'a self,
         client: &'a Provider<Ws>,
-    ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>> {
+    ) -> Result<impl Stream<Item = (H256, bool)> + 'a> {
         new_jobs(client, self.contract, self.provider).await
     }
 
@@ -280,7 +280,7 @@ pub async fn run(
             continue;
         }
 
-        let job_stream = Box::into_pin(res.unwrap());
+        let job_stream = std::pin::pin!(res.unwrap());
         job_count += run_once(
             // we need to keep track of jobs for whom tasks have already been spawned
             // and not spawn duplicate tasks
@@ -342,7 +342,7 @@ async fn new_jobs(
     client: &Provider<Ws>,
     address: Address,
     provider: Address,
-) -> Result<Box<dyn Stream<Item = (H256, bool)> + '_>> {
+) -> Result<impl Stream<Item = (H256, bool)> + '_> {
     let event_filter = Filter::new()
         .address(address)
         .select(0..)
@@ -357,9 +357,7 @@ async fn new_jobs(
         .await
         .context("failed to subscribe to new jobs")?;
 
-    Ok(Box::new(stream.map(|item| {
-        (item.topics[1], item.removed.unwrap_or(false))
-    })))
+    Ok(stream.map(|item| (item.topics[1], item.removed.unwrap_or(false))))
 }
 
 // manage the complete lifecycle of a job

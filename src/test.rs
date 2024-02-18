@@ -254,16 +254,14 @@ impl LogsProvider for TestLogger {
     async fn new_jobs<'a>(
         &'a self,
         _client: &'a Provider<Ws>,
-    ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>> {
+    ) -> Result<impl Stream<Item = (H256, bool)> + 'a> {
         let logs: Vec<Log> = Vec::new();
-        Ok(Box::new(
-            tokio_stream::iter(
-                logs.iter()
-                    .map(|job| (job.topics[1], false))
-                    .collect::<Vec<_>>(),
-            )
-            .throttle(Duration::from_secs(2)),
-        ))
+        Ok(tokio_stream::iter(
+            logs.iter()
+                .map(|job| (job.topics[1], false))
+                .collect::<Vec<_>>(),
+        )
+        .throttle(Duration::from_secs(2)))
     }
 
     async fn job_logs<'a>(

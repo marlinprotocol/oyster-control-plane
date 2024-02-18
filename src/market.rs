@@ -1359,15 +1359,18 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
             &Vec::new(),
             &Vec::new(),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 
@@ -1443,15 +1446,18 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
             &Vec::new(),
             &Vec::new(),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 
@@ -1528,15 +1534,18 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
             &Vec::new(),
             &Vec::new(),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 
@@ -1616,15 +1625,18 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
             &Vec::new(),
             &Vec::new(),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 
@@ -1700,15 +1712,18 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
             &Vec::new(),
             &Vec::new(),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 
@@ -1741,15 +1756,18 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
             &Vec::new(),
             &Vec::new(),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 
@@ -1782,15 +1800,18 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
             &Vec::new(),
             &Vec::new(),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 
@@ -1823,15 +1844,18 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
             &Vec::new(),
             &Vec::new(),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 
@@ -1864,15 +1888,18 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
             &Vec::new(),
             &Vec::new(),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 
@@ -1905,15 +1932,18 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
             &Vec::new(),
             &Vec::new(),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 
@@ -1946,15 +1976,18 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
             &Vec::new(),
             &Vec::new(),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 
@@ -1988,15 +2021,18 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
             &Vec::new(),
             &Vec::new(),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 
@@ -2075,15 +2111,18 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
             &Vec::new(),
             &Vec::new(),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 
@@ -2159,7 +2198,12 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
@@ -2168,8 +2212,6 @@ mod tests {
                 "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
             ]),
             &Vec::new(),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 
@@ -2245,7 +2287,12 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
@@ -2254,8 +2301,6 @@ mod tests {
                 "0x000000000000000000000000000000000000000000000000f020c4f6gc7a56ce".to_string(),
             ]),
             &Vec::new(),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 
@@ -2288,7 +2333,12 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
@@ -2297,8 +2347,6 @@ mod tests {
             &Vec::from([
                 "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
             ]),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 
@@ -2331,7 +2379,12 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
@@ -2340,8 +2393,6 @@ mod tests {
             &Vec::from([
                 "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ece".to_string(),
             ]),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 
@@ -2616,15 +2667,18 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
             &Vec::new(),
             &Vec::new(),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 
@@ -2702,15 +2756,18 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
             &Vec::new(),
             &Vec::new(),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 
@@ -2745,15 +2802,18 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
             &Vec::new(),
             &Vec::new(),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 

@@ -753,14 +753,12 @@ impl Aws {
 
     pub async fn launch_instance(
         &self,
-        job: String,
+        job: &JobId,
         instance_type: InstanceType,
         image_url: &str,
         family: &str,
         architecture: &str,
         region: &str,
-        contract_address: String,
-        chain_id: String,
     ) -> Result<String> {
         let req_client = reqwest::Client::builder()
             .no_gzip()
@@ -800,11 +798,11 @@ impl Aws {
         let name_tag = Tag::builder().key("Name").value("JobRunner").build();
         let managed_tag = Tag::builder().key("managedBy").value("marlin").build();
         let project_tag = Tag::builder().key("project").value("oyster").build();
-        let job_tag = Tag::builder().key("jobId").value(job).build();
-        let chain_tag = Tag::builder().key("chainID").value(chain_id).build();
+        let job_tag = Tag::builder().key("jobId").value(&job.id).build();
+        let chain_tag = Tag::builder().key("chainID").value(&job.chain).build();
         let contract_tag = Tag::builder()
             .key("contractAddress")
-            .value(contract_address)
+            .value(&job.contract)
             .build();
         let tags = TagSpecification::builder()
             .resource_type(ResourceType::Instance)
@@ -977,14 +975,14 @@ impl Aws {
 
     pub async fn get_job_instance_id(
         &self,
-        job: &str,
+        job: &JobId,
         region: &str,
     ) -> Result<(bool, String, String)> {
         let res = self
             .client(region)
             .await
             .describe_instances()
-            .filters(Filter::builder().name("tag:jobId").values(job).build())
+            .filters(Filter::builder().name("tag:jobId").values(&job.id).build())
             .send()
             .await
             .context("could not describe instances")?;
@@ -1071,7 +1069,7 @@ impl Aws {
             .to_owned())
     }
 
-    async fn allocate_ip_addr(&self, job: String, region: &str) -> Result<(String, String)> {
+    async fn allocate_ip_addr(&self, job: &JobId, region: &str) -> Result<(String, String)> {
         let (exist, alloc_id, public_ip) = self
             .get_job_elastic_ip(&job, region)
             .await
@@ -1084,7 +1082,7 @@ impl Aws {
 
         let managed_tag = Tag::builder().key("managedBy").value("marlin").build();
         let project_tag = Tag::builder().key("project").value("oyster").build();
-        let job_tag = Tag::builder().key("jobId").value(job).build();
+        let job_tag = Tag::builder().key("jobId").value(&job.id).build();
         let tags = TagSpecification::builder()
             .resource_type(ResourceType::ElasticIp)
             .tags(managed_tag)
@@ -1112,13 +1110,17 @@ impl Aws {
         ))
     }
 
-    async fn get_job_elastic_ip(&self, job: &str, region: &str) -> Result<(bool, String, String)> {
+    async fn get_job_elastic_ip(
+        &self,
+        job: &JobId,
+        region: &str,
+    ) -> Result<(bool, String, String)> {
         let filter_a = Filter::builder()
             .name("tag:project")
             .values("oyster")
             .build();
 
-        let filter_b = Filter::builder().name("tag:jobId").values(job).build();
+        let filter_b = Filter::builder().name("tag:jobId").values(&job.id).build();
 
         Ok(
             match self
@@ -1231,14 +1233,12 @@ impl Aws {
     pub async fn spin_up_instance(
         &self,
         image_url: &str,
-        job: String,
+        job: &JobId,
         instance_type: &str,
         family: &str,
         region: &str,
         req_mem: i64,
         req_vcpu: i32,
-        contract_address: String,
-        chain_id: String,
     ) -> Result<String> {
         let instance_type =
             InstanceType::from_str(instance_type).context("cannot parse instance type")?;
@@ -1286,25 +1286,16 @@ impl Aws {
             return Err(anyhow!("Required memory or vcpus are more than available"));
         }
         let instance = self
-            .launch_instance(
-                job.clone(),
-                instance_type,
-                image_url,
-                family,
-                &architecture,
-                region,
-                contract_address,
-                chain_id,
-            )
+            .launch_instance(job, instance_type, image_url, family, &architecture, region)
             .await
             .context("could not launch instance")?;
         sleep(Duration::from_secs(100)).await;
 
-        let res = self.post_spin_up(job.clone(), &instance, region).await;
+        let res = self.post_spin_up(job, &instance, region).await;
 
         if let Err(err) = res {
             println!("error during post spin up: {err:?}");
-            self.spin_down_instance(&instance, &job, region)
+            self.spin_down_instance(&instance, job, region)
                 .await
                 .context("could not spin down instance after error during post spin up")?;
             return Err(err).context("error during post spin up");
@@ -1312,9 +1303,9 @@ impl Aws {
         Ok(instance)
     }
 
-    async fn post_spin_up(&self, job: String, instance: &str, region: &str) -> Result<()> {
+    async fn post_spin_up(&self, job: &JobId, instance: &str, region: &str) -> Result<()> {
         let (alloc_id, ip) = self
-            .allocate_ip_addr(job.clone(), region)
+            .allocate_ip_addr(job, region)
             .await
             .context("error allocating ip address")?;
         println!("Elastic Ip allocated: {ip}");
@@ -1328,7 +1319,7 @@ impl Aws {
     pub async fn spin_down_instance(
         &self,
         instance_id: &str,
-        job: &str,
+        job: &JobId,
         region: &str,
     ) -> Result<()> {
         let (exist, _, association_id) = self
@@ -1444,14 +1435,12 @@ impl InfraProvider for Aws {
         let instance = self
             .spin_up_instance(
                 eif_url,
-                job.id.clone(),
+                job,
                 instance_type,
                 family,
                 region,
                 req_mem,
                 req_vcpu,
-                job.contract.clone(),
-                job.chain.clone(),
             )
             .await
             .context("could not spin up instance")?;
@@ -1459,13 +1448,13 @@ impl InfraProvider for Aws {
     }
 
     async fn spin_down(&mut self, instance_id: &str, job: &JobId, region: &str) -> Result<()> {
-        self.spin_down_instance(instance_id, &job.id, region)
+        self.spin_down_instance(instance_id, job, region)
             .await
             .context("could not spin down instance")
     }
 
     async fn get_job_instance(&self, job: &JobId, region: &str) -> Result<(bool, String, String)> {
-        self.get_job_instance_id(&job.id, region)
+        self.get_job_instance_id(job, region)
             .await
             .context("could not get instance id for job")
     }

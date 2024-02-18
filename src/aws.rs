@@ -1089,7 +1089,7 @@ impl Aws {
 
     async fn allocate_ip_addr(&self, job: &JobId, region: &str) -> Result<(String, String)> {
         let (exist, alloc_id, public_ip) = self
-            .get_job_elastic_ip(&job, region)
+            .get_job_elastic_ip(job, region)
             .await
             .context("could not get elastic ip for job")?;
 

@@ -71,7 +71,7 @@ pub trait InfraProvider {
 
     fn run_enclave(
         &mut self,
-        job: String,
+        job: &JobId,
         instance_id: &str,
         family: &str,
         region: &str,
@@ -142,7 +142,7 @@ where
 
     async fn run_enclave(
         &mut self,
-        job: String,
+        job: &JobId,
         instance_id: &str,
         family: &str,
         region: &str,
@@ -571,7 +571,13 @@ impl<'a> JobState<'a> {
                                 println!("job {job}: enclave not running on the instance, running the enclave");
                                 let res = infra_provider
                                     .run_enclave(
-                                        job.encode_hex(),
+                                        &JobId {
+                                            id: job.encode_hex(),
+                                            // TODO: change this to be the operator address
+                                            operator: self.contract_address.clone(),
+                                            contract: self.contract_address.clone(),
+                                            chain: self.chain_id.clone(),
+                                        },
                                         &self.instance_id,
                                         &self.family,
                                         &self.region,
@@ -749,7 +755,13 @@ impl<'a> JobState<'a> {
             // try to run the enclave, ignore errors
             let res = infra_provider
                 .run_enclave(
-                    job.encode_hex(),
+                    &JobId {
+                        id: job.encode_hex(),
+                        // TODO: change this to be the operator address
+                        operator: self.contract_address.clone(),
+                        contract: self.contract_address.clone(),
+                        chain: self.chain_id.clone(),
+                    },
                     &self.instance_id,
                     &self.family,
                     &self.region,

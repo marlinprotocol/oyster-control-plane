@@ -1504,7 +1504,7 @@ impl InfraProvider for Aws {
 
     async fn run_enclave(
         &mut self,
-        job: String,
+        job: &JobId,
         instance_id: &str,
         family: &str,
         region: &str,
@@ -1514,7 +1514,7 @@ impl InfraProvider for Aws {
         bandwidth: u64,
     ) -> Result<()> {
         self.run_enclave_impl(
-            &job,
+            &job.id,
             family,
             instance_id,
             region,

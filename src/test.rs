@@ -206,7 +206,7 @@ impl InfraProvider for TestAws {
 
     async fn run_enclave(
         &mut self,
-        job: String,
+        job: &JobId,
         instance_id: &str,
         family: &str,
         region: &str,
@@ -218,7 +218,7 @@ impl InfraProvider for TestAws {
         self.outcomes
             .push(TestAwsOutcome::RunEnclave(RunEnclaveOutcome {
                 time: Instant::now(),
-                job: job.clone(),
+                job: job.id.clone(),
                 instance_id: instance_id.to_owned(),
                 family: family.to_owned(),
                 region: region.to_owned(),

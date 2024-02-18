@@ -25,6 +25,7 @@ pub struct SpinUpOutcome {
     pub eif_url: String,
     pub contract_address: String,
     pub chain_id: String,
+    pub instance_id: String,
 }
 
 #[cfg(test)]
@@ -121,6 +122,30 @@ impl InfraProvider for TestAws {
         req_vcpu: i32,
         bandwidth: u64,
     ) -> Result<String> {
+        let res = self.instances.get_key_value(&job.id);
+        if let Some(x) = res {
+            self.outcomes.push(TestAwsOutcome::SpinUp(SpinUpOutcome {
+                time: Instant::now(),
+                job: job.id.clone(),
+                instance_type: instance_type.to_owned(),
+                family: family.to_owned(),
+                region: region.to_owned(),
+                req_mem,
+                req_vcpu,
+                bandwidth,
+                eif_url: eif_url.to_owned(),
+                contract_address: job.contract.clone(),
+                chain_id: job.chain.clone(),
+                instance_id: x.1.instance_id.clone(),
+            }));
+
+            return Ok(x.1.instance_id.clone());
+        }
+
+        let instance_metadata: InstanceMetadata = InstanceMetadata::new(None, None).await;
+        self.instances
+            .insert(job.id.clone(), instance_metadata.clone());
+
         self.outcomes.push(TestAwsOutcome::SpinUp(SpinUpOutcome {
             time: Instant::now(),
             job: job.id.clone(),
@@ -133,16 +158,8 @@ impl InfraProvider for TestAws {
             eif_url: eif_url.to_owned(),
             contract_address: job.contract.clone(),
             chain_id: job.chain.clone(),
+            instance_id: instance_metadata.instance_id.clone(),
         }));
-
-        let res = self.instances.get_key_value(&job.id);
-        if let Some(x) = res {
-            return Ok(x.1.instance_id.clone());
-        }
-
-        let instance_metadata: InstanceMetadata = InstanceMetadata::new(None, None).await;
-        self.instances
-            .insert(job.id.clone(), instance_metadata.clone());
 
         Ok(instance_metadata.instance_id)
     }

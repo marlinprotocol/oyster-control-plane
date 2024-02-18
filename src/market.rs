@@ -1394,8 +1394,10 @@ mod tests {
         assert_eq!(res, 0);
         println!("{:?}", aws.outcomes);
         let spin_up_tv_sec: Instant;
+        let instance_id: String;
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
             spin_up_tv_sec = out.time;
+            instance_id = out.instance_id.clone();
             assert!(
                 H256::from_str(&out.job).unwrap() == job_num
                     && out.instance_type == "c6a.xlarge"
@@ -1412,7 +1414,22 @@ mod tests {
             panic!();
         };
 
-        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
+        if let TestAwsOutcome::RunEnclave(out) = &aws.outcomes[1] {
+            assert!(
+                H256::from_str(&out.job).unwrap() == job_num
+                    && out.instance_id == instance_id
+                    && out.family == "salmon"
+                    && out.region == "ap-south-1"
+                    && out.req_mem == 4096
+                    && out.req_vcpu == 2
+                    && out.bandwidth == 76
+                    && out.eif_url == "https://example.com/enclave.eif"
+            )
+        } else {
+            panic!();
+        };
+
+        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[2] {
             assert_eq!((out.time - spin_up_tv_sec).as_secs(), 1);
             assert!(H256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
         } else {
@@ -1461,25 +1478,40 @@ mod tests {
         assert_eq!(res, 0);
         println!("{:?}", aws.outcomes);
         let spin_up_tv_sec: Instant;
+        let instance_id: String;
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
             spin_up_tv_sec = out.time;
+            instance_id = out.instance_id.clone();
             assert!(
                 H256::from_str(&out.job).unwrap() == job_num
-                    && out.instance_type == "c6a.xlarge"
+                    && out.instance_id == instance_id
                     && out.family == "tuna"
                     && out.region == "ap-south-1"
                     && out.req_mem == 4096
                     && out.req_vcpu == 2
                     && out.bandwidth == 76
                     && out.eif_url == "https://example.com/enclave.eif"
-                    && out.contract_address == "xyz"
-                    && out.chain_id == "123"
             )
         } else {
             panic!();
         };
 
-        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
+        if let TestAwsOutcome::RunEnclave(out) = &aws.outcomes[1] {
+            assert!(
+                H256::from_str(&out.job).unwrap() == job_num
+                    && out.instance_id == instance_id
+                    && out.family == "tuna"
+                    && out.region == "ap-south-1"
+                    && out.req_mem == 4096
+                    && out.req_vcpu == 2
+                    && out.bandwidth == 76
+                    && out.eif_url == "https://example.com/enclave.eif"
+            )
+        } else {
+            panic!();
+        };
+
+        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[2] {
             assert_eq!((out.time - spin_up_tv_sec).as_secs(), 1);
             assert!(H256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
         } else {
@@ -1531,8 +1563,10 @@ mod tests {
         assert_eq!(res, 0);
         println!("{:?}", aws.outcomes);
         let spin_up_tv_sec: Instant;
+        let instance_id: String;
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
             spin_up_tv_sec = out.time;
+            instance_id = out.instance_id.clone();
             assert!(
                 H256::from_str(&out.job).unwrap() == job_num
                     && out.instance_type == "c6a.xlarge"
@@ -1549,7 +1583,22 @@ mod tests {
             panic!();
         };
 
-        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
+        if let TestAwsOutcome::RunEnclave(out) = &aws.outcomes[1] {
+            assert!(
+                H256::from_str(&out.job).unwrap() == job_num
+                    && out.instance_id == instance_id
+                    && out.family == "salmon"
+                    && out.region == "ap-south-1"
+                    && out.req_mem == 4096
+                    && out.req_vcpu == 2
+                    && out.bandwidth == 76
+                    && out.eif_url == "https://example.com/enclave.eif"
+            )
+        } else {
+            panic!();
+        };
+
+        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[2] {
             assert_eq!((out.time - spin_up_tv_sec).as_secs(), 205);
             assert!(H256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
         } else {
@@ -1602,8 +1651,10 @@ mod tests {
         assert_eq!(res, 0);
         println!("{:?}", aws.outcomes);
         let spin_up_tv_sec: Instant;
+        let instance_id: String;
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
             spin_up_tv_sec = out.time;
+            instance_id = out.instance_id.clone();
             assert!(
                 H256::from_str(&out.job).unwrap() == job_num
                     && out.instance_type == "c6a.xlarge"
@@ -1620,7 +1671,22 @@ mod tests {
             panic!();
         };
 
-        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
+        if let TestAwsOutcome::RunEnclave(out) = &aws.outcomes[1] {
+            assert!(
+                H256::from_str(&out.job).unwrap() == job_num
+                    && out.instance_id == instance_id
+                    && out.family == "salmon"
+                    && out.region == "ap-south-1"
+                    && out.req_mem == 4096
+                    && out.req_vcpu == 2
+                    && out.bandwidth == 76
+                    && out.eif_url == "https://example.com/enclave.eif"
+            )
+        } else {
+            panic!();
+        };
+
+        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[2] {
             assert_eq!((out.time - spin_up_tv_sec).as_secs(), 205);
             assert!(H256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
         } else {
@@ -1957,8 +2023,10 @@ mod tests {
         assert_eq!(res, 0);
         println!("{:?}", aws.outcomes);
         let spin_up_tv_sec: Instant;
+        let instance_id: String;
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
             spin_up_tv_sec = out.time;
+            instance_id = out.instance_id.clone();
             assert!(
                 H256::from_str(&out.job).unwrap() == job_num
                     && out.instance_type == "c6a.xlarge"
@@ -1975,7 +2043,22 @@ mod tests {
             panic!();
         };
 
-        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
+        if let TestAwsOutcome::RunEnclave(out) = &aws.outcomes[1] {
+            assert!(
+                H256::from_str(&out.job).unwrap() == job_num
+                    && out.instance_id == instance_id
+                    && out.family == "salmon"
+                    && out.region == "ap-south-1"
+                    && out.req_mem == 4096
+                    && out.req_vcpu == 2
+                    && out.bandwidth == 76
+                    && out.eif_url == "https://example.com/enclave.eif"
+            )
+        } else {
+            panic!();
+        };
+
+        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[2] {
             assert_eq!((out.time - spin_up_tv_sec).as_secs(), 50);
             assert!(H256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
         } else {
@@ -2027,8 +2110,10 @@ mod tests {
         assert_eq!(res, 0);
         println!("{:?}", aws.outcomes);
         let spin_up_tv_sec: Instant;
+        let instance_id: String;
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
             spin_up_tv_sec = out.time;
+            instance_id = out.instance_id.clone();
             assert!(
                 H256::from_str(&out.job).unwrap() == job_num
                     && out.instance_type == "c6a.xlarge"
@@ -2045,7 +2130,22 @@ mod tests {
             panic!();
         };
 
-        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
+        if let TestAwsOutcome::RunEnclave(out) = &aws.outcomes[1] {
+            assert!(
+                H256::from_str(&out.job).unwrap() == job_num
+                    && out.instance_id == instance_id
+                    && out.family == "salmon"
+                    && out.region == "ap-south-1"
+                    && out.req_mem == 4096
+                    && out.req_vcpu == 2
+                    && out.bandwidth == 76
+                    && out.eif_url == "https://example.com/enclave.eif"
+            )
+        } else {
+            panic!();
+        };
+
+        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[2] {
             assert_eq!((out.time - spin_up_tv_sec).as_secs(), 50);
             assert!(H256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
         } else {
@@ -2096,8 +2196,10 @@ mod tests {
         assert_eq!(res, 0);
         println!("{:?}", aws.outcomes);
         let spin_up_tv_sec: Instant;
+        let instance_id: String;
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
             spin_up_tv_sec = out.time;
+            instance_id = out.instance_id.clone();
             assert!(
                 H256::from_str(&out.job).unwrap() == job_num
                     && out.instance_type == "c6a.xlarge"
@@ -2114,7 +2216,22 @@ mod tests {
             panic!();
         };
 
-        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
+        if let TestAwsOutcome::RunEnclave(out) = &aws.outcomes[1] {
+            assert!(
+                H256::from_str(&out.job).unwrap() == job_num
+                    && out.instance_id == instance_id
+                    && out.family == "salmon"
+                    && out.region == "ap-south-1"
+                    && out.req_mem == 4096
+                    && out.req_vcpu == 2
+                    && out.bandwidth == 76
+                    && out.eif_url == "https://example.com/enclave.eif"
+            )
+        } else {
+            panic!();
+        };
+
+        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[2] {
             assert_eq!((out.time - spin_up_tv_sec).as_secs(), 200);
             assert!(H256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
         } else {
@@ -2251,8 +2368,10 @@ mod tests {
         assert_eq!(res, 0);
         println!("{:?}", aws.outcomes);
         let spin_up_tv_sec: Instant;
+        let instance_id: String;
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
             spin_up_tv_sec = out.time;
+            instance_id = out.instance_id.clone();
             assert!(
                 H256::from_str(&out.job).unwrap() == job_num
                     && out.instance_type == "c6a.xlarge"
@@ -2269,7 +2388,22 @@ mod tests {
             panic!();
         };
 
-        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
+        if let TestAwsOutcome::RunEnclave(out) = &aws.outcomes[1] {
+            assert!(
+                H256::from_str(&out.job).unwrap() == job_num
+                    && out.instance_id == instance_id
+                    && out.family == "salmon"
+                    && out.region == "ap-south-1"
+                    && out.req_mem == 4096
+                    && out.req_vcpu == 2
+                    && out.bandwidth == 76
+                    && out.eif_url == "https://example.com/enclave.eif"
+            )
+        } else {
+            panic!();
+        };
+
+        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[2] {
             assert_eq!((out.time - spin_up_tv_sec).as_secs(), 200);
             assert!(H256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
         } else {
@@ -2517,8 +2651,10 @@ mod tests {
         assert_eq!(res, 0);
         println!("{:?}", aws.outcomes);
         let spin_up_tv_sec: Instant;
+        let instance_id: String;
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
             spin_up_tv_sec = out.time;
+            instance_id = out.instance_id.clone();
             assert!(
                 H256::from_str(&out.job).unwrap() == job_num
                     && out.instance_type == "c6a.xlarge"
@@ -2535,7 +2671,22 @@ mod tests {
             panic!();
         };
 
-        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
+        if let TestAwsOutcome::RunEnclave(out) = &aws.outcomes[1] {
+            assert!(
+                H256::from_str(&out.job).unwrap() == job_num
+                    && out.instance_id == instance_id
+                    && out.family == "salmon"
+                    && out.region == "ap-south-1"
+                    && out.req_mem == 4096
+                    && out.req_vcpu == 2
+                    && out.bandwidth == 76
+                    && out.eif_url == "https://example.com/updated-enclave.eif"
+            )
+        } else {
+            panic!();
+        };
+
+        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[2] {
             assert_eq!((out.time - spin_up_tv_sec).as_secs(), 105);
             assert!(H256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
         } else {

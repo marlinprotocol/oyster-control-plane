@@ -1237,7 +1237,6 @@ impl Aws {
         region: &str,
         req_mem: i64,
         req_vcpu: i32,
-        bandwidth: u64,
         contract_address: String,
         chain_id: String,
     ) -> Result<String> {
@@ -1301,18 +1300,7 @@ impl Aws {
             .context("could not launch instance")?;
         sleep(Duration::from_secs(100)).await;
 
-        let res = self
-            .post_spin_up(
-                image_url,
-                job.clone(),
-                family,
-                &instance,
-                region,
-                req_mem,
-                req_vcpu,
-                bandwidth,
-            )
-            .await;
+        let res = self.post_spin_up(job.clone(), &instance, region).await;
 
         if let Err(err) = res {
             println!("error during post spin up: {err:?}");
@@ -1324,17 +1312,7 @@ impl Aws {
         Ok(instance)
     }
 
-    async fn post_spin_up(
-        &self,
-        image_url: &str,
-        job: String,
-        family: &str,
-        instance: &str,
-        region: &str,
-        req_mem: i64,
-        req_vcpu: i32,
-        bandwidth: u64,
-    ) -> Result<()> {
+    async fn post_spin_up(&self, job: String, instance: &str, region: &str) -> Result<()> {
         let (alloc_id, ip) = self
             .allocate_ip_addr(job.clone(), region)
             .await
@@ -1461,7 +1439,7 @@ impl InfraProvider for Aws {
         region: &str,
         req_mem: i64,
         req_vcpu: i32,
-        bandwidth: u64,
+        _bandwidth: u64,
     ) -> Result<String> {
         let instance = self
             .spin_up_instance(
@@ -1472,7 +1450,6 @@ impl InfraProvider for Aws {
                 region,
                 req_mem,
                 req_vcpu,
-                bandwidth,
                 job.contract.clone(),
                 job.chain.clone(),
             )

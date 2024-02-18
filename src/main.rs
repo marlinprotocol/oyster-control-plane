@@ -167,6 +167,16 @@ pub async fn main() -> Result<()> {
     let address_whitelist: &'static [String] = Box::leak(address_whitelist_vec.into_boxed_slice());
     let address_blacklist: &'static [String] = Box::leak(address_blacklist_vec.into_boxed_slice());
     let regions: &'static [String] = Box::leak(regions.into_boxed_slice());
+    let chain = get_chain_id_from_rpc_url(cli.rpc.clone())
+        .await
+        .context("Failed to fetch chain_id")?;
+
+    let job_id = market::JobId {
+        id: H256::zero().encode_hex(),
+        operator: cli.provider.clone(),
+        contract: cli.contract.clone(),
+        chain,
+    };
 
     tokio::spawn(server::serve(
         aws.clone(),
@@ -174,12 +184,12 @@ pub async fn main() -> Result<()> {
         compute_rates,
         bandwidth_rates,
         SocketAddr::from(([0, 0, 0, 0], 8080)),
+        job_id.clone(),
     ));
 
     let ethers = market::EthersProvider {
         contract: cli
             .contract
-            .clone()
             .parse::<Address>()
             .context("failed to parse contract address")?,
         provider: cli
@@ -191,20 +201,13 @@ pub async fn main() -> Result<()> {
     market::run(
         aws,
         ethers,
-        cli.rpc.clone(),
+        cli.rpc,
         regions,
         compute_rates,
         bandwidth_rates,
         address_whitelist,
         address_blacklist,
-        market::JobId {
-            id: H256::zero().encode_hex(),
-            operator: cli.provider,
-            contract: cli.contract,
-            chain: get_chain_id_from_rpc_url(cli.rpc)
-                .await
-                .context("Failed to fetch chain_id")?,
-        },
+        job_id,
     )
     .await;
 

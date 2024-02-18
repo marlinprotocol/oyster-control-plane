@@ -50,6 +50,7 @@ async fn handle_ip_request(
         &'static [String],
         &'static [RegionalRates],
         &'static [GBRateCard],
+        JobId,
     )>,
     Query(query): Query<GetIPRequest>,
 ) -> HandlerResult<Json<GetIPResponse>> {
@@ -63,10 +64,9 @@ async fn handle_ip_request(
         .get_job_ip(
             &JobId {
                 id: query.id.unwrap(),
-                // TODO: need to store all of this
-                operator: query.region.clone().unwrap(),
-                contract: query.region.clone().unwrap(),
-                chain: query.region.clone().unwrap(),
+                operator: state.4.operator,
+                contract: state.4.contract,
+                chain: state.4.chain,
             },
             &query.region.unwrap(),
         )
@@ -87,6 +87,7 @@ async fn handle_spec_request(
         &'static [String],
         &'static [RegionalRates],
         &'static [GBRateCard],
+        JobId,
     )>,
 ) -> HandlerResult<Json<SpecResponse>> {
     let regions = state.1;
@@ -106,6 +107,7 @@ async fn handle_bandwidth_request(
         &'static [String],
         &'static [RegionalRates],
         &'static [GBRateCard],
+        JobId,
     )>,
 ) -> HandlerResult<Json<BandwidthResponse>> {
     let bandwidth = state.3;
@@ -122,6 +124,7 @@ fn all_routes(
         &'static [String],
         &'static [RegionalRates],
         &'static [GBRateCard],
+        JobId,
     ),
 ) -> Router {
     Router::new()
@@ -137,8 +140,9 @@ pub async fn serve(
     rates: &'static [RegionalRates],
     bandwidth: &'static [GBRateCard],
     addr: SocketAddr,
+    job_id: JobId,
 ) {
-    let state = (client, regions, rates, bandwidth);
+    let state = (client, regions, rates, bandwidth, job_id);
 
     let router = Router::new().merge(all_routes(state));
     println!("Listening for connections on {}", addr);

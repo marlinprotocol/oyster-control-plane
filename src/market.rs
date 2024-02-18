@@ -20,6 +20,15 @@ use ethers::types::Log;
 // One future listening to new jobs
 // Each job has its own future managing its lifetime
 
+// Identify jobs not only by the id, but also by the operator, contract and the chain
+// This is needed to cleanly support multiple operators/contracts/chains at the infra level
+pub struct Job {
+    pub id: String,
+    pub operator: String,
+    pub contract_address: String,
+    pub chain_id: String,
+}
+
 pub trait InfraProvider {
     fn spin_up(
         &mut self,

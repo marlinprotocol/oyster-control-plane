@@ -95,7 +95,6 @@ pub struct TestAws {
 }
 
 #[cfg(test)]
-#[async_trait]
 impl InfraProvider for TestAws {
     async fn spin_up(
         &mut self,

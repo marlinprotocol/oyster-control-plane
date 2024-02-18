@@ -1457,7 +1457,6 @@ impl Aws {
     }
 }
 
-#[async_trait]
 impl InfraProvider for Aws {
     async fn spin_up(
         &mut self,

@@ -1,3 +1,5 @@
+use std::future::Future;
+
 use async_trait::async_trait;
 use ethers::abi::{AbiDecode, AbiEncode};
 use ethers::prelude::*;
@@ -19,9 +21,8 @@ use ethers::types::Log;
 // One future listening to new jobs
 // Each job has its own future managing its lifetime
 
-#[async_trait]
 pub trait InfraProvider {
-    async fn spin_up(
+    fn spin_up(
         &mut self,
         eif_url: &str,
         job: String,
@@ -33,19 +34,36 @@ pub trait InfraProvider {
         bandwidth: u64,
         contract_address: String,
         chain_id: String,
-    ) -> Result<String>;
+    ) -> impl Future<Output = Result<String>> + Send;
 
-    async fn spin_down(&mut self, instance_id: &str, job: String, region: &str) -> Result<bool>;
+    fn spin_down(
+        &mut self,
+        instance_id: &str,
+        job: String,
+        region: &str,
+    ) -> impl Future<Output = Result<bool>> + Send;
 
-    async fn get_job_instance(&self, job: &str, region: &str) -> Result<(bool, String, String)>;
+    fn get_job_instance(
+        &self,
+        job: &str,
+        region: &str,
+    ) -> impl Future<Output = Result<(bool, String, String)>> + Send;
 
-    async fn get_job_ip(&self, job: &str, region: &str) -> Result<String>;
+    fn get_job_ip(&self, job: &str, region: &str) -> impl Future<Output = Result<String>> + Send;
 
-    async fn check_instance_running(&mut self, instance_id: &str, region: &str) -> Result<bool>;
+    fn check_instance_running(
+        &mut self,
+        instance_id: &str,
+        region: &str,
+    ) -> impl Future<Output = Result<bool>> + Send;
 
-    async fn check_enclave_running(&mut self, instance_id: &str, region: &str) -> Result<bool>;
+    fn check_enclave_running(
+        &mut self,
+        instance_id: &str,
+        region: &str,
+    ) -> impl Future<Output = Result<bool>> + Send;
 
-    async fn run_enclave(
+    fn run_enclave(
         &mut self,
         job: String,
         instance_id: &str,
@@ -55,19 +73,18 @@ pub trait InfraProvider {
         req_vcpu: i32,
         req_mem: i64,
         bandwidth: u64,
-    ) -> Result<()>;
+    ) -> impl Future<Output = Result<()>> + Send;
 
-    async fn update_enclave_image(
+    fn update_enclave_image(
         &mut self,
         instance_id: &str,
         region: &str,
         eif_url: &str,
         req_vcpu: i32,
         req_mem: i64,
-    ) -> Result<()>;
+    ) -> impl Future<Output = Result<()>> + Send;
 }
 
-#[async_trait]
 impl<'a, T> InfraProvider for &'a mut T
 where
     T: InfraProvider + Send + Sync,

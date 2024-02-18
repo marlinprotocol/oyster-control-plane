@@ -3,6 +3,7 @@ use std::future::Future;
 use ethers::abi::{AbiDecode, AbiEncode};
 use ethers::prelude::*;
 use ethers::types::serde_helpers::deserialize_stringified_numeric;
+use ethers::utils::hex::ToHex;
 use ethers::utils::keccak256;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -466,12 +467,11 @@ fn whitelist_blacklist_check(
 
     true
 }
+
 struct JobState<'a> {
-    job: H256,
+    job_id: JobId,
     launch_delay: u64,
     allowed_regions: &'a [String],
-    contract_address: String,
-    chain_id: String,
 
     balance: U256,
     last_settled: Duration,
@@ -508,11 +508,15 @@ impl<'a> JobState<'a> {
         // solvency metrics
         // default of 60s
         JobState {
-            job,
+            job_id: JobId {
+                id: job.encode_hex(),
+                // TODO: change this to be the operator address
+                operator: contract_address.clone(),
+                contract: contract_address,
+                chain: chain_id,
+            },
             launch_delay,
             allowed_regions,
-            contract_address,
-            chain_id,
             balance: U256::from(360),
             last_settled: now_timestamp(),
             rate: U256::one(),
@@ -551,7 +555,7 @@ impl<'a> JobState<'a> {
 
     async fn heartbeat_check(&mut self, mut infra_provider: impl InfraProvider) {
         // TODO: should check if enclave is running as well
-        let job = &self.job;
+        let job = &self.job_id.id;
         let is_running = infra_provider
             .check_instance_running(&self.instance_id, &self.region)
             .await;
@@ -571,13 +575,7 @@ impl<'a> JobState<'a> {
                                 println!("job {job}: enclave not running on the instance, running the enclave");
                                 let res = infra_provider
                                     .run_enclave(
-                                        &JobId {
-                                            id: job.encode_hex(),
-                                            // TODO: change this to be the operator address
-                                            operator: self.contract_address.clone(),
-                                            contract: self.contract_address.clone(),
-                                            chain: self.chain_id.clone(),
-                                        },
+                                        &self.job_id,
                                         &self.instance_id,
                                         &self.family,
                                         &self.region,
@@ -612,13 +610,13 @@ impl<'a> JobState<'a> {
     }
 
     fn handle_insolvency(&mut self) {
-        let job = &self.job;
+        let job = &self.job_id.id;
         println!("job {job}: INSOLVENCY");
         self.schedule_termination(0);
     }
 
     fn schedule_launch(&mut self, delay: u64) {
-        let job = &self.job;
+        let job = &self.job_id.id;
         self.infra_change_scheduled = true;
         self.infra_change_time = Instant::now()
             .checked_add(Duration::from_secs(delay))
@@ -628,7 +626,7 @@ impl<'a> JobState<'a> {
     }
 
     fn schedule_termination(&mut self, delay: u64) {
-        let job = &self.job;
+        let job = &self.job_id.id;
         self.infra_change_scheduled = true;
         self.infra_change_time = Instant::now()
             .checked_add(Duration::from_secs(delay))
@@ -651,19 +649,10 @@ impl<'a> JobState<'a> {
     }
 
     async fn change_infra_impl(&mut self, mut infra_provider: impl InfraProvider) -> bool {
-        let job = &self.job;
+        let job = &self.job_id.id;
 
         let res = infra_provider
-            .get_job_instance(
-                &JobId {
-                    id: job.encode_hex(),
-                    // TODO: change this to be the operator address
-                    operator: self.contract_address.clone(),
-                    contract: self.contract_address.clone(),
-                    chain: self.chain_id.clone(),
-                },
-                &self.region,
-            )
+            .get_job_instance(&self.job_id, &self.region)
             .await;
 
         if let Err(err) = res {
@@ -704,17 +693,7 @@ impl<'a> JobState<'a> {
                     // instance unhealthy, terminate
                     println!("job {job}: found existing unhealthy instance: {instance}");
                     let res = infra_provider
-                        .spin_down(
-                            &instance,
-                            &JobId {
-                                id: job.encode_hex(),
-                                // TODO: change this to be the operator address
-                                operator: self.contract_address.clone(),
-                                contract: self.contract_address.clone(),
-                                chain: self.chain_id.clone(),
-                            },
-                            &self.region,
-                        )
+                        .spin_down(&instance, &self.job_id, &self.region)
                         .await;
                     if let Err(err) = res {
                         println!("job {job}: ERROR failed to terminate instance, {err:?}");
@@ -730,13 +709,7 @@ impl<'a> JobState<'a> {
             let res = infra_provider
                 .spin_up(
                     self.eif_url.as_str(),
-                    &JobId {
-                        id: job.encode_hex(),
-                        // TODO: change this to be the operator address
-                        operator: self.contract_address.clone(),
-                        contract: self.contract_address.clone(),
-                        chain: self.chain_id.clone(),
-                    },
+                    &self.job_id,
                     self.instance_type.as_str(),
                     self.family.as_str(),
                     &self.region,
@@ -755,13 +728,7 @@ impl<'a> JobState<'a> {
             // try to run the enclave, ignore errors
             let res = infra_provider
                 .run_enclave(
-                    &JobId {
-                        id: job.encode_hex(),
-                        // TODO: change this to be the operator address
-                        operator: self.contract_address.clone(),
-                        contract: self.contract_address.clone(),
-                        chain: self.chain_id.clone(),
-                    },
+                    &self.job_id,
                     &self.instance_id,
                     &self.family,
                     &self.region,
@@ -787,17 +754,7 @@ impl<'a> JobState<'a> {
             // terminate instance
             println!("job {job}: terminating existing instance: {instance}");
             let res = infra_provider
-                .spin_down(
-                    &instance,
-                    &JobId {
-                        id: job.encode_hex(),
-                        // TODO: change this to be the operator address
-                        operator: self.contract_address.clone(),
-                        contract: self.contract_address.clone(),
-                        chain: self.chain_id.clone(),
-                    },
-                    &self.region,
-                )
+                .spin_down(&instance, &self.job_id, &self.region)
                 .await;
             if let Err(err) = res {
                 println!("job {job}: ERROR failed to terminate instance, {err:?}");
@@ -820,7 +777,7 @@ impl<'a> JobState<'a> {
         address_whitelist: &[String],
         address_blacklist: &[String],
     ) -> i8 {
-        let job = self.job;
+        let job = self.job_id.id.clone();
 
         if log.is_none() {
             // error in the stream, can retry with new conn

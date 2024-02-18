@@ -1460,7 +1460,7 @@ impl InfraProvider for Aws {
     async fn spin_up(
         &mut self,
         eif_url: &str,
-        job: Job,
+        job: &Job,
         instance_type: &str,
         family: &str,
         region: &str,
@@ -1471,15 +1471,15 @@ impl InfraProvider for Aws {
         let instance = self
             .spin_up_instance(
                 eif_url,
-                job.id,
+                job.id.clone(),
                 instance_type,
                 family,
                 region,
                 req_mem,
                 req_vcpu,
                 bandwidth,
-                job.contract,
-                job.chain,
+                job.contract.clone(),
+                job.chain.clone(),
             )
             .await
             .context("could not spin up instance")?;

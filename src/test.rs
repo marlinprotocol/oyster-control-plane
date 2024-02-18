@@ -98,7 +98,7 @@ impl InfraProvider for TestAws {
     async fn spin_up(
         &mut self,
         eif_url: &str,
-        job: Job,
+        job: &Job,
         instance_type: &str,
         family: &str,
         region: &str,
@@ -116,8 +116,8 @@ impl InfraProvider for TestAws {
             req_vcpu,
             bandwidth,
             eif_url: eif_url.to_owned(),
-            contract_address: job.contract,
-            chain_id: job.chain,
+            contract_address: job.contract.clone(),
+            chain_id: job.chain.clone(),
         }));
 
         let res = self.instances.get_key_value(&job.id);
@@ -126,7 +126,8 @@ impl InfraProvider for TestAws {
         }
 
         let instance_metadata: InstanceMetadata = InstanceMetadata::new(None, None).await;
-        self.instances.insert(job.id, instance_metadata.clone());
+        self.instances
+            .insert(job.id.clone(), instance_metadata.clone());
 
         Ok(instance_metadata.instance_id)
     }

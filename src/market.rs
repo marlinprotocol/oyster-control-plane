@@ -33,7 +33,7 @@ pub trait InfraProvider {
     fn spin_up(
         &mut self,
         eif_url: &str,
-        job: Job,
+        job: &Job,
         instance_type: &str,
         family: &str,
         region: &str,
@@ -98,7 +98,7 @@ where
     async fn spin_up(
         &mut self,
         eif_url: &str,
-        job: Job,
+        job: &Job,
         instance_type: &str,
         family: &str,
         region: &str,
@@ -705,7 +705,7 @@ impl<'a> JobState<'a> {
             let res = infra_provider
                 .spin_up(
                     self.eif_url.as_str(),
-                    Job {
+                    &Job {
                         id: job.encode_hex(),
                         // TODO: change this to be the operator address
                         operator: self.contract_address.clone(),

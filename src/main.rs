@@ -5,6 +5,7 @@ use cp::server;
 use anyhow::Context;
 use anyhow::Result;
 use clap::Parser;
+use ethers::abi::AbiEncode;
 use ethers::prelude::*;
 use ethers::providers::{Provider, Ws};
 use std::fs;
@@ -196,10 +197,14 @@ pub async fn main() -> Result<()> {
         bandwidth_rates,
         address_whitelist,
         address_blacklist,
-        cli.contract,
-        get_chain_id_from_rpc_url(cli.rpc)
-            .await
-            .context("Failed to fetch chain_id")?,
+        market::JobId {
+            id: H256::zero().encode_hex(),
+            operator: cli.provider,
+            contract: cli.contract,
+            chain: get_chain_id_from_rpc_url(cli.rpc)
+                .await
+                .context("Failed to fetch chain_id")?,
+        },
     )
     .await;
 

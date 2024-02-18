@@ -3,7 +3,6 @@ use std::future::Future;
 use ethers::abi::{AbiDecode, AbiEncode};
 use ethers::prelude::*;
 use ethers::types::serde_helpers::deserialize_stringified_numeric;
-use ethers::utils::hex::ToHex;
 use ethers::utils::keccak256;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -23,6 +22,7 @@ use ethers::types::Log;
 
 // Identify jobs not only by the id, but also by the operator, contract and the chain
 // This is needed to cleanly support multiple operators/contracts/chains at the infra level
+#[derive(Clone)]
 pub struct JobId {
     pub id: String,
     pub operator: String,
@@ -249,8 +249,8 @@ pub async fn run(
     gb_rates: &'static [GBRateCard],
     address_whitelist: &'static [String],
     address_blacklist: &'static [String],
-    contract_address: String,
-    chain_id: String,
+    // without job_id.id set
+    job_id: JobId,
 ) {
     let mut backoff = 1;
 
@@ -297,8 +297,7 @@ pub async fn run(
             gb_rates,
             address_whitelist,
             address_blacklist,
-            contract_address.clone(),
-            chain_id.clone(),
+            job_id.clone(),
         )
         .await;
     }
@@ -314,25 +313,28 @@ async fn run_once(
     gb_rates: &'static [GBRateCard],
     address_whitelist: &'static [String],
     address_blacklist: &'static [String],
-    contract_address: String,
-    chain_id: String,
+    // without job_id.id set
+    job_id: JobId,
 ) -> usize {
     let mut job_count = 0;
     while let Some((job, removed)) = job_stream.next().await {
         println!("main: New job: {job}, {removed}");
+
+        // prepare with correct job id
+        let mut job_id = job_id.clone();
+        job_id.id = job.encode_hex();
+
         tokio::spawn(job_manager(
             infra_provider.clone(),
             logs_provider.clone(),
             url.clone(),
-            job,
+            job_id,
             regions,
             3,
             rates,
             gb_rates,
             address_whitelist,
             address_blacklist,
-            contract_address.clone(),
-            chain_id.clone(),
         ));
         job_count += 1;
     }
@@ -369,17 +371,16 @@ async fn job_manager(
     infra_provider: impl InfraProvider + Send + Sync + Clone,
     logs_provider: impl LogsProvider + Send + Sync,
     url: String,
-    job: H256,
+    job_id: JobId,
     allowed_regions: &[String],
     aws_delay_duration: u64,
     rates: &[RegionalRates],
     gb_rates: &[GBRateCard],
     address_whitelist: &[String],
     address_blacklist: &[String],
-    contract_address: String,
-    chain_id: String,
 ) {
     let mut backoff = 1;
+    let job = job_id.id.clone();
 
     // connection level loop
     // start from scratch in case of connection errors
@@ -402,7 +403,10 @@ async fn job_manager(
         println!("job {job}: Connected to RPC endpoint");
 
         let client = res.unwrap();
-        let res = logs_provider.job_logs(&client, job).await;
+        let res = logs_provider
+            // TODO: Bad unwrap?
+            .job_logs(&client, job.parse().unwrap())
+            .await;
         if let Err(err) = res {
             println!("job {job}: Subscribe error: {err:?}");
             sleep(Duration::from_secs(1)).await;
@@ -413,15 +417,13 @@ async fn job_manager(
         let res = job_manager_once(
             job_stream,
             infra_provider.clone(),
-            job,
+            job_id.clone(),
             allowed_regions,
             aws_delay_duration,
             rates,
             gb_rates,
             address_whitelist,
             address_blacklist,
-            contract_address.clone(),
-            chain_id.clone(),
         )
         .await;
 
@@ -498,23 +500,11 @@ struct JobState<'a> {
 }
 
 impl<'a> JobState<'a> {
-    fn new(
-        job: H256,
-        launch_delay: u64,
-        allowed_regions: &[String],
-        contract_address: String,
-        chain_id: String,
-    ) -> JobState {
+    fn new(job_id: JobId, launch_delay: u64, allowed_regions: &[String]) -> JobState {
         // solvency metrics
         // default of 60s
         JobState {
-            job_id: JobId {
-                id: job.encode_hex(),
-                // TODO: change this to be the operator address
-                operator: contract_address.clone(),
-                contract: contract_address,
-                chain: chain_id,
-            },
+            job_id,
             launch_delay,
             allowed_regions,
             balance: U256::from(360),
@@ -1219,23 +1209,16 @@ impl<'a> JobState<'a> {
 async fn job_manager_once(
     mut job_stream: impl Stream<Item = Log> + Unpin,
     mut infra_provider: impl InfraProvider + Send + Sync,
-    job: H256,
+    job_id: JobId,
     allowed_regions: &[String],
     aws_delay_duration: u64,
     rates: &[RegionalRates],
     gb_rates: &[GBRateCard],
     address_whitelist: &[String],
     address_blacklist: &[String],
-    contract_address: String,
-    chain_id: String,
 ) -> i8 {
-    let mut state = JobState::new(
-        job,
-        aws_delay_duration,
-        allowed_regions,
-        contract_address,
-        chain_id,
-    );
+    let job = job_id.id.clone();
+    let mut state = JobState::new(job_id, aws_delay_duration, allowed_regions);
 
     let res = 'event: loop {
         // compute time to insolvency

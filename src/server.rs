@@ -161,7 +161,7 @@ mod tests {
     use serde_json::json;
     use std::net::SocketAddr;
 
-    use crate::market::{GBRateCard, RateCard, RegionalRates};
+    use crate::market::{GBRateCard, JobId, RateCard, RegionalRates};
     use crate::test::{InstanceMetadata, TestAws};
 
     #[tokio::test]
@@ -182,17 +182,23 @@ mod tests {
         let bandwidth_rates: &'static [GBRateCard] = Box::leak(vec![].into_boxed_slice());
         let port = 8081;
 
+        let job_id = H256::from_low_u64_be(1).encode_hex();
+
         tokio::spawn(serve(
             aws.clone(),
             regions,
             compute_rates,
             bandwidth_rates,
             SocketAddr::from(([0, 0, 0, 0], port)),
+            JobId {
+                id: job_id.clone(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
         ));
 
         let hc = httpc_test::new_client(format!("http://localhost:{}", port))?;
-
-        let job_id = H256::from_low_u64_be(1).encode_hex();
 
         let res = hc
             .do_get(&format!("/ip?id={}&region=ap-south-1", job_id))
@@ -232,17 +238,23 @@ mod tests {
         let bandwidth_rates: &'static [GBRateCard] = Box::leak(vec![].into_boxed_slice());
         let port = 8082;
 
+        let job_id = H256::from_low_u64_be(5).encode_hex();
+
         tokio::spawn(serve(
-            aws,
+            aws.clone(),
             regions,
             compute_rates,
             bandwidth_rates,
             SocketAddr::from(([0, 0, 0, 0], port)),
+            JobId {
+                id: job_id.clone(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
         ));
 
         let hc = httpc_test::new_client(format!("http://localhost:{}", port))?;
-
-        let job_id = H256::from_low_u64_be(5).encode_hex();
 
         let res = hc
             .do_get(&format!("/ip?id={}&region=ap-south-1", job_id))
@@ -270,12 +282,20 @@ mod tests {
         let bandwidth_rates: &'static [GBRateCard] = Box::leak(vec![].into_boxed_slice());
         let port = 8083;
 
+        let job_id = H256::from_low_u64_be(1).encode_hex();
+
         tokio::spawn(serve(
-            aws,
+            aws.clone(),
             regions,
             compute_rates,
             bandwidth_rates,
             SocketAddr::from(([0, 0, 0, 0], port)),
+            JobId {
+                id: job_id.clone(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
         ));
 
         let hc = httpc_test::new_client(format!("http://localhost:{}", port))?;
@@ -285,8 +305,6 @@ mod tests {
 
         let body = res.json_body();
         assert!(body.is_ok());
-
-        let job_id = H256::from_low_u64_be(1).encode_hex();
 
         let res = hc
             .do_get(&format!("/ip?id={}&region=ap-south-1", job_id))
@@ -342,12 +360,21 @@ mod tests {
 
         let bandwidth_rates: &'static [GBRateCard] = Box::leak(vec![].into_boxed_slice());
         let port = 8084;
+
+        let job_id = H256::from_low_u64_be(1).encode_hex();
+
         tokio::spawn(serve(
-            aws,
+            aws.clone(),
             regions,
             compute_rates,
             bandwidth_rates,
             SocketAddr::from(([0, 0, 0, 0], port)),
+            JobId {
+                id: job_id,
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
         ));
 
         let hc = httpc_test::new_client(format!("http://localhost:{}", port))?;
@@ -395,12 +422,21 @@ mod tests {
             .into_boxed_slice(),
         );
         let port = 8085;
+
+        let job_id = H256::from_low_u64_be(1).encode_hex();
+
         tokio::spawn(serve(
-            aws,
+            aws.clone(),
             regions,
             compute_rates,
             bandwidth_rates,
             SocketAddr::from(([0, 0, 0, 0], port)),
+            JobId {
+                id: job_id,
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
         ));
 
         let hc = httpc_test::new_client(format!("http://localhost:{}", port))?;

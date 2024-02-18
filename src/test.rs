@@ -251,7 +251,6 @@ impl InfraProvider for TestAws {
 pub struct TestLogger {}
 
 #[cfg(test)]
-#[async_trait]
 impl LogsProvider for TestLogger {
     async fn new_jobs<'a>(
         &'a self,

@@ -177,18 +177,17 @@ where
     }
 }
 
-#[async_trait]
 pub trait LogsProvider {
-    async fn new_jobs<'a>(
+    fn new_jobs<'a>(
         &'a self,
         client: &'a Provider<Ws>,
-    ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>>;
+    ) -> impl Future<Output = Result<Box<dyn Stream<Item = (H256, bool)> + 'a>>>;
 
-    async fn job_logs<'a>(
+    fn job_logs<'a>(
         &'a self,
         client: &'a Provider<Ws>,
         job: H256,
-    ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>>;
+    ) -> impl Future<Output = Result<Box<dyn Stream<Item = Log> + Send + 'a>>> + Send;
 }
 
 #[derive(Clone)]
@@ -197,7 +196,6 @@ pub struct EthersProvider {
     pub provider: Address,
 }
 
-#[async_trait]
 impl LogsProvider for EthersProvider {
     async fn new_jobs<'a>(
         &'a self,

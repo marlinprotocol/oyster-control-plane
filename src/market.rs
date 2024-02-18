@@ -51,11 +51,11 @@ pub trait InfraProvider {
 
     fn get_job_instance(
         &self,
-        job: &str,
+        job: &JobId,
         region: &str,
     ) -> impl Future<Output = Result<(bool, String, String)>> + Send;
 
-    fn get_job_ip(&self, job: &str, region: &str) -> impl Future<Output = Result<String>> + Send;
+    fn get_job_ip(&self, job: &JobId, region: &str) -> impl Future<Output = Result<String>> + Send;
 
     fn check_instance_running(
         &mut self,
@@ -124,11 +124,11 @@ where
         (**self).spin_down(instance_id, job, region).await
     }
 
-    async fn get_job_instance(&self, job: &str, region: &str) -> Result<(bool, String, String)> {
+    async fn get_job_instance(&self, job: &JobId, region: &str) -> Result<(bool, String, String)> {
         (**self).get_job_instance(job, region).await
     }
 
-    async fn get_job_ip(&self, job: &str, region: &str) -> Result<String> {
+    async fn get_job_ip(&self, job: &JobId, region: &str) -> Result<String> {
         (**self).get_job_ip(job, region).await
     }
 
@@ -648,7 +648,16 @@ impl<'a> JobState<'a> {
         let job = &self.job;
 
         let res = infra_provider
-            .get_job_instance(&job.encode_hex(), &self.region)
+            .get_job_instance(
+                &JobId {
+                    id: job.encode_hex(),
+                    // TODO: change this to be the operator address
+                    operator: self.contract_address.clone(),
+                    contract: self.contract_address.clone(),
+                    chain: self.chain_id.clone(),
+                },
+                &self.region,
+            )
             .await;
 
         if let Err(err) = res {

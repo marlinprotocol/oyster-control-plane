@@ -8,7 +8,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 
-use crate::market::{GBRateCard, InfraProvider, RegionalRates};
+use crate::market::{GBRateCard, InfraProvider, JobId, RegionalRates};
 
 enum Error {
     GetIPFail,
@@ -60,7 +60,16 @@ async fn handle_ip_request(
     let client = &state.0;
 
     let ip = client
-        .get_job_ip(&query.id.unwrap(), &query.region.unwrap())
+        .get_job_ip(
+            &JobId {
+                id: query.id.unwrap(),
+                // TODO: need to store all of this
+                operator: query.region.clone().unwrap(),
+                contract: query.region.clone().unwrap(),
+                chain: query.region.clone().unwrap(),
+            },
+            &query.region.unwrap(),
+        )
         .await;
 
     if ip.is_err() {

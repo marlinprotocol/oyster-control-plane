@@ -1464,20 +1464,20 @@ impl InfraProvider for Aws {
             .context("could not spin down instance")
     }
 
-    async fn get_job_instance(&self, job: &str, region: &str) -> Result<(bool, String, String)> {
-        self.get_job_instance_id(job, region)
+    async fn get_job_instance(&self, job: &JobId, region: &str) -> Result<(bool, String, String)> {
+        self.get_job_instance_id(&job.id, region)
             .await
             .context("could not get instance id for job")
     }
 
-    async fn get_job_ip(&self, job_id: &str, region: &str) -> Result<String> {
+    async fn get_job_ip(&self, job: &JobId, region: &str) -> Result<String> {
         let instance = self
-            .get_job_instance(job_id, region)
+            .get_job_instance(job, region)
             .await
             .context("could not get instance id for job instance ip")?;
 
         if !instance.0 {
-            return Err(anyhow!("Instance not found for job - {job_id}"));
+            return Err(anyhow!("Instance not found for job - {}", job.id));
         }
 
         self.get_instance_ip(&instance.1, region)

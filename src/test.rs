@@ -178,8 +178,8 @@ impl InfraProvider for TestAws {
         Ok(())
     }
 
-    async fn get_job_instance(&self, job: &str, _region: &str) -> Result<(bool, String, String)> {
-        let res = self.instances.get_key_value(job);
+    async fn get_job_instance(&self, job: &JobId, _region: &str) -> Result<(bool, String, String)> {
+        let res = self.instances.get_key_value(&job.id);
         if let Some(x) = res {
             return Ok((true, x.1.instance_id.clone(), "running".to_owned()));
         }
@@ -187,12 +187,12 @@ impl InfraProvider for TestAws {
         Ok((false, String::new(), String::new()))
     }
 
-    async fn get_job_ip(&self, job_id: &str, _region: &str) -> Result<String> {
-        let instance_metadata = self.instances.get(job_id);
+    async fn get_job_ip(&self, job: &JobId, _region: &str) -> Result<String> {
+        let instance_metadata = self.instances.get(&job.id);
         if instance_metadata.is_some() {
             return Ok(instance_metadata.unwrap().ip_address.clone());
         }
-        return Err(anyhow!("Instance not found for job - {job_id}"));
+        return Err(anyhow!("Instance not found for job - {}", job.id));
     }
 
     async fn check_instance_running(&mut self, _instance_id: &str, _region: &str) -> Result<bool> {

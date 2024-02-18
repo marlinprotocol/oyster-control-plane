@@ -544,7 +544,6 @@ impl<'a> JobState<'a> {
     }
 
     async fn heartbeat_check(&mut self, mut infra_provider: impl InfraProvider) {
-        // TODO: should check if enclave is running as well
         let job = &self.job_id.id;
         let is_running = infra_provider
             .check_instance_running(&self.instance_id, &self.region)
@@ -1280,7 +1279,6 @@ async fn job_logs(
     contract: Address,
     job: H256,
 ) -> Result<impl Stream<Item = Log> + Send + '_> {
-    // TODO: Filter by contract and job
     let event_filter = Filter::new()
         .select(0..)
         .address(contract)

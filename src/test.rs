@@ -32,8 +32,22 @@ pub struct SpinUpOutcome {
 pub struct SpinDownOutcome {
     pub time: Instant,
     pub job: String,
-    pub _instance_id: String,
+    pub instance_id: String,
     pub region: String,
+}
+
+#[cfg(test)]
+#[derive(Clone, Debug)]
+pub struct RunEnclaveOutcome {
+    pub time: Instant,
+    pub job: String,
+    pub instance_id: String,
+    pub family: String,
+    pub region: String,
+    pub eif_url: String,
+    pub req_mem: i64,
+    pub req_vcpu: i32,
+    pub bandwidth: u64,
 }
 
 #[cfg(test)]
@@ -41,6 +55,7 @@ pub struct SpinDownOutcome {
 pub enum TestAwsOutcome {
     SpinUp(SpinUpOutcome),
     SpinDown(SpinDownOutcome),
+    RunEnclave(RunEnclaveOutcome),
 }
 
 #[cfg(test)]
@@ -137,7 +152,7 @@ impl InfraProvider for TestAws {
             .push(TestAwsOutcome::SpinDown(SpinDownOutcome {
                 time: Instant::now(),
                 job: job.clone(),
-                _instance_id: instance_id.to_owned(),
+                instance_id: instance_id.to_owned(),
                 region: region.to_owned(),
             }));
 
@@ -174,15 +189,28 @@ impl InfraProvider for TestAws {
 
     async fn run_enclave(
         &mut self,
-        _job: String,
-        _instance_id: &str,
-        _family: &str,
-        _region: &str,
-        _image_url: &str,
-        _req_vcpu: i32,
-        _req_mem: i64,
-        _bandwidth: u64,
+        job: String,
+        instance_id: &str,
+        family: &str,
+        region: &str,
+        image_url: &str,
+        req_vcpu: i32,
+        req_mem: i64,
+        bandwidth: u64,
     ) -> Result<()> {
+        self.outcomes
+            .push(TestAwsOutcome::RunEnclave(RunEnclaveOutcome {
+                time: Instant::now(),
+                job: job.clone(),
+                instance_id: instance_id.to_owned(),
+                family: family.to_owned(),
+                region: region.to_owned(),
+                eif_url: image_url.to_owned(),
+                req_mem,
+                req_vcpu,
+                bandwidth,
+            }));
+
         Ok(())
     }
 

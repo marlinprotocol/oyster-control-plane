@@ -45,7 +45,7 @@ pub trait InfraProvider {
     fn spin_down(
         &mut self,
         instance_id: &str,
-        job: String,
+        job: &Job,
         region: &str,
     ) -> impl Future<Output = Result<()>> + Send;
 
@@ -120,7 +120,7 @@ where
             .await
     }
 
-    async fn spin_down(&mut self, instance_id: &str, job: String, region: &str) -> Result<()> {
+    async fn spin_down(&mut self, instance_id: &str, job: &Job, region: &str) -> Result<()> {
         (**self).spin_down(instance_id, job, region).await
     }
 
@@ -689,7 +689,17 @@ impl<'a> JobState<'a> {
                     // instance unhealthy, terminate
                     println!("job {job}: found existing unhealthy instance: {instance}");
                     let res = infra_provider
-                        .spin_down(&instance, job.encode_hex(), &self.region)
+                        .spin_down(
+                            &instance,
+                            &Job {
+                                id: job.encode_hex(),
+                                // TODO: change this to be the operator address
+                                operator: self.contract_address.clone(),
+                                contract: self.contract_address.clone(),
+                                chain: self.chain_id.clone(),
+                            },
+                            &self.region,
+                        )
                         .await;
                     if let Err(err) = res {
                         println!("job {job}: ERROR failed to terminate instance, {err:?}");
@@ -756,7 +766,17 @@ impl<'a> JobState<'a> {
             // terminate instance
             println!("job {job}: terminating existing instance: {instance}");
             let res = infra_provider
-                .spin_down(&instance, job.encode_hex(), &self.region)
+                .spin_down(
+                    &instance,
+                    &Job {
+                        id: job.encode_hex(),
+                        // TODO: change this to be the operator address
+                        operator: self.contract_address.clone(),
+                        contract: self.contract_address.clone(),
+                        chain: self.chain_id.clone(),
+                    },
+                    &self.region,
+                )
                 .await;
             if let Err(err) = res {
                 println!("job {job}: ERROR failed to terminate instance, {err:?}");

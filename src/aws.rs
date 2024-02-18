@@ -1458,8 +1458,8 @@ impl InfraProvider for Aws {
         Ok(instance)
     }
 
-    async fn spin_down(&mut self, instance_id: &str, job: String, region: &str) -> Result<()> {
-        self.spin_down_instance(instance_id, &job, region)
+    async fn spin_down(&mut self, instance_id: &str, job: &Job, region: &str) -> Result<()> {
+        self.spin_down_instance(instance_id, &job.id, region)
             .await
             .context("could not spin down instance")
     }

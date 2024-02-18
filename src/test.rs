@@ -164,16 +164,16 @@ impl InfraProvider for TestAws {
         Ok(instance_metadata.instance_id)
     }
 
-    async fn spin_down(&mut self, instance_id: &str, job: String, region: &str) -> Result<()> {
+    async fn spin_down(&mut self, instance_id: &str, job: &Job, region: &str) -> Result<()> {
         self.outcomes
             .push(TestAwsOutcome::SpinDown(SpinDownOutcome {
                 time: Instant::now(),
-                job: job.clone(),
+                job: job.id.clone(),
                 instance_id: instance_id.to_owned(),
                 region: region.to_owned(),
             }));
 
-        self.instances.remove(&job);
+        self.instances.remove(&job.id);
 
         Ok(())
     }

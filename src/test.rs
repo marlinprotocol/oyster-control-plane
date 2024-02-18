@@ -9,7 +9,7 @@ use std::str::FromStr;
 use tokio::time::{Duration, Instant};
 use tokio_stream::{Stream, StreamExt};
 
-use crate::market::{GBRateCard, InfraProvider, Job, LogsProvider, RateCard, RegionalRates};
+use crate::market::{GBRateCard, InfraProvider, JobId, LogsProvider, RateCard, RegionalRates};
 
 #[cfg(test)]
 #[derive(Clone, Debug)]
@@ -114,7 +114,7 @@ impl InfraProvider for TestAws {
     async fn spin_up(
         &mut self,
         eif_url: &str,
-        job: &Job,
+        job: &JobId,
         instance_type: &str,
         family: &str,
         region: &str,
@@ -164,7 +164,7 @@ impl InfraProvider for TestAws {
         Ok(instance_metadata.instance_id)
     }
 
-    async fn spin_down(&mut self, instance_id: &str, job: &Job, region: &str) -> Result<()> {
+    async fn spin_down(&mut self, instance_id: &str, job: &JobId, region: &str) -> Result<()> {
         self.outcomes
             .push(TestAwsOutcome::SpinDown(SpinDownOutcome {
                 time: Instant::now(),

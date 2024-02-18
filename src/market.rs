@@ -22,7 +22,7 @@ use ethers::types::Log;
 
 // Identify jobs not only by the id, but also by the operator, contract and the chain
 // This is needed to cleanly support multiple operators/contracts/chains at the infra level
-pub struct Job {
+pub struct JobId {
     pub id: String,
     pub operator: String,
     pub contract: String,
@@ -33,7 +33,7 @@ pub trait InfraProvider {
     fn spin_up(
         &mut self,
         eif_url: &str,
-        job: &Job,
+        job: &JobId,
         instance_type: &str,
         family: &str,
         region: &str,
@@ -45,7 +45,7 @@ pub trait InfraProvider {
     fn spin_down(
         &mut self,
         instance_id: &str,
-        job: &Job,
+        job: &JobId,
         region: &str,
     ) -> impl Future<Output = Result<()>> + Send;
 
@@ -98,7 +98,7 @@ where
     async fn spin_up(
         &mut self,
         eif_url: &str,
-        job: &Job,
+        job: &JobId,
         instance_type: &str,
         family: &str,
         region: &str,
@@ -120,7 +120,7 @@ where
             .await
     }
 
-    async fn spin_down(&mut self, instance_id: &str, job: &Job, region: &str) -> Result<()> {
+    async fn spin_down(&mut self, instance_id: &str, job: &JobId, region: &str) -> Result<()> {
         (**self).spin_down(instance_id, job, region).await
     }
 
@@ -691,7 +691,7 @@ impl<'a> JobState<'a> {
                     let res = infra_provider
                         .spin_down(
                             &instance,
-                            &Job {
+                            &JobId {
                                 id: job.encode_hex(),
                                 // TODO: change this to be the operator address
                                 operator: self.contract_address.clone(),
@@ -715,7 +715,7 @@ impl<'a> JobState<'a> {
             let res = infra_provider
                 .spin_up(
                     self.eif_url.as_str(),
-                    &Job {
+                    &JobId {
                         id: job.encode_hex(),
                         // TODO: change this to be the operator address
                         operator: self.contract_address.clone(),
@@ -768,7 +768,7 @@ impl<'a> JobState<'a> {
             let res = infra_provider
                 .spin_down(
                     &instance,
-                    &Job {
+                    &JobId {
                         id: job.encode_hex(),
                         // TODO: change this to be the operator address
                         operator: self.contract_address.clone(),

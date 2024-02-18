@@ -15,7 +15,7 @@ use std::str::FromStr;
 use tokio::time::{sleep, Duration};
 use whoami::username;
 
-use crate::market::{InfraProvider, Job};
+use crate::market::{InfraProvider, JobId};
 
 #[derive(Clone)]
 pub struct Aws {
@@ -1433,7 +1433,7 @@ impl InfraProvider for Aws {
     async fn spin_up(
         &mut self,
         eif_url: &str,
-        job: &Job,
+        job: &JobId,
         instance_type: &str,
         family: &str,
         region: &str,
@@ -1458,7 +1458,7 @@ impl InfraProvider for Aws {
         Ok(instance)
     }
 
-    async fn spin_down(&mut self, instance_id: &str, job: &Job, region: &str) -> Result<()> {
+    async fn spin_down(&mut self, instance_id: &str, job: &JobId, region: &str) -> Result<()> {
         self.spin_down_instance(instance_id, &job.id, region)
             .await
             .context("could not spin down instance")

@@ -1,6 +1,5 @@
 use std::future::Future;
 
-use async_trait::async_trait;
 use ethers::abi::{AbiDecode, AbiEncode};
 use ethers::prelude::*;
 use ethers::types::serde_helpers::deserialize_stringified_numeric;

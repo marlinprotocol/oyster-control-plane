@@ -1,5 +1,4 @@
 use anyhow::{anyhow, Result};
-use async_trait::async_trait;
 use ethers::prelude::rand::Rng;
 use ethers::prelude::*;
 use ethers::types::Log;

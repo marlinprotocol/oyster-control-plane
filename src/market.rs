@@ -24,7 +24,7 @@ use ethers::types::Log;
 // This is needed to cleanly support multiple operators/contracts/chains at the infra level
 pub struct Job {
     pub id: String,
-    pub operator: String,
+    pub operator_address: String,
     pub contract_address: String,
     pub chain_id: String,
 }
@@ -33,15 +33,13 @@ pub trait InfraProvider {
     fn spin_up(
         &mut self,
         eif_url: &str,
-        job: String,
+        job: Job,
         instance_type: &str,
         family: &str,
         region: &str,
         req_mem: i64,
         req_vcpu: i32,
         bandwidth: u64,
-        contract_address: String,
-        chain_id: String,
     ) -> impl Future<Output = Result<String>> + Send;
 
     fn spin_down(
@@ -100,15 +98,13 @@ where
     async fn spin_up(
         &mut self,
         eif_url: &str,
-        job: String,
+        job: Job,
         instance_type: &str,
         family: &str,
         region: &str,
         req_mem: i64,
         req_vcpu: i32,
         bandwidth: u64,
-        contract_address: String,
-        chain_id: String,
     ) -> Result<String> {
         (**self)
             .spin_up(
@@ -120,8 +116,6 @@ where
                 req_mem,
                 req_vcpu,
                 bandwidth,
-                contract_address,
-                chain_id,
             )
             .await
     }
@@ -711,15 +705,19 @@ impl<'a> JobState<'a> {
             let res = infra_provider
                 .spin_up(
                     self.eif_url.as_str(),
-                    job.encode_hex(),
+                    Job {
+                        id: job.encode_hex(),
+                        // TODO: change this to be the operator address
+                        operator_address: self.contract_address.clone(),
+                        contract_address: self.contract_address.clone(),
+                        chain_id: self.chain_id.clone(),
+                    },
                     self.instance_type.as_str(),
                     self.family.as_str(),
                     &self.region,
                     self.req_mem,
                     self.req_vcpus,
                     self.bandwidth,
-                    self.contract_address.clone(),
-                    self.chain_id.clone(),
                 )
                 .await;
             if let Err(err) = res {

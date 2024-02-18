@@ -9,7 +9,7 @@ use std::str::FromStr;
 use tokio::time::{Duration, Instant};
 use tokio_stream::{Stream, StreamExt};
 
-use crate::market::{GBRateCard, InfraProvider, LogsProvider, RateCard, RegionalRates};
+use crate::market::{GBRateCard, InfraProvider, Job, LogsProvider, RateCard, RegionalRates};
 
 #[cfg(test)]
 #[derive(Clone, Debug)]
@@ -98,19 +98,17 @@ impl InfraProvider for TestAws {
     async fn spin_up(
         &mut self,
         eif_url: &str,
-        job: String,
+        job: Job,
         instance_type: &str,
         family: &str,
         region: &str,
         req_mem: i64,
         req_vcpu: i32,
         bandwidth: u64,
-        contract_address: String,
-        chain_id: String,
     ) -> Result<String> {
         self.outcomes.push(TestAwsOutcome::SpinUp(SpinUpOutcome {
             time: Instant::now(),
-            job: job.clone(),
+            job: job.id.clone(),
             instance_type: instance_type.to_owned(),
             family: family.to_owned(),
             region: region.to_owned(),
@@ -118,17 +116,17 @@ impl InfraProvider for TestAws {
             req_vcpu,
             bandwidth,
             eif_url: eif_url.to_owned(),
-            contract_address,
-            chain_id,
+            contract_address: job.contract_address,
+            chain_id: job.chain_id,
         }));
 
-        let res = self.instances.get_key_value(&job);
+        let res = self.instances.get_key_value(&job.id);
         if let Some(x) = res {
             return Ok(x.1.instance_id.clone());
         }
 
         let instance_metadata: InstanceMetadata = InstanceMetadata::new(None, None).await;
-        self.instances.insert(job, instance_metadata.clone());
+        self.instances.insert(job.id, instance_metadata.clone());
 
         Ok(instance_metadata.instance_id)
     }

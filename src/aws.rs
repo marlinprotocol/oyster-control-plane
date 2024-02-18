@@ -799,6 +799,7 @@ impl Aws {
         let managed_tag = Tag::builder().key("managedBy").value("marlin").build();
         let project_tag = Tag::builder().key("project").value("oyster").build();
         let job_tag = Tag::builder().key("jobId").value(&job.id).build();
+        let operator_tag = Tag::builder().key("operator").value(&job.operator).build();
         let chain_tag = Tag::builder().key("chainID").value(&job.chain).build();
         let contract_tag = Tag::builder()
             .key("contractAddress")
@@ -808,10 +809,11 @@ impl Aws {
             .resource_type(ResourceType::Instance)
             .tags(name_tag)
             .tags(managed_tag)
-            .tags(job_tag)
             .tags(project_tag)
-            .tags(chain_tag)
+            .tags(job_tag)
+            .tags(operator_tag)
             .tags(contract_tag)
+            .tags(chain_tag)
             .build();
         let subnet = self
             .get_subnet(region)
@@ -978,11 +980,27 @@ impl Aws {
         job: &JobId,
         region: &str,
     ) -> Result<(bool, String, String)> {
+        let job_filter = Filter::builder().name("tag:jobId").values(&job.id).build();
+        let operator_filter = Filter::builder()
+            .name("tag:operator")
+            .values(&job.operator)
+            .build();
+        let chain_filter = Filter::builder()
+            .name("tag:chainID")
+            .values(&job.chain)
+            .build();
+        let contract_filter = Filter::builder()
+            .name("tag:contractAddress")
+            .values(&job.contract)
+            .build();
         let res = self
             .client(region)
             .await
             .describe_instances()
-            .filters(Filter::builder().name("tag:jobId").values(&job.id).build())
+            .filters(job_filter)
+            .filters(operator_filter)
+            .filters(contract_filter)
+            .filters(chain_filter)
             .send()
             .await
             .context("could not describe instances")?;
@@ -1083,11 +1101,20 @@ impl Aws {
         let managed_tag = Tag::builder().key("managedBy").value("marlin").build();
         let project_tag = Tag::builder().key("project").value("oyster").build();
         let job_tag = Tag::builder().key("jobId").value(&job.id).build();
+        let operator_tag = Tag::builder().key("operator").value(&job.operator).build();
+        let chain_tag = Tag::builder().key("chainID").value(&job.chain).build();
+        let contract_tag = Tag::builder()
+            .key("contractAddress")
+            .value(&job.contract)
+            .build();
         let tags = TagSpecification::builder()
             .resource_type(ResourceType::ElasticIp)
             .tags(managed_tag)
-            .tags(job_tag)
             .tags(project_tag)
+            .tags(job_tag)
+            .tags(operator_tag)
+            .tags(contract_tag)
+            .tags(chain_tag)
             .build();
 
         let resp = self
@@ -1115,20 +1142,29 @@ impl Aws {
         job: &JobId,
         region: &str,
     ) -> Result<(bool, String, String)> {
-        let filter_a = Filter::builder()
-            .name("tag:project")
-            .values("oyster")
+        let job_filter = Filter::builder().name("tag:jobId").values(&job.id).build();
+        let operator_filter = Filter::builder()
+            .name("tag:operator")
+            .values(&job.operator)
             .build();
-
-        let filter_b = Filter::builder().name("tag:jobId").values(&job.id).build();
+        let chain_filter = Filter::builder()
+            .name("tag:chainID")
+            .values(&job.chain)
+            .build();
+        let contract_filter = Filter::builder()
+            .name("tag:contractAddress")
+            .values(&job.contract)
+            .build();
 
         Ok(
             match self
                 .client(region)
                 .await
                 .describe_addresses()
-                .filters(filter_a)
-                .filters(filter_b)
+                .filters(job_filter)
+                .filters(operator_filter)
+                .filters(contract_filter)
+                .filters(chain_filter)
                 .send()
                 .await
                 .context("could not describe elastic ips")?
@@ -1157,7 +1193,7 @@ impl Aws {
         instance: &str,
         region: &str,
     ) -> Result<(bool, String, String)> {
-        let filter_a = Filter::builder()
+        let instance_id_filter = Filter::builder()
             .name("instance-id")
             .values(instance)
             .build();
@@ -1167,7 +1203,7 @@ impl Aws {
                 .client(region)
                 .await
                 .describe_addresses()
-                .filters(filter_a)
+                .filters(instance_id_filter)
                 .send()
                 .await
                 .context("could not describe elastic ips")?

@@ -268,16 +268,14 @@ impl LogsProvider for TestLogger {
         &'a self,
         _client: &'a Provider<Ws>,
         job: H256,
-    ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>> {
+    ) -> Result<impl Stream<Item = Log> + Send + 'a> {
         let logs: Vec<Log> = Vec::new();
-        Ok(Box::new(
-            tokio_stream::iter(
-                logs.into_iter()
-                    .filter(|log| log.topics[1] == job)
-                    .collect::<Vec<_>>(),
-            )
-            .throttle(Duration::from_secs(2)),
-        ))
+        Ok(tokio_stream::iter(
+            logs.into_iter()
+                .filter(|log| log.topics[1] == job)
+                .collect::<Vec<_>>(),
+        )
+        .throttle(Duration::from_secs(2)))
     }
 }
 

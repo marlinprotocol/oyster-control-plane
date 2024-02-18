@@ -186,7 +186,7 @@ pub trait LogsProvider {
         &'a self,
         client: &'a Provider<Ws>,
         job: H256,
-    ) -> impl Future<Output = Result<Box<dyn Stream<Item = Log> + Send + 'a>>> + Send;
+    ) -> impl Future<Output = Result<impl Stream<Item = Log> + Send + 'a>> + Send;
 }
 
 #[derive(Clone)]
@@ -207,7 +207,7 @@ impl LogsProvider for EthersProvider {
         &'a self,
         client: &'a Provider<Ws>,
         job: H256,
-    ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>> {
+    ) -> Result<impl Stream<Item = Log> + Send + 'a> {
         job_logs(client, self.contract, job).await
     }
 }
@@ -405,7 +405,7 @@ async fn job_manager(
             continue;
         }
 
-        let job_stream = Box::into_pin(res.unwrap());
+        let job_stream = std::pin::pin!(res.unwrap());
         let res = job_manager_once(
             job_stream,
             infra_provider.clone(),
@@ -1272,7 +1272,7 @@ async fn job_logs(
     client: &Provider<Ws>,
     contract: Address,
     job: H256,
-) -> Result<Box<dyn Stream<Item = Log> + Send + '_>> {
+) -> Result<impl Stream<Item = Log> + Send + '_> {
     // TODO: Filter by contract and job
     let event_filter = Filter::new()
         .select(0..)

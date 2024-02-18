@@ -588,7 +588,7 @@ impl<'a> JobState<'a> {
                                         );
                                     }
                                     Err(err) => {
-                                        println!("job {job}: failed to run enclave, {err:?}. Spinning instance down.");
+                                        println!("job {job}: failed to run enclave, {err:?}");
                                     }
                                 }
                             }
@@ -726,6 +726,25 @@ impl<'a> JobState<'a> {
             }
             self.instance_id = res.unwrap();
             println!("job {job}: Instance launched: {}", self.instance_id);
+
+            // try to run the enclave, ignore errors
+            let res = infra_provider
+                .run_enclave(
+                    job.encode_hex(),
+                    &self.instance_id,
+                    &self.family,
+                    &self.region,
+                    &self.eif_url,
+                    self.req_vcpus,
+                    self.req_mem,
+                    self.bandwidth,
+                )
+                .await;
+            if let Err(err) = res {
+                println!("job {job}: Enclave launch failed, {err:?}");
+                // NOTE: return true here and let heartbeat check pick up from the errors
+                return true;
+            }
         } else {
             // terminate mode
             if !exist || state == "shutting-down" || state == "terminated" {

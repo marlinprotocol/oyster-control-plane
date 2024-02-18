@@ -1344,11 +1344,6 @@ impl Aws {
         self.associate_address(instance, &alloc_id, region)
             .await
             .context("could not associate ip address")?;
-        self.run_enclave_impl(
-            &job, family, instance, region, image_url, req_vcpu, req_mem, bandwidth,
-        )
-        .await
-        .context("could not run enclave")?;
         Ok(())
     }
 

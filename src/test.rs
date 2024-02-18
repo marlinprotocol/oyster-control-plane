@@ -133,7 +133,7 @@ impl InfraProvider for TestAws {
         Ok(instance_metadata.instance_id)
     }
 
-    async fn spin_down(&mut self, instance_id: &str, job: String, region: &str) -> Result<bool> {
+    async fn spin_down(&mut self, instance_id: &str, job: String, region: &str) -> Result<()> {
         self.outcomes
             .push(TestAwsOutcome::SpinDown(SpinDownOutcome {
                 time: Instant::now(),
@@ -144,7 +144,7 @@ impl InfraProvider for TestAws {
 
         self.instances.remove(&job);
 
-        Ok(true)
+        Ok(())
     }
 
     async fn get_job_instance(&self, job: &str, _region: &str) -> Result<(bool, String, String)> {
@@ -254,32 +254,28 @@ impl LogsProvider for TestLogger {
     async fn new_jobs<'a>(
         &'a self,
         _client: &'a Provider<Ws>,
-    ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>> {
+    ) -> Result<impl Stream<Item = (H256, bool)> + 'a> {
         let logs: Vec<Log> = Vec::new();
-        Ok(Box::new(
-            tokio_stream::iter(
-                logs.iter()
-                    .map(|job| (job.topics[1], false))
-                    .collect::<Vec<_>>(),
-            )
-            .throttle(Duration::from_secs(2)),
-        ))
+        Ok(tokio_stream::iter(
+            logs.iter()
+                .map(|job| (job.topics[1], false))
+                .collect::<Vec<_>>(),
+        )
+        .throttle(Duration::from_secs(2)))
     }
 
     async fn job_logs<'a>(
         &'a self,
         _client: &'a Provider<Ws>,
         job: H256,
-    ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>> {
+    ) -> Result<impl Stream<Item = Log> + Send + 'a> {
         let logs: Vec<Log> = Vec::new();
-        Ok(Box::new(
-            tokio_stream::iter(
-                logs.into_iter()
-                    .filter(|log| log.topics[1] == job)
-                    .collect::<Vec<_>>(),
-            )
-            .throttle(Duration::from_secs(2)),
-        ))
+        Ok(tokio_stream::iter(
+            logs.into_iter()
+                .filter(|log| log.topics[1] == job)
+                .collect::<Vec<_>>(),
+        )
+        .throttle(Duration::from_secs(2)))
     }
 }
 

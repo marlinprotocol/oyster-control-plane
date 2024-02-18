@@ -40,7 +40,7 @@ pub trait InfraProvider {
         instance_id: &str,
         job: String,
         region: &str,
-    ) -> impl Future<Output = Result<bool>> + Send;
+    ) -> impl Future<Output = Result<()>> + Send;
 
     fn get_job_instance(
         &self,
@@ -117,7 +117,7 @@ where
             .await
     }
 
-    async fn spin_down(&mut self, instance_id: &str, job: String, region: &str) -> Result<bool> {
+    async fn spin_down(&mut self, instance_id: &str, job: String, region: &str) -> Result<()> {
         (**self).spin_down(instance_id, job, region).await
     }
 
@@ -180,13 +180,13 @@ pub trait LogsProvider {
     fn new_jobs<'a>(
         &'a self,
         client: &'a Provider<Ws>,
-    ) -> impl Future<Output = Result<Box<dyn Stream<Item = (H256, bool)> + 'a>>>;
+    ) -> impl Future<Output = Result<impl Stream<Item = (H256, bool)> + 'a>>;
 
     fn job_logs<'a>(
         &'a self,
         client: &'a Provider<Ws>,
         job: H256,
-    ) -> impl Future<Output = Result<Box<dyn Stream<Item = Log> + Send + 'a>>> + Send;
+    ) -> impl Future<Output = Result<impl Stream<Item = Log> + Send + 'a>> + Send;
 }
 
 #[derive(Clone)]
@@ -199,7 +199,7 @@ impl LogsProvider for EthersProvider {
     async fn new_jobs<'a>(
         &'a self,
         client: &'a Provider<Ws>,
-    ) -> Result<Box<dyn Stream<Item = (H256, bool)> + 'a>> {
+    ) -> Result<impl Stream<Item = (H256, bool)> + 'a> {
         new_jobs(client, self.contract, self.provider).await
     }
 
@@ -207,7 +207,7 @@ impl LogsProvider for EthersProvider {
         &'a self,
         client: &'a Provider<Ws>,
         job: H256,
-    ) -> Result<Box<dyn Stream<Item = Log> + Send + 'a>> {
+    ) -> Result<impl Stream<Item = Log> + Send + 'a> {
         job_logs(client, self.contract, job).await
     }
 }
@@ -280,7 +280,7 @@ pub async fn run(
             continue;
         }
 
-        let job_stream = Box::into_pin(res.unwrap());
+        let job_stream = std::pin::pin!(res.unwrap());
         job_count += run_once(
             // we need to keep track of jobs for whom tasks have already been spawned
             // and not spawn duplicate tasks
@@ -342,7 +342,7 @@ async fn new_jobs(
     client: &Provider<Ws>,
     address: Address,
     provider: Address,
-) -> Result<Box<dyn Stream<Item = (H256, bool)> + '_>> {
+) -> Result<impl Stream<Item = (H256, bool)> + '_> {
     let event_filter = Filter::new()
         .address(address)
         .select(0..)
@@ -357,9 +357,7 @@ async fn new_jobs(
         .await
         .context("failed to subscribe to new jobs")?;
 
-    Ok(Box::new(stream.map(|item| {
-        (item.topics[1], item.removed.unwrap_or(false))
-    })))
+    Ok(stream.map(|item| (item.topics[1], item.removed.unwrap_or(false))))
 }
 
 // manage the complete lifecycle of a job
@@ -407,7 +405,7 @@ async fn job_manager(
             continue;
         }
 
-        let job_stream = Box::into_pin(res.unwrap());
+        let job_stream = std::pin::pin!(res.unwrap());
         let res = job_manager_once(
             job_stream,
             infra_provider.clone(),
@@ -1274,7 +1272,7 @@ async fn job_logs(
     client: &Provider<Ws>,
     contract: Address,
     job: H256,
-) -> Result<Box<dyn Stream<Item = Log> + Send + '_>> {
+) -> Result<impl Stream<Item = Log> + Send + '_> {
     // TODO: Filter by contract and job
     let event_filter = Filter::new()
         .select(0..)

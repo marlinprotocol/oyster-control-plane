@@ -40,7 +40,7 @@ pub trait InfraProvider {
         instance_id: &str,
         job: String,
         region: &str,
-    ) -> impl Future<Output = Result<bool>> + Send;
+    ) -> impl Future<Output = Result<()>> + Send;
 
     fn get_job_instance(
         &self,
@@ -117,7 +117,7 @@ where
             .await
     }
 
-    async fn spin_down(&mut self, instance_id: &str, job: String, region: &str) -> Result<bool> {
+    async fn spin_down(&mut self, instance_id: &str, job: String, region: &str) -> Result<()> {
         (**self).spin_down(instance_id, job, region).await
     }
 

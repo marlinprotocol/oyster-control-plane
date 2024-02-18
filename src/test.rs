@@ -133,7 +133,7 @@ impl InfraProvider for TestAws {
         Ok(instance_metadata.instance_id)
     }
 
-    async fn spin_down(&mut self, instance_id: &str, job: String, region: &str) -> Result<bool> {
+    async fn spin_down(&mut self, instance_id: &str, job: String, region: &str) -> Result<()> {
         self.outcomes
             .push(TestAwsOutcome::SpinDown(SpinDownOutcome {
                 time: Instant::now(),
@@ -144,7 +144,7 @@ impl InfraProvider for TestAws {
 
         self.instances.remove(&job);
 
-        Ok(true)
+        Ok(())
     }
 
     async fn get_job_instance(&self, job: &str, _region: &str) -> Result<(bool, String, String)> {

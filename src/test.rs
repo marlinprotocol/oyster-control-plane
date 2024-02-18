@@ -1,5 +1,4 @@
 use anyhow::{anyhow, Result};
-use async_trait::async_trait;
 use ethers::prelude::rand::Rng;
 use ethers::prelude::*;
 use ethers::types::Log;
@@ -95,7 +94,6 @@ pub struct TestAws {
 }
 
 #[cfg(test)]
-#[async_trait]
 impl InfraProvider for TestAws {
     async fn spin_up(
         &mut self,
@@ -252,7 +250,6 @@ impl InfraProvider for TestAws {
 pub struct TestLogger {}
 
 #[cfg(test)]
-#[async_trait]
 impl LogsProvider for TestLogger {
     async fn new_jobs<'a>(
         &'a self,

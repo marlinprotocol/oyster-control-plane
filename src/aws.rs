@@ -15,7 +15,7 @@ use std::str::FromStr;
 use tokio::time::{sleep, Duration};
 use whoami::username;
 
-use crate::market::InfraProvider;
+use crate::market::{InfraProvider, JobId};
 
 #[derive(Clone)]
 pub struct Aws {
@@ -753,14 +753,12 @@ impl Aws {
 
     pub async fn launch_instance(
         &self,
-        job: String,
+        job: &JobId,
         instance_type: InstanceType,
         image_url: &str,
         family: &str,
         architecture: &str,
         region: &str,
-        contract_address: String,
-        chain_id: String,
     ) -> Result<String> {
         let req_client = reqwest::Client::builder()
             .no_gzip()
@@ -800,20 +798,22 @@ impl Aws {
         let name_tag = Tag::builder().key("Name").value("JobRunner").build();
         let managed_tag = Tag::builder().key("managedBy").value("marlin").build();
         let project_tag = Tag::builder().key("project").value("oyster").build();
-        let job_tag = Tag::builder().key("jobId").value(job).build();
-        let chain_tag = Tag::builder().key("chainID").value(chain_id).build();
+        let job_tag = Tag::builder().key("jobId").value(&job.id).build();
+        let operator_tag = Tag::builder().key("operator").value(&job.operator).build();
+        let chain_tag = Tag::builder().key("chainID").value(&job.chain).build();
         let contract_tag = Tag::builder()
             .key("contractAddress")
-            .value(contract_address)
+            .value(&job.contract)
             .build();
         let tags = TagSpecification::builder()
             .resource_type(ResourceType::Instance)
             .tags(name_tag)
             .tags(managed_tag)
-            .tags(job_tag)
             .tags(project_tag)
-            .tags(chain_tag)
+            .tags(job_tag)
+            .tags(operator_tag)
             .tags(contract_tag)
+            .tags(chain_tag)
             .build();
         let subnet = self
             .get_subnet(region)
@@ -977,14 +977,30 @@ impl Aws {
 
     pub async fn get_job_instance_id(
         &self,
-        job: &str,
+        job: &JobId,
         region: &str,
     ) -> Result<(bool, String, String)> {
+        let job_filter = Filter::builder().name("tag:jobId").values(&job.id).build();
+        let operator_filter = Filter::builder()
+            .name("tag:operator")
+            .values(&job.operator)
+            .build();
+        let chain_filter = Filter::builder()
+            .name("tag:chainID")
+            .values(&job.chain)
+            .build();
+        let contract_filter = Filter::builder()
+            .name("tag:contractAddress")
+            .values(&job.contract)
+            .build();
         let res = self
             .client(region)
             .await
             .describe_instances()
-            .filters(Filter::builder().name("tag:jobId").values(job).build())
+            .filters(job_filter)
+            .filters(operator_filter)
+            .filters(contract_filter)
+            .filters(chain_filter)
             .send()
             .await
             .context("could not describe instances")?;
@@ -1071,9 +1087,9 @@ impl Aws {
             .to_owned())
     }
 
-    async fn allocate_ip_addr(&self, job: String, region: &str) -> Result<(String, String)> {
+    async fn allocate_ip_addr(&self, job: &JobId, region: &str) -> Result<(String, String)> {
         let (exist, alloc_id, public_ip) = self
-            .get_job_elastic_ip(&job, region)
+            .get_job_elastic_ip(job, region)
             .await
             .context("could not get elastic ip for job")?;
 
@@ -1084,12 +1100,21 @@ impl Aws {
 
         let managed_tag = Tag::builder().key("managedBy").value("marlin").build();
         let project_tag = Tag::builder().key("project").value("oyster").build();
-        let job_tag = Tag::builder().key("jobId").value(job).build();
+        let job_tag = Tag::builder().key("jobId").value(&job.id).build();
+        let operator_tag = Tag::builder().key("operator").value(&job.operator).build();
+        let chain_tag = Tag::builder().key("chainID").value(&job.chain).build();
+        let contract_tag = Tag::builder()
+            .key("contractAddress")
+            .value(&job.contract)
+            .build();
         let tags = TagSpecification::builder()
             .resource_type(ResourceType::ElasticIp)
             .tags(managed_tag)
-            .tags(job_tag)
             .tags(project_tag)
+            .tags(job_tag)
+            .tags(operator_tag)
+            .tags(contract_tag)
+            .tags(chain_tag)
             .build();
 
         let resp = self
@@ -1112,21 +1137,34 @@ impl Aws {
         ))
     }
 
-    async fn get_job_elastic_ip(&self, job: &str, region: &str) -> Result<(bool, String, String)> {
-        let filter_a = Filter::builder()
-            .name("tag:project")
-            .values("oyster")
+    async fn get_job_elastic_ip(
+        &self,
+        job: &JobId,
+        region: &str,
+    ) -> Result<(bool, String, String)> {
+        let job_filter = Filter::builder().name("tag:jobId").values(&job.id).build();
+        let operator_filter = Filter::builder()
+            .name("tag:operator")
+            .values(&job.operator)
             .build();
-
-        let filter_b = Filter::builder().name("tag:jobId").values(job).build();
+        let chain_filter = Filter::builder()
+            .name("tag:chainID")
+            .values(&job.chain)
+            .build();
+        let contract_filter = Filter::builder()
+            .name("tag:contractAddress")
+            .values(&job.contract)
+            .build();
 
         Ok(
             match self
                 .client(region)
                 .await
                 .describe_addresses()
-                .filters(filter_a)
-                .filters(filter_b)
+                .filters(job_filter)
+                .filters(operator_filter)
+                .filters(contract_filter)
+                .filters(chain_filter)
                 .send()
                 .await
                 .context("could not describe elastic ips")?
@@ -1155,7 +1193,7 @@ impl Aws {
         instance: &str,
         region: &str,
     ) -> Result<(bool, String, String)> {
-        let filter_a = Filter::builder()
+        let instance_id_filter = Filter::builder()
             .name("instance-id")
             .values(instance)
             .build();
@@ -1165,7 +1203,7 @@ impl Aws {
                 .client(region)
                 .await
                 .describe_addresses()
-                .filters(filter_a)
+                .filters(instance_id_filter)
                 .send()
                 .await
                 .context("could not describe elastic ips")?
@@ -1231,15 +1269,12 @@ impl Aws {
     pub async fn spin_up_instance(
         &self,
         image_url: &str,
-        job: String,
+        job: &JobId,
         instance_type: &str,
         family: &str,
         region: &str,
         req_mem: i64,
         req_vcpu: i32,
-        bandwidth: u64,
-        contract_address: String,
-        chain_id: String,
     ) -> Result<String> {
         let instance_type =
             InstanceType::from_str(instance_type).context("cannot parse instance type")?;
@@ -1287,36 +1322,16 @@ impl Aws {
             return Err(anyhow!("Required memory or vcpus are more than available"));
         }
         let instance = self
-            .launch_instance(
-                job.clone(),
-                instance_type,
-                image_url,
-                family,
-                &architecture,
-                region,
-                contract_address,
-                chain_id,
-            )
+            .launch_instance(job, instance_type, image_url, family, &architecture, region)
             .await
             .context("could not launch instance")?;
         sleep(Duration::from_secs(100)).await;
 
-        let res = self
-            .post_spin_up(
-                image_url,
-                job.clone(),
-                family,
-                &instance,
-                region,
-                req_mem,
-                req_vcpu,
-                bandwidth,
-            )
-            .await;
+        let res = self.post_spin_up(job, &instance, region).await;
 
         if let Err(err) = res {
             println!("error during post spin up: {err:?}");
-            self.spin_down_instance(&instance, &job, region)
+            self.spin_down_instance(&instance, job, region)
                 .await
                 .context("could not spin down instance after error during post spin up")?;
             return Err(err).context("error during post spin up");
@@ -1324,19 +1339,9 @@ impl Aws {
         Ok(instance)
     }
 
-    async fn post_spin_up(
-        &self,
-        image_url: &str,
-        job: String,
-        family: &str,
-        instance: &str,
-        region: &str,
-        req_mem: i64,
-        req_vcpu: i32,
-        bandwidth: u64,
-    ) -> Result<()> {
+    async fn post_spin_up(&self, job: &JobId, instance: &str, region: &str) -> Result<()> {
         let (alloc_id, ip) = self
-            .allocate_ip_addr(job.clone(), region)
+            .allocate_ip_addr(job, region)
             .await
             .context("error allocating ip address")?;
         println!("Elastic Ip allocated: {ip}");
@@ -1344,18 +1349,13 @@ impl Aws {
         self.associate_address(instance, &alloc_id, region)
             .await
             .context("could not associate ip address")?;
-        self.run_enclave_impl(
-            &job, family, instance, region, image_url, req_vcpu, req_mem, bandwidth,
-        )
-        .await
-        .context("could not run enclave")?;
         Ok(())
     }
 
     pub async fn spin_down_instance(
         &self,
         instance_id: &str,
-        job: &str,
+        job: &JobId,
         region: &str,
     ) -> Result<()> {
         let (exist, _, association_id) = self
@@ -1460,15 +1460,13 @@ impl InfraProvider for Aws {
     async fn spin_up(
         &mut self,
         eif_url: &str,
-        job: String,
+        job: &JobId,
         instance_type: &str,
         family: &str,
         region: &str,
         req_mem: i64,
         req_vcpu: i32,
-        bandwidth: u64,
-        contract_address: String,
-        chain_id: String,
+        _bandwidth: u64,
     ) -> Result<String> {
         let instance = self
             .spin_up_instance(
@@ -1479,35 +1477,32 @@ impl InfraProvider for Aws {
                 region,
                 req_mem,
                 req_vcpu,
-                bandwidth,
-                contract_address,
-                chain_id,
             )
             .await
             .context("could not spin up instance")?;
         Ok(instance)
     }
 
-    async fn spin_down(&mut self, instance_id: &str, job: String, region: &str) -> Result<()> {
-        self.spin_down_instance(instance_id, &job, region)
+    async fn spin_down(&mut self, instance_id: &str, job: &JobId, region: &str) -> Result<()> {
+        self.spin_down_instance(instance_id, job, region)
             .await
             .context("could not spin down instance")
     }
 
-    async fn get_job_instance(&self, job: &str, region: &str) -> Result<(bool, String, String)> {
+    async fn get_job_instance(&self, job: &JobId, region: &str) -> Result<(bool, String, String)> {
         self.get_job_instance_id(job, region)
             .await
             .context("could not get instance id for job")
     }
 
-    async fn get_job_ip(&self, job_id: &str, region: &str) -> Result<String> {
+    async fn get_job_ip(&self, job: &JobId, region: &str) -> Result<String> {
         let instance = self
-            .get_job_instance(job_id, region)
+            .get_job_instance(job, region)
             .await
             .context("could not get instance id for job instance ip")?;
 
         if !instance.0 {
-            return Err(anyhow!("Instance not found for job - {job_id}"));
+            return Err(anyhow!("Instance not found for job - {}", job.id));
         }
 
         self.get_instance_ip(&instance.1, region)
@@ -1534,7 +1529,7 @@ impl InfraProvider for Aws {
 
     async fn run_enclave(
         &mut self,
-        job: String,
+        job: &JobId,
         instance_id: &str,
         family: &str,
         region: &str,
@@ -1544,7 +1539,7 @@ impl InfraProvider for Aws {
         bandwidth: u64,
     ) -> Result<()> {
         self.run_enclave_impl(
-            &job,
+            &job.id,
             family,
             instance_id,
             region,

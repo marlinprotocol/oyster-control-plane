@@ -9,7 +9,7 @@ use std::str::FromStr;
 use tokio::time::{Duration, Instant};
 use tokio_stream::{Stream, StreamExt};
 
-use crate::market::{GBRateCard, InfraProvider, LogsProvider, RateCard, RegionalRates};
+use crate::market::{GBRateCard, InfraProvider, JobId, LogsProvider, RateCard, RegionalRates};
 
 #[cfg(test)]
 #[derive(Clone, Debug)]
@@ -25,6 +25,7 @@ pub struct SpinUpOutcome {
     pub eif_url: String,
     pub contract_address: String,
     pub chain_id: String,
+    pub instance_id: String,
 }
 
 #[cfg(test)]
@@ -32,8 +33,22 @@ pub struct SpinUpOutcome {
 pub struct SpinDownOutcome {
     pub time: Instant,
     pub job: String,
-    pub _instance_id: String,
+    pub instance_id: String,
     pub region: String,
+}
+
+#[cfg(test)]
+#[derive(Clone, Debug)]
+pub struct RunEnclaveOutcome {
+    pub time: Instant,
+    pub job: String,
+    pub instance_id: String,
+    pub family: String,
+    pub region: String,
+    pub eif_url: String,
+    pub req_mem: i64,
+    pub req_vcpu: i32,
+    pub bandwidth: u64,
 }
 
 #[cfg(test)]
@@ -41,6 +56,7 @@ pub struct SpinDownOutcome {
 pub enum TestAwsOutcome {
     SpinUp(SpinUpOutcome),
     SpinDown(SpinDownOutcome),
+    RunEnclave(RunEnclaveOutcome),
 }
 
 #[cfg(test)]
@@ -98,19 +114,41 @@ impl InfraProvider for TestAws {
     async fn spin_up(
         &mut self,
         eif_url: &str,
-        job: String,
+        job: &JobId,
         instance_type: &str,
         family: &str,
         region: &str,
         req_mem: i64,
         req_vcpu: i32,
         bandwidth: u64,
-        contract_address: String,
-        chain_id: String,
     ) -> Result<String> {
+        let res = self.instances.get_key_value(&job.id);
+        if let Some(x) = res {
+            self.outcomes.push(TestAwsOutcome::SpinUp(SpinUpOutcome {
+                time: Instant::now(),
+                job: job.id.clone(),
+                instance_type: instance_type.to_owned(),
+                family: family.to_owned(),
+                region: region.to_owned(),
+                req_mem,
+                req_vcpu,
+                bandwidth,
+                eif_url: eif_url.to_owned(),
+                contract_address: job.contract.clone(),
+                chain_id: job.chain.clone(),
+                instance_id: x.1.instance_id.clone(),
+            }));
+
+            return Ok(x.1.instance_id.clone());
+        }
+
+        let instance_metadata: InstanceMetadata = InstanceMetadata::new(None, None).await;
+        self.instances
+            .insert(job.id.clone(), instance_metadata.clone());
+
         self.outcomes.push(TestAwsOutcome::SpinUp(SpinUpOutcome {
             time: Instant::now(),
-            job: job.clone(),
+            job: job.id.clone(),
             instance_type: instance_type.to_owned(),
             family: family.to_owned(),
             region: region.to_owned(),
@@ -118,37 +156,30 @@ impl InfraProvider for TestAws {
             req_vcpu,
             bandwidth,
             eif_url: eif_url.to_owned(),
-            contract_address,
-            chain_id,
+            contract_address: job.contract.clone(),
+            chain_id: job.chain.clone(),
+            instance_id: instance_metadata.instance_id.clone(),
         }));
-
-        let res = self.instances.get_key_value(&job);
-        if let Some(x) = res {
-            return Ok(x.1.instance_id.clone());
-        }
-
-        let instance_metadata: InstanceMetadata = InstanceMetadata::new(None, None).await;
-        self.instances.insert(job, instance_metadata.clone());
 
         Ok(instance_metadata.instance_id)
     }
 
-    async fn spin_down(&mut self, instance_id: &str, job: String, region: &str) -> Result<()> {
+    async fn spin_down(&mut self, instance_id: &str, job: &JobId, region: &str) -> Result<()> {
         self.outcomes
             .push(TestAwsOutcome::SpinDown(SpinDownOutcome {
                 time: Instant::now(),
-                job: job.clone(),
-                _instance_id: instance_id.to_owned(),
+                job: job.id.clone(),
+                instance_id: instance_id.to_owned(),
                 region: region.to_owned(),
             }));
 
-        self.instances.remove(&job);
+        self.instances.remove(&job.id);
 
         Ok(())
     }
 
-    async fn get_job_instance(&self, job: &str, _region: &str) -> Result<(bool, String, String)> {
-        let res = self.instances.get_key_value(job);
+    async fn get_job_instance(&self, job: &JobId, _region: &str) -> Result<(bool, String, String)> {
+        let res = self.instances.get_key_value(&job.id);
         if let Some(x) = res {
             return Ok((true, x.1.instance_id.clone(), "running".to_owned()));
         }
@@ -156,12 +187,12 @@ impl InfraProvider for TestAws {
         Ok((false, String::new(), String::new()))
     }
 
-    async fn get_job_ip(&self, job_id: &str, _region: &str) -> Result<String> {
-        let instance_metadata = self.instances.get(job_id);
+    async fn get_job_ip(&self, job: &JobId, _region: &str) -> Result<String> {
+        let instance_metadata = self.instances.get(&job.id);
         if instance_metadata.is_some() {
             return Ok(instance_metadata.unwrap().ip_address.clone());
         }
-        return Err(anyhow!("Instance not found for job - {job_id}"));
+        return Err(anyhow!("Instance not found for job - {}", job.id));
     }
 
     async fn check_instance_running(&mut self, _instance_id: &str, _region: &str) -> Result<bool> {
@@ -175,15 +206,28 @@ impl InfraProvider for TestAws {
 
     async fn run_enclave(
         &mut self,
-        _job: String,
-        _instance_id: &str,
-        _family: &str,
-        _region: &str,
-        _image_url: &str,
-        _req_vcpu: i32,
-        _req_mem: i64,
-        _bandwidth: u64,
+        job: &JobId,
+        instance_id: &str,
+        family: &str,
+        region: &str,
+        image_url: &str,
+        req_vcpu: i32,
+        req_mem: i64,
+        bandwidth: u64,
     ) -> Result<()> {
+        self.outcomes
+            .push(TestAwsOutcome::RunEnclave(RunEnclaveOutcome {
+                time: Instant::now(),
+                job: job.id.clone(),
+                instance_id: instance_id.to_owned(),
+                family: family.to_owned(),
+                region: region.to_owned(),
+                eif_url: image_url.to_owned(),
+                req_mem,
+                req_vcpu,
+                bandwidth,
+            }));
+
         Ok(())
     }
 

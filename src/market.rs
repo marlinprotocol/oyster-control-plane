@@ -20,35 +20,43 @@ use ethers::types::Log;
 // One future listening to new jobs
 // Each job has its own future managing its lifetime
 
+// Identify jobs not only by the id, but also by the operator, contract and the chain
+// This is needed to cleanly support multiple operators/contracts/chains at the infra level
+#[derive(Clone)]
+pub struct JobId {
+    pub id: String,
+    pub operator: String,
+    pub contract: String,
+    pub chain: String,
+}
+
 pub trait InfraProvider {
     fn spin_up(
         &mut self,
         eif_url: &str,
-        job: String,
+        job: &JobId,
         instance_type: &str,
         family: &str,
         region: &str,
         req_mem: i64,
         req_vcpu: i32,
         bandwidth: u64,
-        contract_address: String,
-        chain_id: String,
     ) -> impl Future<Output = Result<String>> + Send;
 
     fn spin_down(
         &mut self,
         instance_id: &str,
-        job: String,
+        job: &JobId,
         region: &str,
     ) -> impl Future<Output = Result<()>> + Send;
 
     fn get_job_instance(
         &self,
-        job: &str,
+        job: &JobId,
         region: &str,
     ) -> impl Future<Output = Result<(bool, String, String)>> + Send;
 
-    fn get_job_ip(&self, job: &str, region: &str) -> impl Future<Output = Result<String>> + Send;
+    fn get_job_ip(&self, job: &JobId, region: &str) -> impl Future<Output = Result<String>> + Send;
 
     fn check_instance_running(
         &mut self,
@@ -64,7 +72,7 @@ pub trait InfraProvider {
 
     fn run_enclave(
         &mut self,
-        job: String,
+        job: &JobId,
         instance_id: &str,
         family: &str,
         region: &str,
@@ -91,15 +99,13 @@ where
     async fn spin_up(
         &mut self,
         eif_url: &str,
-        job: String,
+        job: &JobId,
         instance_type: &str,
         family: &str,
         region: &str,
         req_mem: i64,
         req_vcpu: i32,
         bandwidth: u64,
-        contract_address: String,
-        chain_id: String,
     ) -> Result<String> {
         (**self)
             .spin_up(
@@ -111,21 +117,19 @@ where
                 req_mem,
                 req_vcpu,
                 bandwidth,
-                contract_address,
-                chain_id,
             )
             .await
     }
 
-    async fn spin_down(&mut self, instance_id: &str, job: String, region: &str) -> Result<()> {
+    async fn spin_down(&mut self, instance_id: &str, job: &JobId, region: &str) -> Result<()> {
         (**self).spin_down(instance_id, job, region).await
     }
 
-    async fn get_job_instance(&self, job: &str, region: &str) -> Result<(bool, String, String)> {
+    async fn get_job_instance(&self, job: &JobId, region: &str) -> Result<(bool, String, String)> {
         (**self).get_job_instance(job, region).await
     }
 
-    async fn get_job_ip(&self, job: &str, region: &str) -> Result<String> {
+    async fn get_job_ip(&self, job: &JobId, region: &str) -> Result<String> {
         (**self).get_job_ip(job, region).await
     }
 
@@ -139,7 +143,7 @@ where
 
     async fn run_enclave(
         &mut self,
-        job: String,
+        job: &JobId,
         instance_id: &str,
         family: &str,
         region: &str,
@@ -245,8 +249,8 @@ pub async fn run(
     gb_rates: &'static [GBRateCard],
     address_whitelist: &'static [String],
     address_blacklist: &'static [String],
-    contract_address: String,
-    chain_id: String,
+    // without job_id.id set
+    job_id: JobId,
 ) {
     let mut backoff = 1;
 
@@ -293,8 +297,7 @@ pub async fn run(
             gb_rates,
             address_whitelist,
             address_blacklist,
-            contract_address.clone(),
-            chain_id.clone(),
+            job_id.clone(),
         )
         .await;
     }
@@ -310,25 +313,28 @@ async fn run_once(
     gb_rates: &'static [GBRateCard],
     address_whitelist: &'static [String],
     address_blacklist: &'static [String],
-    contract_address: String,
-    chain_id: String,
+    // without job_id.id set
+    job_id: JobId,
 ) -> usize {
     let mut job_count = 0;
     while let Some((job, removed)) = job_stream.next().await {
         println!("main: New job: {job}, {removed}");
+
+        // prepare with correct job id
+        let mut job_id = job_id.clone();
+        job_id.id = job.encode_hex();
+
         tokio::spawn(job_manager(
             infra_provider.clone(),
             logs_provider.clone(),
             url.clone(),
-            job,
+            job_id,
             regions,
             3,
             rates,
             gb_rates,
             address_whitelist,
             address_blacklist,
-            contract_address.clone(),
-            chain_id.clone(),
         ));
         job_count += 1;
     }
@@ -365,17 +371,16 @@ async fn job_manager(
     infra_provider: impl InfraProvider + Send + Sync + Clone,
     logs_provider: impl LogsProvider + Send + Sync,
     url: String,
-    job: H256,
+    job_id: JobId,
     allowed_regions: &[String],
     aws_delay_duration: u64,
     rates: &[RegionalRates],
     gb_rates: &[GBRateCard],
     address_whitelist: &[String],
     address_blacklist: &[String],
-    contract_address: String,
-    chain_id: String,
 ) {
     let mut backoff = 1;
+    let job = job_id.id.clone();
 
     // connection level loop
     // start from scratch in case of connection errors
@@ -398,7 +403,10 @@ async fn job_manager(
         println!("job {job}: Connected to RPC endpoint");
 
         let client = res.unwrap();
-        let res = logs_provider.job_logs(&client, job).await;
+        let res = logs_provider
+            // TODO: Bad unwrap?
+            .job_logs(&client, job.parse().unwrap())
+            .await;
         if let Err(err) = res {
             println!("job {job}: Subscribe error: {err:?}");
             sleep(Duration::from_secs(1)).await;
@@ -409,15 +417,13 @@ async fn job_manager(
         let res = job_manager_once(
             job_stream,
             infra_provider.clone(),
-            job,
+            job_id.clone(),
             allowed_regions,
             aws_delay_duration,
             rates,
             gb_rates,
             address_whitelist,
             address_blacklist,
-            contract_address.clone(),
-            chain_id.clone(),
         )
         .await;
 
@@ -463,12 +469,11 @@ fn whitelist_blacklist_check(
 
     true
 }
+
 struct JobState<'a> {
-    job: H256,
+    job_id: JobId,
     launch_delay: u64,
     allowed_regions: &'a [String],
-    contract_address: String,
-    chain_id: String,
 
     balance: U256,
     last_settled: Duration,
@@ -495,21 +500,13 @@ struct JobState<'a> {
 }
 
 impl<'a> JobState<'a> {
-    fn new(
-        job: H256,
-        launch_delay: u64,
-        allowed_regions: &[String],
-        contract_address: String,
-        chain_id: String,
-    ) -> JobState {
+    fn new(job_id: JobId, launch_delay: u64, allowed_regions: &[String]) -> JobState {
         // solvency metrics
         // default of 60s
         JobState {
-            job,
+            job_id,
             launch_delay,
             allowed_regions,
-            contract_address,
-            chain_id,
             balance: U256::from(360),
             last_settled: now_timestamp(),
             rate: U256::one(),
@@ -547,8 +544,7 @@ impl<'a> JobState<'a> {
     }
 
     async fn heartbeat_check(&mut self, mut infra_provider: impl InfraProvider) {
-        // TODO: should check if enclave is running as well
-        let job = &self.job;
+        let job = &self.job_id.id;
         let is_running = infra_provider
             .check_instance_running(&self.instance_id, &self.region)
             .await;
@@ -568,7 +564,7 @@ impl<'a> JobState<'a> {
                                 println!("job {job}: enclave not running on the instance, running the enclave");
                                 let res = infra_provider
                                     .run_enclave(
-                                        job.encode_hex(),
+                                        &self.job_id,
                                         &self.instance_id,
                                         &self.family,
                                         &self.region,
@@ -585,7 +581,7 @@ impl<'a> JobState<'a> {
                                         );
                                     }
                                     Err(err) => {
-                                        println!("job {job}: failed to run enclave, {err:?}. Spinning instance down.");
+                                        println!("job {job}: failed to run enclave, {err:?}");
                                     }
                                 }
                             }
@@ -603,13 +599,13 @@ impl<'a> JobState<'a> {
     }
 
     fn handle_insolvency(&mut self) {
-        let job = &self.job;
+        let job = &self.job_id.id;
         println!("job {job}: INSOLVENCY");
         self.schedule_termination(0);
     }
 
     fn schedule_launch(&mut self, delay: u64) {
-        let job = &self.job;
+        let job = &self.job_id.id;
         self.infra_change_scheduled = true;
         self.infra_change_time = Instant::now()
             .checked_add(Duration::from_secs(delay))
@@ -619,7 +615,7 @@ impl<'a> JobState<'a> {
     }
 
     fn schedule_termination(&mut self, delay: u64) {
-        let job = &self.job;
+        let job = &self.job_id.id;
         self.infra_change_scheduled = true;
         self.infra_change_time = Instant::now()
             .checked_add(Duration::from_secs(delay))
@@ -642,10 +638,10 @@ impl<'a> JobState<'a> {
     }
 
     async fn change_infra_impl(&mut self, mut infra_provider: impl InfraProvider) -> bool {
-        let job = &self.job;
+        let job = &self.job_id.id;
 
         let res = infra_provider
-            .get_job_instance(&job.encode_hex(), &self.region)
+            .get_job_instance(&self.job_id, &self.region)
             .await;
 
         if let Err(err) = res {
@@ -686,7 +682,7 @@ impl<'a> JobState<'a> {
                     // instance unhealthy, terminate
                     println!("job {job}: found existing unhealthy instance: {instance}");
                     let res = infra_provider
-                        .spin_down(&instance, job.encode_hex(), &self.region)
+                        .spin_down(&instance, &self.job_id, &self.region)
                         .await;
                     if let Err(err) = res {
                         println!("job {job}: ERROR failed to terminate instance, {err:?}");
@@ -702,15 +698,13 @@ impl<'a> JobState<'a> {
             let res = infra_provider
                 .spin_up(
                     self.eif_url.as_str(),
-                    job.encode_hex(),
+                    &self.job_id,
                     self.instance_type.as_str(),
                     self.family.as_str(),
                     &self.region,
                     self.req_mem,
                     self.req_vcpus,
                     self.bandwidth,
-                    self.contract_address.clone(),
-                    self.chain_id.clone(),
                 )
                 .await;
             if let Err(err) = res {
@@ -719,6 +713,25 @@ impl<'a> JobState<'a> {
             }
             self.instance_id = res.unwrap();
             println!("job {job}: Instance launched: {}", self.instance_id);
+
+            // try to run the enclave, ignore errors
+            let res = infra_provider
+                .run_enclave(
+                    &self.job_id,
+                    &self.instance_id,
+                    &self.family,
+                    &self.region,
+                    &self.eif_url,
+                    self.req_vcpus,
+                    self.req_mem,
+                    self.bandwidth,
+                )
+                .await;
+            if let Err(err) = res {
+                println!("job {job}: Enclave launch failed, {err:?}");
+                // NOTE: return true here and let heartbeat check pick up from the errors
+                return true;
+            }
         } else {
             // terminate mode
             if !exist || state == "shutting-down" || state == "terminated" {
@@ -730,7 +743,7 @@ impl<'a> JobState<'a> {
             // terminate instance
             println!("job {job}: terminating existing instance: {instance}");
             let res = infra_provider
-                .spin_down(&instance, job.encode_hex(), &self.region)
+                .spin_down(&instance, &self.job_id, &self.region)
                 .await;
             if let Err(err) = res {
                 println!("job {job}: ERROR failed to terminate instance, {err:?}");
@@ -753,7 +766,7 @@ impl<'a> JobState<'a> {
         address_whitelist: &[String],
         address_blacklist: &[String],
     ) -> i8 {
-        let job = self.job;
+        let job = self.job_id.id.clone();
 
         if log.is_none() {
             // error in the stream, can retry with new conn
@@ -1195,23 +1208,16 @@ impl<'a> JobState<'a> {
 async fn job_manager_once(
     mut job_stream: impl Stream<Item = Log> + Unpin,
     mut infra_provider: impl InfraProvider + Send + Sync,
-    job: H256,
+    job_id: JobId,
     allowed_regions: &[String],
     aws_delay_duration: u64,
     rates: &[RegionalRates],
     gb_rates: &[GBRateCard],
     address_whitelist: &[String],
     address_blacklist: &[String],
-    contract_address: String,
-    chain_id: String,
 ) -> i8 {
-    let mut state = JobState::new(
-        job,
-        aws_delay_duration,
-        allowed_regions,
-        contract_address,
-        chain_id,
-    );
+    let job = job_id.id.clone();
+    let mut state = JobState::new(job_id, aws_delay_duration, allowed_regions);
 
     let res = 'event: loop {
         // compute time to insolvency
@@ -1273,7 +1279,6 @@ async fn job_logs(
     contract: Address,
     job: H256,
 ) -> Result<impl Stream<Item = Log> + Send + '_> {
-    // TODO: Filter by contract and job
     let event_filter = Filter::new()
         .select(0..)
         .address(contract)
@@ -1352,15 +1357,18 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
             &Vec::new(),
             &Vec::new(),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 
@@ -1368,8 +1376,10 @@ mod tests {
         assert_eq!(res, 0);
         println!("{:?}", aws.outcomes);
         let spin_up_tv_sec: Instant;
+        let instance_id: String;
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
             spin_up_tv_sec = out.time;
+            instance_id = out.instance_id.clone();
             assert!(
                 H256::from_str(&out.job).unwrap() == job_num
                     && out.instance_type == "c6a.xlarge"
@@ -1386,7 +1396,22 @@ mod tests {
             panic!();
         };
 
-        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
+        if let TestAwsOutcome::RunEnclave(out) = &aws.outcomes[1] {
+            assert!(
+                H256::from_str(&out.job).unwrap() == job_num
+                    && out.instance_id == instance_id
+                    && out.family == "salmon"
+                    && out.region == "ap-south-1"
+                    && out.req_mem == 4096
+                    && out.req_vcpu == 2
+                    && out.bandwidth == 76
+                    && out.eif_url == "https://example.com/enclave.eif"
+            )
+        } else {
+            panic!();
+        };
+
+        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[2] {
             assert_eq!((out.time - spin_up_tv_sec).as_secs(), 1);
             assert!(H256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
         } else {
@@ -1419,15 +1444,18 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
             &Vec::new(),
             &Vec::new(),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 
@@ -1435,25 +1463,40 @@ mod tests {
         assert_eq!(res, 0);
         println!("{:?}", aws.outcomes);
         let spin_up_tv_sec: Instant;
+        let instance_id: String;
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
             spin_up_tv_sec = out.time;
+            instance_id = out.instance_id.clone();
             assert!(
                 H256::from_str(&out.job).unwrap() == job_num
-                    && out.instance_type == "c6a.xlarge"
+                    && out.instance_id == instance_id
                     && out.family == "tuna"
                     && out.region == "ap-south-1"
                     && out.req_mem == 4096
                     && out.req_vcpu == 2
                     && out.bandwidth == 76
                     && out.eif_url == "https://example.com/enclave.eif"
-                    && out.contract_address == "xyz"
-                    && out.chain_id == "123"
             )
         } else {
             panic!();
         };
 
-        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
+        if let TestAwsOutcome::RunEnclave(out) = &aws.outcomes[1] {
+            assert!(
+                H256::from_str(&out.job).unwrap() == job_num
+                    && out.instance_id == instance_id
+                    && out.family == "tuna"
+                    && out.region == "ap-south-1"
+                    && out.req_mem == 4096
+                    && out.req_vcpu == 2
+                    && out.bandwidth == 76
+                    && out.eif_url == "https://example.com/enclave.eif"
+            )
+        } else {
+            panic!();
+        };
+
+        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[2] {
             assert_eq!((out.time - spin_up_tv_sec).as_secs(), 1);
             assert!(H256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
         } else {
@@ -1489,15 +1532,18 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
             &Vec::new(),
             &Vec::new(),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 
@@ -1505,8 +1551,10 @@ mod tests {
         assert_eq!(res, 0);
         println!("{:?}", aws.outcomes);
         let spin_up_tv_sec: Instant;
+        let instance_id: String;
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
             spin_up_tv_sec = out.time;
+            instance_id = out.instance_id.clone();
             assert!(
                 H256::from_str(&out.job).unwrap() == job_num
                     && out.instance_type == "c6a.xlarge"
@@ -1523,7 +1571,22 @@ mod tests {
             panic!();
         };
 
-        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
+        if let TestAwsOutcome::RunEnclave(out) = &aws.outcomes[1] {
+            assert!(
+                H256::from_str(&out.job).unwrap() == job_num
+                    && out.instance_id == instance_id
+                    && out.family == "salmon"
+                    && out.region == "ap-south-1"
+                    && out.req_mem == 4096
+                    && out.req_vcpu == 2
+                    && out.bandwidth == 76
+                    && out.eif_url == "https://example.com/enclave.eif"
+            )
+        } else {
+            panic!();
+        };
+
+        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[2] {
             assert_eq!((out.time - spin_up_tv_sec).as_secs(), 205);
             assert!(H256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
         } else {
@@ -1560,15 +1623,18 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
             &Vec::new(),
             &Vec::new(),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 
@@ -1576,8 +1642,10 @@ mod tests {
         assert_eq!(res, 0);
         println!("{:?}", aws.outcomes);
         let spin_up_tv_sec: Instant;
+        let instance_id: String;
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
             spin_up_tv_sec = out.time;
+            instance_id = out.instance_id.clone();
             assert!(
                 H256::from_str(&out.job).unwrap() == job_num
                     && out.instance_type == "c6a.xlarge"
@@ -1594,7 +1662,22 @@ mod tests {
             panic!();
         };
 
-        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
+        if let TestAwsOutcome::RunEnclave(out) = &aws.outcomes[1] {
+            assert!(
+                H256::from_str(&out.job).unwrap() == job_num
+                    && out.instance_id == instance_id
+                    && out.family == "salmon"
+                    && out.region == "ap-south-1"
+                    && out.req_mem == 4096
+                    && out.req_vcpu == 2
+                    && out.bandwidth == 76
+                    && out.eif_url == "https://example.com/enclave.eif"
+            )
+        } else {
+            panic!();
+        };
+
+        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[2] {
             assert_eq!((out.time - spin_up_tv_sec).as_secs(), 205);
             assert!(H256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
         } else {
@@ -1627,15 +1710,18 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
             &Vec::new(),
             &Vec::new(),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 
@@ -1668,15 +1754,18 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
             &Vec::new(),
             &Vec::new(),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 
@@ -1709,15 +1798,18 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
             &Vec::new(),
             &Vec::new(),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 
@@ -1750,15 +1842,18 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
             &Vec::new(),
             &Vec::new(),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 
@@ -1791,15 +1886,18 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
             &Vec::new(),
             &Vec::new(),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 
@@ -1832,15 +1930,18 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
             &Vec::new(),
             &Vec::new(),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 
@@ -1873,15 +1974,18 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
             &Vec::new(),
             &Vec::new(),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 
@@ -1915,15 +2019,18 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
             &Vec::new(),
             &Vec::new(),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 
@@ -1931,8 +2038,10 @@ mod tests {
         assert_eq!(res, 0);
         println!("{:?}", aws.outcomes);
         let spin_up_tv_sec: Instant;
+        let instance_id: String;
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
             spin_up_tv_sec = out.time;
+            instance_id = out.instance_id.clone();
             assert!(
                 H256::from_str(&out.job).unwrap() == job_num
                     && out.instance_type == "c6a.xlarge"
@@ -1949,7 +2058,22 @@ mod tests {
             panic!();
         };
 
-        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
+        if let TestAwsOutcome::RunEnclave(out) = &aws.outcomes[1] {
+            assert!(
+                H256::from_str(&out.job).unwrap() == job_num
+                    && out.instance_id == instance_id
+                    && out.family == "salmon"
+                    && out.region == "ap-south-1"
+                    && out.req_mem == 4096
+                    && out.req_vcpu == 2
+                    && out.bandwidth == 76
+                    && out.eif_url == "https://example.com/enclave.eif"
+            )
+        } else {
+            panic!();
+        };
+
+        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[2] {
             assert_eq!((out.time - spin_up_tv_sec).as_secs(), 50);
             assert!(H256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
         } else {
@@ -1985,15 +2109,18 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
             &Vec::new(),
             &Vec::new(),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 
@@ -2001,8 +2128,10 @@ mod tests {
         assert_eq!(res, 0);
         println!("{:?}", aws.outcomes);
         let spin_up_tv_sec: Instant;
+        let instance_id: String;
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
             spin_up_tv_sec = out.time;
+            instance_id = out.instance_id.clone();
             assert!(
                 H256::from_str(&out.job).unwrap() == job_num
                     && out.instance_type == "c6a.xlarge"
@@ -2019,7 +2148,22 @@ mod tests {
             panic!();
         };
 
-        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
+        if let TestAwsOutcome::RunEnclave(out) = &aws.outcomes[1] {
+            assert!(
+                H256::from_str(&out.job).unwrap() == job_num
+                    && out.instance_id == instance_id
+                    && out.family == "salmon"
+                    && out.region == "ap-south-1"
+                    && out.req_mem == 4096
+                    && out.req_vcpu == 2
+                    && out.bandwidth == 76
+                    && out.eif_url == "https://example.com/enclave.eif"
+            )
+        } else {
+            panic!();
+        };
+
+        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[2] {
             assert_eq!((out.time - spin_up_tv_sec).as_secs(), 50);
             assert!(H256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
         } else {
@@ -2052,7 +2196,12 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
@@ -2061,8 +2210,6 @@ mod tests {
                 "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
             ]),
             &Vec::new(),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 
@@ -2070,8 +2217,10 @@ mod tests {
         assert_eq!(res, 0);
         println!("{:?}", aws.outcomes);
         let spin_up_tv_sec: Instant;
+        let instance_id: String;
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
             spin_up_tv_sec = out.time;
+            instance_id = out.instance_id.clone();
             assert!(
                 H256::from_str(&out.job).unwrap() == job_num
                     && out.instance_type == "c6a.xlarge"
@@ -2088,7 +2237,22 @@ mod tests {
             panic!();
         };
 
-        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
+        if let TestAwsOutcome::RunEnclave(out) = &aws.outcomes[1] {
+            assert!(
+                H256::from_str(&out.job).unwrap() == job_num
+                    && out.instance_id == instance_id
+                    && out.family == "salmon"
+                    && out.region == "ap-south-1"
+                    && out.req_mem == 4096
+                    && out.req_vcpu == 2
+                    && out.bandwidth == 76
+                    && out.eif_url == "https://example.com/enclave.eif"
+            )
+        } else {
+            panic!();
+        };
+
+        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[2] {
             assert_eq!((out.time - spin_up_tv_sec).as_secs(), 200);
             assert!(H256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
         } else {
@@ -2121,7 +2285,12 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
@@ -2130,8 +2299,6 @@ mod tests {
                 "0x000000000000000000000000000000000000000000000000f020c4f6gc7a56ce".to_string(),
             ]),
             &Vec::new(),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 
@@ -2164,7 +2331,12 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
@@ -2173,8 +2345,6 @@ mod tests {
             &Vec::from([
                 "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
             ]),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 
@@ -2207,7 +2377,12 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
@@ -2216,8 +2391,6 @@ mod tests {
             &Vec::from([
                 "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ece".to_string(),
             ]),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 
@@ -2225,8 +2398,10 @@ mod tests {
         assert_eq!(res, 0);
         println!("{:?}", aws.outcomes);
         let spin_up_tv_sec: Instant;
+        let instance_id: String;
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
             spin_up_tv_sec = out.time;
+            instance_id = out.instance_id.clone();
             assert!(
                 H256::from_str(&out.job).unwrap() == job_num
                     && out.instance_type == "c6a.xlarge"
@@ -2243,7 +2418,22 @@ mod tests {
             panic!();
         };
 
-        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
+        if let TestAwsOutcome::RunEnclave(out) = &aws.outcomes[1] {
+            assert!(
+                H256::from_str(&out.job).unwrap() == job_num
+                    && out.instance_id == instance_id
+                    && out.family == "salmon"
+                    && out.region == "ap-south-1"
+                    && out.req_mem == 4096
+                    && out.req_vcpu == 2
+                    && out.bandwidth == 76
+                    && out.eif_url == "https://example.com/enclave.eif"
+            )
+        } else {
+            panic!();
+        };
+
+        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[2] {
             assert_eq!((out.time - spin_up_tv_sec).as_secs(), 200);
             assert!(H256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
         } else {
@@ -2475,15 +2665,18 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
             &Vec::new(),
             &Vec::new(),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 
@@ -2491,8 +2684,10 @@ mod tests {
         assert_eq!(res, 0);
         println!("{:?}", aws.outcomes);
         let spin_up_tv_sec: Instant;
+        let instance_id: String;
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
             spin_up_tv_sec = out.time;
+            instance_id = out.instance_id.clone();
             assert!(
                 H256::from_str(&out.job).unwrap() == job_num
                     && out.instance_type == "c6a.xlarge"
@@ -2509,7 +2704,22 @@ mod tests {
             panic!();
         };
 
-        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[1] {
+        if let TestAwsOutcome::RunEnclave(out) = &aws.outcomes[1] {
+            assert!(
+                H256::from_str(&out.job).unwrap() == job_num
+                    && out.instance_id == instance_id
+                    && out.family == "salmon"
+                    && out.region == "ap-south-1"
+                    && out.req_mem == 4096
+                    && out.req_vcpu == 2
+                    && out.bandwidth == 76
+                    && out.eif_url == "https://example.com/updated-enclave.eif"
+            )
+        } else {
+            panic!();
+        };
+
+        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[2] {
             assert_eq!((out.time - spin_up_tv_sec).as_secs(), 105);
             assert!(H256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
         } else {
@@ -2544,15 +2754,18 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
             &Vec::new(),
             &Vec::new(),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 
@@ -2587,15 +2800,18 @@ mod tests {
         let res = market::job_manager_once(
             job_stream,
             &mut aws,
-            job_num,
+            market::JobId {
+                id: job_num.encode_hex(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
             &["ap-south-1".into()],
             300,
             &test::get_rates(),
             &test::get_gb_rates(),
             &Vec::new(),
             &Vec::new(),
-            "xyz".into(),
-            "123".into(),
         )
         .await;
 

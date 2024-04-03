@@ -88,7 +88,7 @@ impl Aws {
             Err(anyhow!("Found public key file without corresponding private key file, exiting to prevent overwriting it"))
         } else {
             // neither exist, generate private key and public key
-            let private_key = PrivateKey::random(OsRng, Algorithm::Ed25519)
+            let private_key = PrivateKey::random(&mut OsRng, Algorithm::Ed25519)
                 .context("Failed to generate private key")?;
 
             private_key

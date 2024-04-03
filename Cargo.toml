@@ -15,8 +15,6 @@ path = "src/ami.rs"
 name = "enclaver"
 path = "src/enclaver.rs"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 anyhow = "1.0.81"
 aws-config = { version = "1.1.9", features = ["behavior-version-latest"] }

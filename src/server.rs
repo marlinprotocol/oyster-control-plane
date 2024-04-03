@@ -144,12 +144,10 @@ pub async fn serve(
 ) {
     let state = (client, regions, rates, bandwidth, job_id);
 
-    let router = Router::new().merge(all_routes(state));
+    let router = all_routes(state);
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     println!("Listening for connections on {}", addr);
-    axum::Server::bind(&addr)
-        .serve(router.into_make_service())
-        .await
-        .unwrap();
+    axum::serve(listener, router).await.unwrap();
 }
 
 #[cfg(test)]

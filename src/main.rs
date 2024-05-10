@@ -1,6 +1,5 @@
-use cp::aws;
-use cp::market;
-use cp::server;
+use std::fs;
+use std::net::SocketAddr;
 
 use anyhow::Context;
 use anyhow::Result;
@@ -8,8 +7,11 @@ use clap::Parser;
 use ethers::abi::AbiEncode;
 use ethers::prelude::*;
 use ethers::providers::{Provider, Ws};
-use std::fs;
-use std::net::SocketAddr;
+use tracing::info;
+
+use cp::aws;
+use cp::market;
+use cp::server;
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]

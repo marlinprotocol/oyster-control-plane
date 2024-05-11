@@ -151,9 +151,9 @@ async fn run() -> Result<()> {
         .context("Failed to generate key pair")?;
 
     for region in regions.clone() {
-        aws.key_setup(region)
+        aws.key_setup(region.clone())
             .await
-            .context("Failed to setup key pair in {region}")?;
+            .with_context(|| format!("Failed to setup key pair in {region}"))?;
     }
 
     let compute_rates = parse_compute_rates_file(cli.rates)

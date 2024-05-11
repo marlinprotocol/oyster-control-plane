@@ -113,7 +113,7 @@ impl Aws {
         if !key_check {
             self.import_key_pair(&region)
                 .await
-                .context("Failed to import key pair in {region}")?;
+                .with_context(|| format!("Failed to import key pair in {region}"))?;
         } else {
             println!("found existing keypair and pem file in {region}, skipping key setup");
         }

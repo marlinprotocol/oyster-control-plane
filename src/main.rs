@@ -8,6 +8,7 @@ use ethers::abi::AbiEncode;
 use ethers::prelude::*;
 use ethers::providers::{Provider, Ws};
 use tracing::{error, info};
+use tracing_subscriber::EnvFilter;
 
 use cp::aws;
 use cp::market;
@@ -216,8 +217,18 @@ async fn run() -> Result<()> {
 }
 
 #[tokio::main]
-async fn main() {
-    tracing_subscriber::fmt::init();
+async fn main() -> Result<()> {
+    // seems messy, see if there is a better way
+    let mut filter = EnvFilter::new("info,aws_config=warn");
+    if let Ok(var) = std::env::var("RUST_LOG") {
+        filter = filter.add_directive(var.parse()?);
+    }
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .with_env_filter(filter)
+        .init();
 
     let _ = run().await.inspect_err(|e| error!(?e, "run error"));
+
+    Ok(())
 }

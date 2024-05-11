@@ -1,10 +1,3 @@
-use anyhow::{anyhow, Context, Result};
-use aws_sdk_ec2::types::*;
-use aws_types::region::Region;
-use rand_core::OsRng;
-use serde_json::Value;
-use ssh2::Session;
-use ssh_key::{Algorithm, LineEnding, PrivateKey};
 use std::collections::HashMap;
 use std::fs;
 use std::fs::File;
@@ -12,6 +5,14 @@ use std::io::{BufReader, Read};
 use std::net::TcpStream;
 use std::path::Path;
 use std::str::FromStr;
+
+use anyhow::{anyhow, Context, Result};
+use aws_sdk_ec2::types::*;
+use aws_types::region::Region;
+use rand_core::OsRng;
+use serde_json::Value;
+use ssh2::Session;
+use ssh_key::{Algorithm, LineEnding, PrivateKey};
 use tokio::time::{sleep, Duration};
 use whoami::username;
 

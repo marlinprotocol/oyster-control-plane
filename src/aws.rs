@@ -14,6 +14,7 @@ use serde_json::Value;
 use ssh2::Session;
 use ssh_key::{Algorithm, LineEnding, PrivateKey};
 use tokio::time::{sleep, Duration};
+use tracing::{error, info};
 use whoami::username;
 
 use crate::market::{InfraProvider, JobId};
@@ -116,7 +117,10 @@ impl Aws {
                 .await
                 .with_context(|| format!("Failed to import key pair in {region}"))?;
         } else {
-            println!("found existing keypair and pem file in {region}, skipping key setup");
+            info!(
+                region,
+                "found existing keypair and pem file, skipping key setup"
+            );
         }
 
         Ok(())
@@ -171,7 +175,7 @@ impl Aws {
         sess.set_tcp_stream(tcp);
         sess.handshake()?;
         sess.userauth_pubkey_file("ubuntu", None, Path::new(&self.key_location), None)?;
-        println!("SSH connection established");
+        info!(ip_address, "SSH connection established");
         Ok(sess)
     }
 
@@ -201,7 +205,7 @@ impl Aws {
             let (stdout, stderr) = Self::ssh_exec(sess, "sha256sum /home/ubuntu/enclave.eif")
                 .context("Failed to calculate image hash")?;
             if !stderr.is_empty() {
-                println!("{stderr}");
+                error!(stderr);
                 return Err(anyhow!("Error calculating hash of enclave image: {stderr}"));
             }
 
@@ -210,10 +214,10 @@ impl Aws {
                 .next()
                 .ok_or(anyhow!("Failed to retrieve image hash: {stdout}"))?;
 
-            println!("Hash: {line}");
+            info!("Hash: {line}");
 
             if self.whitelist.as_str() != "" {
-                println!("Checking whitelist...");
+                info!("Checking whitelist...");
                 let file_path = self.whitelist.as_str();
                 let contents =
                     fs::read_to_string(file_path).context("Error reading whitelist file")?;
@@ -227,15 +231,15 @@ impl Aws {
                     }
                 }
                 if allowed {
-                    println!("EIF ALLOWED!");
+                    info!("EIF ALLOWED!");
                 } else {
-                    println!("EIF NOT ALLOWED!");
+                    info!("EIF NOT ALLOWED!");
                     return Ok(false);
                 }
             }
 
             if self.blacklist.as_str() != "" {
-                println!("Checking blacklist...");
+                info!("Checking blacklist...");
                 let file_path = self.blacklist.as_str();
                 let contents =
                     fs::read_to_string(file_path).context("Error reading blacklist file")?;
@@ -249,9 +253,9 @@ impl Aws {
                     }
                 }
                 if allowed {
-                    println!("EIF ALLOWED!");
+                    info!("EIF ALLOWED!");
                 } else {
-                    println!("EIF NOT ALLOWED!");
+                    info!("EIF NOT ALLOWED!");
                     return Ok(false);
                 }
             }
@@ -332,13 +336,13 @@ impl Aws {
         )
         .context("Failed to restart allocator service")?;
         if !stderr.is_empty() {
-            println!("{stderr}");
+            error!(stderr);
             return Err(anyhow!(
                 "Error restarting nitro-enclaves-allocator service: {stderr}"
             ));
         }
 
-        println!("Nitro Enclave Service set up with cpus: {req_vcpu} and memory: {req_mem}");
+        info!("Nitro Enclave Service set up with cpus: {req_vcpu} and memory: {req_mem}");
 
         Self::ssh_exec(sess, &("wget -O enclave.eif ".to_owned() + image_url))
             .context("Failed to download enclave image")?;
@@ -362,7 +366,7 @@ impl Aws {
         let (stdout, stderr) =
             Self::ssh_exec(sess, "nmcli device status").context("Failed to get nmcli status")?;
         if !stderr.is_empty() || stdout.is_empty() {
-            println!("{stderr}");
+            error!(stderr);
             return Err(anyhow!("Error fetching network interface name: {stderr}"));
         }
         let mut interface = String::new();
@@ -382,7 +386,7 @@ impl Aws {
             )
             .context("Failed to fetch tc config")?;
             if !stderr.is_empty() || stdout.is_empty() {
-                println!("{stderr}");
+                error!(stderr);
                 return Err(anyhow!(
                     "Error fetching network interface qdisc configuration: {stderr}"
                 ));
@@ -400,7 +404,7 @@ impl Aws {
                     &("sudo tc qdisc del dev ".to_owned() + &interface + " root"),
                 )?;
                 if !stderr.is_empty() {
-                    println!("{stderr}");
+                    error!(stderr);
                     return Err(anyhow!(
                         "Error removing network interface qdisc configuration: {stderr}"
                     ));
@@ -417,7 +421,7 @@ impl Aws {
             )?;
 
             if !stderr.is_empty() {
-                println!("{stderr}");
+                error!(stderr);
                 return Err(anyhow!("Error setting up bandwidth limit: {stderr}"));
             }
         } else {
@@ -434,21 +438,21 @@ impl Aws {
             .context("Failed to query iptables")?;
 
         if !stderr.is_empty() || stdout.is_empty() {
-            println!("{stderr}");
+            error!(stderr);
             return Err(anyhow!("Failed to get iptables rules: {stderr}"));
         }
 
         let rules: Vec<&str> = stdout.trim().split('\n').map(|s| s.trim()).collect();
 
         if rules[0] != iptables_rules[0] {
-            println!("Got '{}' instead of '{}'", rules[0], iptables_rules[0]);
+            error!("Got '{}' instead of '{}'", rules[0], iptables_rules[0]);
             return Err(anyhow!("Failed to get PREROUTING ACCEPT rules"));
         }
 
         if !rules.contains(&iptables_rules[1]) {
             let (_, stderr) = Self::ssh_exec(sess, "sudo iptables -A PREROUTING -t nat -p tcp --dport 80 -i ens5 -j REDIRECT --to-port 1200").context("Failed to set iptables rule")?;
             if !stderr.is_empty() {
-                println!("{stderr}");
+                error!(stderr);
                 return Err(anyhow!("Failed to set iptables rule: {stderr}"));
             }
         }
@@ -456,7 +460,7 @@ impl Aws {
         if !rules.contains(&iptables_rules[2]) {
             let (_, stderr) = Self::ssh_exec(sess, "sudo iptables -A PREROUTING -t nat -p tcp --dport 443 -i ens5 -j REDIRECT --to-port 1200").context("Failed to set iptables rule")?;
             if !stderr.is_empty() {
-                println!("{stderr}");
+                error!(stderr);
                 return Err(anyhow!("Failed to set iptables rule: {stderr}"));
             }
         }
@@ -464,7 +468,7 @@ impl Aws {
         if !rules.contains(&iptables_rules[3]) {
             let (_, stderr) = Self::ssh_exec(sess, "sudo iptables -A PREROUTING -t nat -p tcp --dport 1025:65535 -i ens5 -j REDIRECT --to-port 1200").context("Failed to set iptables rule")?;
             if !stderr.is_empty() {
-                println!("{stderr}");
+                error!(stderr);
                 return Err(anyhow!("Failed to set iptables rule: {stderr}"));
             }
         }
@@ -479,13 +483,13 @@ impl Aws {
         )?;
 
         if !stderr.is_empty() {
-            println!("{stderr}");
+            error!(stderr);
             if !stderr.contains("Started enclave with enclave-cid") {
                 return Err(anyhow!("Error running enclave image: {stderr}"));
             }
         }
 
-        println!("Enclave running");
+        info!("Enclave running");
 
         Ok(())
     }
@@ -515,7 +519,7 @@ impl Aws {
         )
         .context("Failed to set ephemeral ports")?;
         if !stderr.is_empty() {
-            println!("{stderr}");
+            error!(stderr);
             return Err(anyhow!("Failed to set ephemeral ports: {stderr}"));
         }
 
@@ -535,13 +539,13 @@ impl Aws {
         )
         .context("Failed to restart allocator service")?;
         if !stderr.is_empty() {
-            println!("{stderr}");
+            error!(stderr);
             return Err(anyhow!(
                 "Error restarting nitro-enclaves-allocator service: {stderr}"
             ));
         }
 
-        println!("Nitro Enclave Service set up with cpus: {req_vcpu} and memory: {req_mem}");
+        info!("Nitro Enclave Service set up with cpus: {req_vcpu} and memory: {req_mem}");
 
         Self::ssh_exec(sess, &("wget -O enclave.eif ".to_owned() + image_url))
             .context("Failed to download enclave image")?;
@@ -565,7 +569,7 @@ impl Aws {
         let (stdout, stderr) =
             Self::ssh_exec(sess, "nmcli device status").context("Failed to get nmcli status")?;
         if !stderr.is_empty() || stdout.is_empty() {
-            println!("{stderr}");
+            error!(stderr);
             return Err(anyhow!("Error fetching network interface name: {stderr}"));
         }
         let mut interface = String::new();
@@ -585,7 +589,7 @@ impl Aws {
             )
             .context("Failed to fetch tc config")?;
             if !stderr.is_empty() || stdout.is_empty() {
-                println!("{stderr}");
+                error!(stderr);
                 return Err(anyhow!(
                     "Error fetching network interface qdisc configuration: {stderr}"
                 ));
@@ -603,7 +607,7 @@ impl Aws {
                     &("sudo tc qdisc del dev ".to_owned() + &interface + " root"),
                 )?;
                 if !stderr.is_empty() {
-                    println!("{stderr}");
+                    error!(stderr);
                     return Err(anyhow!(
                         "Error removing network interface qdisc configuration: {stderr}"
                     ));
@@ -620,7 +624,7 @@ impl Aws {
             )?;
 
             if !stderr.is_empty() {
-                println!("{stderr}");
+                error!(stderr);
                 return Err(anyhow!("Error setting up bandwidth limit: {stderr}"));
             }
         } else {
@@ -637,14 +641,14 @@ impl Aws {
             Self::ssh_exec(sess, "sudo iptables -S INPUT").context("Failed to query iptables")?;
 
         if !stderr.is_empty() || stdout.is_empty() {
-            println!("{stderr}");
+            error!(stderr);
             return Err(anyhow!("Failed to get iptables rules: {stderr}"));
         }
 
         let rules: Vec<&str> = stdout.trim().split('\n').map(|s| s.trim()).collect();
 
         if rules[0] != iptables_rules[0] {
-            println!("Got '{}' instead of '{}'", rules[0], iptables_rules[0]);
+            error!("Got '{}' instead of '{}'", rules[0], iptables_rules[0]);
             return Err(anyhow!("Failed to get PREROUTING ACCEPT rules"));
         }
 
@@ -655,7 +659,7 @@ impl Aws {
             )
             .context("Failed to set iptables rule")?;
             if !stderr.is_empty() {
-                println!("{stderr}");
+                error!(stderr);
                 return Err(anyhow!("Failed to set iptables rule: {stderr}"));
             }
         }
@@ -667,7 +671,7 @@ impl Aws {
             )
             .context("Failed to set iptables rule")?;
             if !stderr.is_empty() {
-                println!("{stderr}");
+                error!(stderr);
                 return Err(anyhow!("Failed to set iptables rule: {stderr}"));
             }
         }
@@ -679,7 +683,7 @@ impl Aws {
             )
             .context("Failed to set iptables rule")?;
             if !stderr.is_empty() {
-                println!("{stderr}");
+                error!(stderr);
                 return Err(anyhow!("Failed to set iptables rule: {stderr}"));
             }
         }
@@ -692,14 +696,14 @@ impl Aws {
         )
         .context("Failed to set job id for init server")?;
         if !stderr.is_empty() {
-            println!("{stderr}");
+            error!(stderr);
             return Err(anyhow!("Failed to set job id for init server: {stderr}"));
         }
 
         let (_, stderr) = Self::ssh_exec(sess, "sudo supervisorctl update")
             .context("Failed to update init server")?;
         if !stderr.is_empty() {
-            println!("{stderr}");
+            error!(stderr);
             return Err(anyhow!("Failed to update init server: {stderr}"));
         }
 
@@ -713,13 +717,13 @@ impl Aws {
         )?;
 
         if !stderr.is_empty() {
-            println!("{stderr}");
+            error!(stderr);
             if !stderr.contains("Started enclave with enclave-cid") {
                 return Err(anyhow!("Error running enclave image: {stderr}"));
             }
         }
 
-        println!("Enclave running");
+        info!("Enclave running");
 
         Ok(())
     }
@@ -778,7 +782,7 @@ impl Aws {
             .context("failed to parse content length")?
             / 1000000000;
 
-        println!("eif size: {size} GB");
+        info!("eif size: {size} GB");
         // limit enclave image size
         if size > 8 {
             return Err(anyhow!("enclave image too big"));
@@ -1074,7 +1078,7 @@ impl Aws {
         let (stdout, stderr) = Self::ssh_exec(&sess, "nitro-cli describe-enclaves")
             .context("could not describe enclaves")?;
         if !stderr.is_empty() {
-            println!("{stderr}");
+            error!(stderr);
             return Err(anyhow!("Error describing enclaves: {stderr}"));
         }
 
@@ -1095,7 +1099,7 @@ impl Aws {
             .context("could not get elastic ip for job")?;
 
         if exist {
-            println!("Elastic Ip already exists");
+            info!("Elastic Ip already exists");
             return Ok((alloc_id, public_ip));
         }
 
@@ -1303,20 +1307,20 @@ impl Aws {
                 } else {
                     architecture = "arm64".to_owned();
                 }
-                println!("architecture: {}", arch.as_str());
+                info!("architecture: {}", arch.as_str());
             }
             v_cpus = instance
                 .v_cpu_info()
                 .ok_or(anyhow!("error fetching instance v_cpu info"))?
                 .default_v_cpus()
                 .ok_or(anyhow!("error fetching instance v_cpu info"))?;
-            println!("v_cpus: {v_cpus}");
+            info!("v_cpus: {v_cpus}");
             mem = instance
                 .memory_info()
                 .ok_or(anyhow!("error fetching instance memory info"))?
                 .size_in_mib()
                 .ok_or(anyhow!("error fetching instance v_cpu info"))?;
-            println!("memory: {mem}");
+            info!("memory: {mem}");
         }
 
         if req_mem > mem || req_vcpu > v_cpus {
@@ -1331,7 +1335,7 @@ impl Aws {
         let res = self.post_spin_up(job, &instance, region).await;
 
         if let Err(err) = res {
-            println!("error during post spin up: {err:?}");
+            error!("error during post spin up: {err:?}");
             self.spin_down_instance(&instance, job, region)
                 .await
                 .context("could not spin down instance after error during post spin up")?;
@@ -1345,7 +1349,7 @@ impl Aws {
             .allocate_ip_addr(job, region)
             .await
             .context("error allocating ip address")?;
-        println!("Elastic Ip allocated: {ip}");
+        info!("Elastic Ip allocated: {ip}");
 
         self.associate_address(instance, &alloc_id, region)
             .await
@@ -1376,7 +1380,7 @@ impl Aws {
             self.release_address(alloc_id.as_str(), region)
                 .await
                 .context("could not release address")?;
-            println!("Elastic IP released");
+            info!("Elastic IP released");
         }
 
         self.terminate_instance(instance_id, region)
@@ -1431,7 +1435,7 @@ impl Aws {
         let (_, stderr) = Self::ssh_exec(sess, "nitro-cli terminate-enclave --all")?;
 
         if !stderr.is_empty() {
-            println!("{stderr}");
+            error!(stderr);
             return Err(anyhow!("Error terminating enclave: {stderr}"));
         }
 
@@ -1445,13 +1449,13 @@ impl Aws {
         )?;
 
         if !stderr.is_empty() {
-            println!("{stderr}");
+            error!(stderr);
             if !stderr.contains("Started enclave with enclave-cid") {
                 return Err(anyhow!("Error running enclave image: {stderr}"));
             }
         }
 
-        println!("Enclave running");
+        info!("Enclave running");
 
         Ok(())
     }

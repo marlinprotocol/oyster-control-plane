@@ -7,7 +7,7 @@ use clap::Parser;
 use ethers::abi::AbiEncode;
 use ethers::prelude::*;
 use ethers::providers::{Provider, Ws};
-use tracing::info;
+use tracing::{error, info};
 
 use cp::aws;
 use cp::market;
@@ -119,12 +119,11 @@ async fn get_chain_id_from_rpc_url(url: String) -> Result<String> {
     Ok(chain_id.to_string())
 }
 
-#[tokio::main]
-pub async fn main() -> Result<()> {
+async fn run() -> Result<()> {
     let cli = Cli::parse();
 
     let regions: Vec<String> = cli.regions.split(',').map(|r| (r.into())).collect();
-    println!("Supported regions: {regions:?}");
+    info!(?regions, "supported regions");
 
     let aws = aws::Aws::new(
         cli.profile,
@@ -214,4 +213,11 @@ pub async fn main() -> Result<()> {
     .await;
 
     Ok(())
+}
+
+#[tokio::main]
+async fn main() {
+    tracing_subscriber::fmt::init();
+
+    let _ = run().await.inspect_err(|e| error!(?e, "run error"));
 }

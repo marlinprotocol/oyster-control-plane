@@ -123,8 +123,19 @@ async fn get_chain_id_from_rpc_url(url: String) -> Result<String> {
 async fn run() -> Result<()> {
     let cli = Cli::parse();
 
+    info!(?cli.profile);
+    info!(?cli.key_name);
+    info!(?cli.rpc);
+    info!(?cli.rates);
+    info!(?cli.bandwidth);
+    info!(?cli.contract);
+    info!(?cli.provider);
+    info!(?cli.blacklist);
+    info!(?cli.whitelist);
+    info!(?cli.address_blacklist);
+    info!(?cli.address_whitelist);
+
     let regions: Vec<String> = cli.regions.split(',').map(|r| (r.into())).collect();
-    info!(?regions, "supported regions");
 
     let aws = aws::Aws::new(
         cli.profile,

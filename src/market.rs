@@ -1,18 +1,16 @@
 use std::future::Future;
 
+use anyhow::{Context, Result};
 use ethers::abi::{AbiDecode, AbiEncode};
 use ethers::prelude::*;
 use ethers::types::serde_helpers::deserialize_stringified_numeric;
+use ethers::types::Log;
 use ethers::utils::keccak256;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-
-use anyhow::{Context, Result};
 use tokio::time::sleep;
 use tokio::time::{Duration, Instant};
 use tokio_stream::Stream;
-
-use ethers::types::Log;
 
 // IMPORTANT: do not import SystemTime, use the now_timestamp helper
 

@@ -119,7 +119,7 @@ impl Aws {
         } else {
             info!(
                 region,
-                "found existing keypair and pem file, skipping key setup"
+                "Found existing keypair and pem file, skipping key setup"
             );
         }
 
@@ -214,7 +214,7 @@ impl Aws {
                 .next()
                 .ok_or(anyhow!("Failed to retrieve image hash: {stdout}"))?;
 
-            info!("Hash: {line}");
+            info!(line, "Hash");
 
             if self.whitelist.as_str() != "" {
                 info!("Checking whitelist...");
@@ -342,7 +342,11 @@ impl Aws {
             ));
         }
 
-        info!("Nitro Enclave Service set up with cpus: {req_vcpu} and memory: {req_mem}");
+        info!(
+            cpus = req_vcpu,
+            memory = req_mem,
+            "Nitro Enclave Service set up"
+        );
 
         Self::ssh_exec(sess, &("wget -O enclave.eif ".to_owned() + image_url))
             .context("Failed to download enclave image")?;
@@ -445,7 +449,11 @@ impl Aws {
         let rules: Vec<&str> = stdout.trim().split('\n').map(|s| s.trim()).collect();
 
         if rules[0] != iptables_rules[0] {
-            error!("Got '{}' instead of '{}'", rules[0], iptables_rules[0]);
+            error!(
+                got = rules[0],
+                expected = iptables_rules[0],
+                "Rule mismatch"
+            );
             return Err(anyhow!("Failed to get PREROUTING ACCEPT rules"));
         }
 
@@ -545,7 +553,11 @@ impl Aws {
             ));
         }
 
-        info!("Nitro Enclave Service set up with cpus: {req_vcpu} and memory: {req_mem}");
+        info!(
+            cpus = req_vcpu,
+            memory = req_mem,
+            "Nitro Enclave Service set up"
+        );
 
         Self::ssh_exec(sess, &("wget -O enclave.eif ".to_owned() + image_url))
             .context("Failed to download enclave image")?;
@@ -648,7 +660,11 @@ impl Aws {
         let rules: Vec<&str> = stdout.trim().split('\n').map(|s| s.trim()).collect();
 
         if rules[0] != iptables_rules[0] {
-            error!("Got '{}' instead of '{}'", rules[0], iptables_rules[0]);
+            error!(
+                got = rules[0],
+                expected = iptables_rules[0],
+                "Rule mismatch"
+            );
             return Err(anyhow!("Failed to get PREROUTING ACCEPT rules"));
         }
 
@@ -782,7 +798,7 @@ impl Aws {
             .context("failed to parse content length")?
             / 1000000000;
 
-        info!("eif size: {size} GB");
+        info!(size, "EIF size in GBs");
         // limit enclave image size
         if size > 8 {
             return Err(anyhow!("enclave image too big"));
@@ -1099,7 +1115,7 @@ impl Aws {
             .context("could not get elastic ip for job")?;
 
         if exist {
-            info!("Elastic Ip already exists");
+            info!(public_ip, "Elastic Ip already exists");
             return Ok((alloc_id, public_ip));
         }
 
@@ -1307,20 +1323,20 @@ impl Aws {
                 } else {
                     architecture = "arm64".to_owned();
                 }
-                info!("architecture: {}", arch.as_str());
+                info!(architecture);
             }
             v_cpus = instance
                 .v_cpu_info()
                 .ok_or(anyhow!("error fetching instance v_cpu info"))?
                 .default_v_cpus()
                 .ok_or(anyhow!("error fetching instance v_cpu info"))?;
-            info!("v_cpus: {v_cpus}");
+            info!(v_cpus);
             mem = instance
                 .memory_info()
                 .ok_or(anyhow!("error fetching instance memory info"))?
                 .size_in_mib()
                 .ok_or(anyhow!("error fetching instance v_cpu info"))?;
-            info!("memory: {mem}");
+            info!(mem);
         }
 
         if req_mem > mem || req_vcpu > v_cpus {
@@ -1335,7 +1351,7 @@ impl Aws {
         let res = self.post_spin_up(job, &instance, region).await;
 
         if let Err(err) = res {
-            error!("error during post spin up: {err:?}");
+            error!(?err, "Error during post spin up");
             self.spin_down_instance(&instance, job, region)
                 .await
                 .context("could not spin down instance after error during post spin up")?;
@@ -1349,7 +1365,7 @@ impl Aws {
             .allocate_ip_addr(job, region)
             .await
             .context("error allocating ip address")?;
-        info!("Elastic Ip allocated: {ip}");
+        info!(ip, "Elastic Ip allocated");
 
         self.associate_address(instance, &alloc_id, region)
             .await

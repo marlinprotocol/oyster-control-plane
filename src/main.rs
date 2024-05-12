@@ -1,6 +1,5 @@
-use cp::aws;
-use cp::market;
-use cp::server;
+use std::fs;
+use std::net::SocketAddr;
 
 use anyhow::Context;
 use anyhow::Result;
@@ -8,8 +7,13 @@ use clap::Parser;
 use ethers::abi::AbiEncode;
 use ethers::prelude::*;
 use ethers::providers::{Provider, Ws};
-use std::fs;
-use std::net::SocketAddr;
+use tracing::Instrument;
+use tracing::{error, info, info_span};
+use tracing_subscriber::EnvFilter;
+
+use cp::aws;
+use cp::market;
+use cp::server;
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
@@ -117,12 +121,22 @@ async fn get_chain_id_from_rpc_url(url: String) -> Result<String> {
     Ok(chain_id.to_string())
 }
 
-#[tokio::main]
-pub async fn main() -> Result<()> {
+async fn run() -> Result<()> {
     let cli = Cli::parse();
 
+    info!(?cli.profile);
+    info!(?cli.key_name);
+    info!(?cli.rpc);
+    info!(?cli.rates);
+    info!(?cli.bandwidth);
+    info!(?cli.contract);
+    info!(?cli.provider);
+    info!(?cli.blacklist);
+    info!(?cli.whitelist);
+    info!(?cli.address_blacklist);
+    info!(?cli.address_whitelist);
+
     let regions: Vec<String> = cli.regions.split(',').map(|r| (r.into())).collect();
-    println!("Supported regions: {regions:?}");
 
     let aws = aws::Aws::new(
         cli.profile,
@@ -138,9 +152,9 @@ pub async fn main() -> Result<()> {
         .context("Failed to generate key pair")?;
 
     for region in regions.clone() {
-        aws.key_setup(region)
+        aws.key_setup(region.clone())
             .await
-            .context("Failed to setup key pair in {region}")?;
+            .with_context(|| format!("Failed to setup key pair in {region}"))?;
     }
 
     let compute_rates = parse_compute_rates_file(cli.rates)
@@ -178,14 +192,17 @@ pub async fn main() -> Result<()> {
         chain,
     };
 
-    tokio::spawn(server::serve(
-        aws.clone(),
-        regions,
-        compute_rates,
-        bandwidth_rates,
-        SocketAddr::from(([0, 0, 0, 0], 8080)),
-        job_id.clone(),
-    ));
+    tokio::spawn(
+        server::serve(
+            aws.clone(),
+            regions,
+            compute_rates,
+            bandwidth_rates,
+            SocketAddr::from(([0, 0, 0, 0], 8080)),
+            job_id.clone(),
+        )
+        .instrument(info_span!("server")),
+    );
 
     let ethers = market::EthersProvider {
         contract: cli
@@ -209,7 +226,25 @@ pub async fn main() -> Result<()> {
         address_blacklist,
         job_id,
     )
+    .instrument(info_span!("main"))
     .await;
+
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    // seems messy, see if there is a better way
+    let mut filter = EnvFilter::new("info,aws_config=warn");
+    if let Ok(var) = std::env::var("RUST_LOG") {
+        filter = filter.add_directive(var.parse()?);
+    }
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .with_env_filter(filter)
+        .init();
+
+    let _ = run().await.inspect_err(|e| error!(?e, "run error"));
 
     Ok(())
 }

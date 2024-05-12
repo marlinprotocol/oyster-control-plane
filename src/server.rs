@@ -1,3 +1,5 @@
+use std::net::SocketAddr;
+
 use axum::{
     extract::{Query, State},
     http::StatusCode,
@@ -6,7 +8,7 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
-use std::net::SocketAddr;
+use tracing::info;
 
 use crate::market::{GBRateCard, InfraProvider, JobId, RegionalRates};
 
@@ -146,7 +148,7 @@ pub async fn serve(
 
     let router = all_routes(state);
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
-    println!("Listening for connections on {}", addr);
+    info!(addr = addr.to_string(), "Listening for connections");
     axum::serve(listener, router).await.unwrap();
 }
 

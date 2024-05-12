@@ -7,7 +7,8 @@ use clap::Parser;
 use ethers::abi::AbiEncode;
 use ethers::prelude::*;
 use ethers::providers::{Provider, Ws};
-use tracing::{error, info};
+use tracing::Instrument;
+use tracing::{error, info, info_span};
 use tracing_subscriber::EnvFilter;
 
 use cp::aws;
@@ -222,6 +223,7 @@ async fn run() -> Result<()> {
         address_blacklist,
         job_id,
     )
+    .instrument(info_span!("main"))
     .await;
 
     Ok(())

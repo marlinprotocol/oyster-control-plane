@@ -11,6 +11,7 @@ use serde_json::Value;
 use tokio::time::sleep;
 use tokio::time::{Duration, Instant};
 use tokio_stream::Stream;
+use tracing::{error, info};
 
 // IMPORTANT: do not import SystemTime, use the now_timestamp helper
 
@@ -259,7 +260,7 @@ pub async fn run(
 
     let mut job_count = 0;
     loop {
-        println!("main: Connecting to RPC endpoint...");
+        info!("Connecting to RPC endpoint...");
         let res = Provider::<Ws>::connect(url.clone()).await;
         if let Err(err) = res {
             // exponential backoff on connection errors
@@ -272,12 +273,12 @@ pub async fn run(
             continue;
         }
         backoff = 1;
-        println!("main: Connected to RPC endpoint");
+        info!("Connected to RPC endpoint");
 
         let client = res.unwrap();
         let res = logs_provider.new_jobs(&client).await;
         if let Err(err) = res {
-            println!("main: Subscribe error: {err:?}");
+            error!(?err, "Subscribe error");
             sleep(Duration::from_secs(1)).await;
             continue;
         }
@@ -316,7 +317,7 @@ async fn run_once(
 ) -> usize {
     let mut job_count = 0;
     while let Some((job, removed)) = job_stream.next().await {
-        println!("main: New job: {job}, {removed}");
+        info!(?job, removed, "New job");
 
         // prepare with correct job id
         let mut job_id = job_id.clone();
@@ -337,7 +338,7 @@ async fn run_once(
         job_count += 1;
     }
 
-    println!("main: Job stream ended");
+    info!("Job stream ended");
 
     job_count
 }

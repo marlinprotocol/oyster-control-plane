@@ -192,14 +192,17 @@ async fn run() -> Result<()> {
         chain,
     };
 
-    tokio::spawn(server::serve(
-        aws.clone(),
-        regions,
-        compute_rates,
-        bandwidth_rates,
-        SocketAddr::from(([0, 0, 0, 0], 8080)),
-        job_id.clone(),
-    ));
+    tokio::spawn(
+        server::serve(
+            aws.clone(),
+            regions,
+            compute_rates,
+            bandwidth_rates,
+            SocketAddr::from(([0, 0, 0, 0], 8080)),
+            job_id.clone(),
+        )
+        .instrument(info_span!("server")),
+    );
 
     let ethers = market::EthersProvider {
         contract: cli

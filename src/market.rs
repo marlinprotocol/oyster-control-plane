@@ -766,7 +766,7 @@ impl<'a> JobState<'a> {
         }
 
         let log = log.unwrap();
-        info!(topic = log.topics[0].to_string(), ?log.data, "New log");
+        info!(topic = ?log.topics[0], ?log.data, "New log");
 
         // events
         #[allow(non_snake_case)]
@@ -1187,7 +1187,7 @@ impl<'a> JobState<'a> {
                 error!(?log.data, "METADATA_UPDATED: Decode failure");
             }
         } else {
-            error!(topic = log.topics[0].to_string(), "Unknown event");
+            error!(topic = ?log.topics[0], "Unknown event");
         }
 
         0

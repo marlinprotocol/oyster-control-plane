@@ -11,7 +11,7 @@ use serde_json::Value;
 use tokio::time::sleep;
 use tokio::time::{Duration, Instant};
 use tokio_stream::Stream;
-use tracing::{error, info};
+use tracing::{error, info, info_span, Instrument};
 
 // IMPORTANT: do not import SystemTime, use the now_timestamp helper
 
@@ -264,7 +264,7 @@ pub async fn run(
         let res = Provider::<Ws>::connect(url.clone()).await;
         if let Err(err) = res {
             // exponential backoff on connection errors
-            println!("main: Connection error: {err:?}");
+            error!(?err, "Connection error");
             sleep(Duration::from_secs(backoff)).await;
             backoff *= 2;
             if backoff > 128 {
@@ -323,18 +323,21 @@ async fn run_once(
         let mut job_id = job_id.clone();
         job_id.id = job.encode_hex();
 
-        tokio::spawn(job_manager(
-            infra_provider.clone(),
-            logs_provider.clone(),
-            url.clone(),
-            job_id,
-            regions,
-            3,
-            rates,
-            gb_rates,
-            address_whitelist,
-            address_blacklist,
-        ));
+        tokio::spawn(
+            job_manager(
+                infra_provider.clone(),
+                logs_provider.clone(),
+                url.clone(),
+                job_id,
+                regions,
+                3,
+                rates,
+                gb_rates,
+                address_whitelist,
+                address_blacklist,
+            )
+            .instrument(info_span!(parent: None, "job", ?job)),
+        );
         job_count += 1;
     }
 
@@ -386,11 +389,11 @@ async fn job_manager(
     // trying to implicitly resume connections or event streams can cause issues
     // since subscriptions are stateful
     loop {
-        println!("job {job}: Connecting to RPC endpoint...");
+        info!("Connecting to RPC endpoint...");
         let res = Provider::<Ws>::connect(url.clone()).await;
         if let Err(err) = res {
             // exponential backoff on connection errors
-            println!("job {job}: Connection error: {err:?}");
+            error!(?err, "Connection error");
             sleep(Duration::from_secs(backoff)).await;
             backoff *= 2;
             if backoff > 128 {
@@ -399,7 +402,7 @@ async fn job_manager(
             continue;
         }
         backoff = 1;
-        println!("job {job}: Connected to RPC endpoint");
+        info!("Connected to RPC endpoint");
 
         let client = res.unwrap();
         let res = logs_provider
@@ -407,7 +410,7 @@ async fn job_manager(
             .job_logs(&client, job.parse().unwrap())
             .await;
         if let Err(err) = res {
-            println!("job {job}: Subscribe error: {err:?}");
+            error!(?err, "Subscribe error");
             sleep(Duration::from_secs(1)).await;
             continue;
         }
@@ -440,29 +443,29 @@ fn whitelist_blacklist_check(
 ) -> bool {
     // check whitelist
     if !address_whitelist.is_empty() {
-        println!("Checking address whitelist...");
+        info!("Checking address whitelist...");
         if address_whitelist
             .iter()
             .any(|s| s == &log.topics[2].encode_hex())
         {
-            println!("ADDRESS ALLOWED!");
+            info!("ADDRESS ALLOWED!");
         } else {
-            println!("ADDRESS NOT ALLOWED!");
+            info!("ADDRESS NOT ALLOWED!");
             return false;
         }
     }
 
     // check blacklist
     if !address_blacklist.is_empty() {
-        println!("Checking address blacklist...");
+        info!("Checking address blacklist...");
         if address_blacklist
             .iter()
             .any(|s| s == &log.topics[2].encode_hex())
         {
-            println!("ADDRESS NOT ALLOWED!");
+            info!("ADDRESS NOT ALLOWED!");
             return false;
         } else {
-            println!("ADDRESS ALLOWED!");
+            info!("ADDRESS ALLOWED!");
         }
     }
 
@@ -543,13 +546,12 @@ impl<'a> JobState<'a> {
     }
 
     async fn heartbeat_check(&mut self, mut infra_provider: impl InfraProvider) {
-        let job = &self.job_id.id;
         let is_running = infra_provider
             .check_instance_running(&self.instance_id, &self.region)
             .await;
         match is_running {
             Err(err) => {
-                println!("job {job}: failed to retrieve instance state, {err:?}");
+                error!(?err, "Failed to retrieve instance state");
             }
             Ok(is_running) => {
                 if is_running {
@@ -560,7 +562,7 @@ impl<'a> JobState<'a> {
                     match is_enclave_running {
                         Ok(is_enclave_running) => {
                             if !is_enclave_running {
-                                println!("job {job}: enclave not running on the instance, running the enclave");
+                                info!("Enclave not running on the instance, running the enclave");
                                 let res = infra_provider
                                     .run_enclave(
                                         &self.job_id,
@@ -575,22 +577,20 @@ impl<'a> JobState<'a> {
                                     .await;
                                 match res {
                                     Ok(_) => {
-                                        println!(
-                                            "job {job}: enclave successfully ran on the instance"
-                                        );
+                                        info!("Enclave successfully ran on the instance");
                                     }
                                     Err(err) => {
-                                        println!("job {job}: failed to run enclave, {err:?}");
+                                        error!(?err, "Failed to run enclave");
                                     }
                                 }
                             }
                         }
                         Err(err) => {
-                            println!("job {job}: failed to retrieve enclave state, {err:?}");
+                            error!(?err, "Failed to retrieve enclave state");
                         }
                     }
                 } else if !is_running && self.rate >= self.min_rate {
-                    println!("job {job}: instance not running, scheduling new launch");
+                    info!("Instance not running, scheduling new launch");
                     self.schedule_launch(0);
                 }
             }
@@ -598,29 +598,26 @@ impl<'a> JobState<'a> {
     }
 
     fn handle_insolvency(&mut self) {
-        let job = &self.job_id.id;
-        println!("job {job}: INSOLVENCY");
+        info!("INSOLVENCY");
         self.schedule_termination(0);
     }
 
     fn schedule_launch(&mut self, delay: u64) {
-        let job = &self.job_id.id;
         self.infra_change_scheduled = true;
         self.infra_change_time = Instant::now()
             .checked_add(Duration::from_secs(delay))
             .unwrap();
         self.infra_state = true;
-        println!("job {job}: Instance launch scheduled");
+        info!("Instance launch scheduled");
     }
 
     fn schedule_termination(&mut self, delay: u64) {
-        let job = &self.job_id.id;
         self.infra_change_scheduled = true;
         self.infra_change_time = Instant::now()
             .checked_add(Duration::from_secs(delay))
             .unwrap();
         self.infra_state = false;
-        println!("job {job}: Instance termination scheduled");
+        info!("Instance termination scheduled");
     }
 
     async fn change_infra(&mut self, infra_provider: impl InfraProvider) -> bool {
@@ -637,14 +634,12 @@ impl<'a> JobState<'a> {
     }
 
     async fn change_infra_impl(&mut self, mut infra_provider: impl InfraProvider) -> bool {
-        let job = &self.job_id.id;
-
         let res = infra_provider
             .get_job_instance(&self.job_id, &self.region)
             .await;
 
         if let Err(err) = res {
-            println!("job {job}: ERROR failed to get job instance, {err:?}");
+            error!(?err, "Failed to get job instance");
             return false;
         }
         let (exist, instance, state) = res.unwrap();
@@ -655,7 +650,7 @@ impl<'a> JobState<'a> {
                 // instance exists already
                 if state == "pending" || state == "running" {
                     // instance exists and is already running, we are done
-                    println!("job {job}: found existing healthy instance: {instance}");
+                    info!(instance, "Found existing healthy instance");
                     self.instance_id = instance;
                     if self.eif_update {
                         // update eif
@@ -669,7 +664,7 @@ impl<'a> JobState<'a> {
                             )
                             .await;
                         if let Err(err) = res {
-                            println!("job {job}: ERROR failed to update eif, {err:?}");
+                            error!(?err, "Failed to update eif");
                             return false;
                         }
                         self.eif_update = false;
@@ -679,12 +674,12 @@ impl<'a> JobState<'a> {
 
                 if state == "stopping" || state == "stopped" {
                     // instance unhealthy, terminate
-                    println!("job {job}: found existing unhealthy instance: {instance}");
+                    info!(instance, "Found existing unhealthy instance");
                     let res = infra_provider
                         .spin_down(&instance, &self.job_id, &self.region)
                         .await;
                     if let Err(err) = res {
-                        println!("job {job}: ERROR failed to terminate instance, {err:?}");
+                        error!(?err, "Failed to terminate instance");
                         return false;
                     }
                 }
@@ -693,7 +688,7 @@ impl<'a> JobState<'a> {
             }
 
             // either no old instance or old instance was not enough, launch new one
-            println!("job {job}: launching new instance");
+            info!("Launching new instance");
             let res = infra_provider
                 .spin_up(
                     self.eif_url.as_str(),
@@ -707,11 +702,11 @@ impl<'a> JobState<'a> {
                 )
                 .await;
             if let Err(err) = res {
-                println!("job {job}: Instance launch failed, {err:?}");
+                error!(?err, "Instance launch failed");
                 return false;
             }
             self.instance_id = res.unwrap();
-            println!("job {job}: Instance launched: {}", self.instance_id);
+            info!(self.instance_id, "Instance launched");
 
             // try to run the enclave, ignore errors
             let res = infra_provider
@@ -727,7 +722,7 @@ impl<'a> JobState<'a> {
                 )
                 .await;
             if let Err(err) = res {
-                println!("job {job}: Enclave launch failed, {err:?}");
+                error!(?err, "Enclave launch failed");
                 // NOTE: return true here and let heartbeat check pick up from the errors
                 return true;
             }
@@ -735,17 +730,17 @@ impl<'a> JobState<'a> {
             // terminate mode
             if !exist || state == "shutting-down" || state == "terminated" {
                 // instance does not really exist anyway, we are done
-                println!("job {job}: instance does not exist or is already terminated");
+                info!("Instance does not exist or is already terminated");
                 return true;
             }
 
             // terminate instance
-            println!("job {job}: terminating existing instance: {instance}");
+            info!(instance, "Terminating existing instance");
             let res = infra_provider
                 .spin_down(&instance, &self.job_id, &self.region)
                 .await;
             if let Err(err) = res {
-                println!("job {job}: ERROR failed to terminate instance, {err:?}");
+                error!(?err, "Failed to terminate instance");
                 return false;
             }
         }
@@ -765,15 +760,13 @@ impl<'a> JobState<'a> {
         address_whitelist: &[String],
         address_blacklist: &[String],
     ) -> i8 {
-        let job = self.job_id.id.clone();
-
         if log.is_none() {
             // error in the stream, can retry with new conn
             return -1;
         }
 
         let log = log.unwrap();
-        println!("job {}: New log: {}, {}", job, log.topics[0], log.data);
+        info!(topic = log.topics[0].to_string(), ?log.data, "New log");
 
         // events
         #[allow(non_snake_case)]
@@ -807,9 +800,13 @@ impl<'a> JobState<'a> {
             if let Ok((metadata, _rate, _balance, timestamp)) =
                 <(String, U256, U256, U256)>::decode(&log.data)
             {
-                println!(
-                    "job {job}: OPENED: metadata: {metadata}, rate: {_rate}, balance: {_balance}, timestamp: {timestamp}, {}",
-                    self.last_settled.as_secs()
+                info!(
+                    metadata,
+                    rate = _rate.to_string(),
+                    balance = _balance.to_string(),
+                    timestamp = timestamp.to_string(),
+                    last_settled = self.last_settled.as_secs(),
+                    "OPENED",
                 );
 
                 // update solvency metrics
@@ -820,7 +817,7 @@ impl<'a> JobState<'a> {
 
                 let v = serde_json::from_str(&metadata);
                 if let Err(err) = v {
-                    println!("job {job}: Error reading metadata: {err:?}");
+                    error!(?err, "Error reading metadata");
                     return -2;
                 }
 
@@ -830,10 +827,10 @@ impl<'a> JobState<'a> {
                 match r {
                     Some(t) => {
                         self.instance_type = t.to_string();
-                        println!("job {job}: Instance type set: {}", self.instance_type);
+                        info!(self.instance_type, "Instance type set");
                     }
                     None => {
-                        println!("job {job}: Instance type not set");
+                        error!("Instance type not set");
                         return -2;
                     }
                 }
@@ -842,19 +839,16 @@ impl<'a> JobState<'a> {
                 match r {
                     Some(t) => {
                         self.region = t.to_string();
-                        println!("job {job}: Job region set: {}", self.region);
+                        info!(self.region, "Job region set");
                     }
                     None => {
-                        println!("job {job}: Job region not set");
+                        error!("Job region not set");
                         return -2;
                     }
                 }
 
                 if !self.allowed_regions.contains(&self.region) {
-                    println!(
-                        "job {job}: region: {} not suppported, exiting job",
-                        self.region
-                    );
+                    error!(self.region, "Region not suppported, exiting job");
                     return -2;
                 }
 
@@ -862,10 +856,10 @@ impl<'a> JobState<'a> {
                 match r {
                     Some(t) => {
                         self.req_mem = t;
-                        println!("job {job}: Required memory: {}", self.req_mem);
+                        info!(self.req_mem, "Required memory");
                     }
                     None => {
-                        println!("job {job}: memory not set");
+                        error!("Memory not set");
                         return -2;
                     }
                 }
@@ -874,17 +868,17 @@ impl<'a> JobState<'a> {
                 match r {
                     Some(t) => {
                         self.req_vcpus = t.try_into().unwrap_or(2);
-                        println!("job {job}: Required vcpu: {}", self.req_vcpus);
+                        info!(self.req_vcpus, "Required vcpu");
                     }
                     None => {
-                        println!("job {job}: vcpu not set");
+                        error!("vcpu not set");
                         return -2;
                     }
                 }
 
                 let url = v["url"].as_str();
                 if url.is_none() {
-                    println!("job {job}: eif url not found! Exiting job");
+                    error!("EIF url not found! Exiting job");
                     return -2;
                 }
                 self.eif_url = url.unwrap().to_string();
@@ -919,16 +913,14 @@ impl<'a> JobState<'a> {
                 }
 
                 if !supported {
-                    println!(
-                        "job {job}: instance type {}, not supported",
-                        self.instance_type
-                    );
+                    error!(self.instance_type, "Instance type not supported",);
                     return -2;
                 }
 
-                println!(
-                    "job {job}: MIN RATE for {} instance is {}",
-                    self.instance_type, self.min_rate
+                info!(
+                    self.instance_type,
+                    rate = self.min_rate.to_string(),
+                    "MIN RATE",
                 );
 
                 // launch only if rate is more than min
@@ -949,28 +941,30 @@ impl<'a> JobState<'a> {
                     self.schedule_termination(0);
                 }
             } else {
-                println!("job {job}: OPENED: Decode failure: {}", log.data);
+                error!(?log.data, "OPENED: Decode failure");
             }
         } else if log.topics[0] == JOB_SETTLED {
             // decode
             if let Ok((amount, timestamp)) = <(U256, U256)>::decode(&log.data) {
-                println!(
-                    "job {job}: SETTLED: amount: {amount}, rate: {}, balance: {}, timestamp: {}",
-                    self.rate,
-                    self.balance,
-                    self.last_settled.as_secs()
+                info!(
+                    amount = amount.to_string(),
+                    rate = self.rate.to_string(),
+                    balance = self.balance.to_string(),
+                    last_settled = self.last_settled.as_secs(),
+                    "SETTLED",
                 );
                 // update solvency metrics
                 self.balance -= amount;
                 self.last_settled = Duration::from_secs(timestamp.low_u64());
-                println!(
-                    "job {job}: SETTLED: amount: {amount}, rate: {}, balance: {}, timestamp: {}",
-                    self.rate,
-                    self.balance,
-                    self.last_settled.as_secs()
+                info!(
+                    amount = amount.to_string(),
+                    rate = self.rate.to_string(),
+                    balance = self.balance.to_string(),
+                    last_settled = self.last_settled.as_secs(),
+                    "SETTLED",
                 );
             } else {
-                println!("job {job}: SETTLED: Decode failure: {}", log.data);
+                error!(?log.data, "SETTLED: Decode failure");
             }
         } else if log.topics[0] == JOB_CLOSED {
             self.schedule_termination(0);
@@ -978,124 +972,122 @@ impl<'a> JobState<'a> {
             // decode
             if let Ok(amount) = U256::decode(&log.data) {
                 // update solvency metrics
-                println!(
-                    "job {job}: DEPOSITED: amount: {amount}, rate: {}, balance: {}, timestamp: {}",
-                    self.rate,
-                    self.balance,
-                    self.last_settled.as_secs()
+                info!(
+                    amount = amount.to_string(),
+                    rate = self.rate.to_string(),
+                    balance = self.balance.to_string(),
+                    last_settled = self.last_settled.as_secs(),
+                    "DEPOSITED",
                 );
                 self.balance += amount;
-                println!(
-                    "job {job}: DEPOSITED: amount: {amount}, rate: {}, balance: {}, timestamp: {}",
-                    self.rate,
-                    self.balance,
-                    self.last_settled.as_secs()
+                info!(
+                    amount = amount.to_string(),
+                    rate = self.rate.to_string(),
+                    balance = self.balance.to_string(),
+                    last_settled = self.last_settled.as_secs(),
+                    "DEPOSITED",
                 );
             } else {
-                println!("job {job}: DEPOSITED: Decode failure: {}", log.data);
+                error!(?log.data, "DEPOSITED: Decode failure");
             }
         } else if log.topics[0] == JOB_WITHDREW {
             // decode
             if let Ok(amount) = U256::decode(&log.data) {
-                println!(
-                    "job {job}: WITHDREW: amount: {amount}, rate: {}, balance: {}, timestamp: {}",
-                    self.rate,
-                    self.balance,
-                    self.last_settled.as_secs()
+                info!(
+                    amount = amount.to_string(),
+                    rate = self.rate.to_string(),
+                    balance = self.balance.to_string(),
+                    last_settled = self.last_settled.as_secs(),
+                    "WITHDREW",
                 );
                 // update solvency metrics
                 self.balance -= amount;
-                println!(
-                    "job {job}: WITHDREW: amount: {amount}, rate: {}, balance: {}, timestamp: {}",
-                    self.rate,
-                    self.balance,
-                    self.last_settled.as_secs()
+                info!(
+                    amount = amount.to_string(),
+                    rate = self.rate.to_string(),
+                    balance = self.balance.to_string(),
+                    last_settled = self.last_settled.as_secs(),
+                    "WITHDREW",
                 );
             } else {
-                println!("job {job}: WITHDREW: Decode failure: {}", log.data);
+                error!(?log.data, "WITHDREW: Decode failure");
             }
         } else if log.topics[0] == JOB_REVISE_RATE_INITIATED {
             if let Ok(new_rate) = U256::decode(&log.data) {
-                println!(
-                    "job {job}: JOB_REVISE_RATE_INTIATED: original_rate: {}, rate: {}, balance: {}, timestamp: {}", 
-                    self.original_rate,
-                    self.rate,
-                    self.balance,
-                    self.last_settled.as_secs()
+                info!(
+                    self.original_rate = self.original_rate.to_string(),
+                    rate = self.rate.to_string(),
+                    balance = self.balance.to_string(),
+                    last_settled = self.last_settled.as_secs(),
+                    "JOB_REVISE_RATE_INTIATED",
                 );
                 self.original_rate = self.rate;
                 self.rate = new_rate;
                 if self.rate < self.min_rate {
                     self.schedule_termination(0);
-                    println!("job {job}: Revised job rate below min rate, shut down");
+                    info!("Revised job rate below min rate, shut down");
                 }
-                println!(
-                    "job {job}: JOB_REVISE_RATE_INTIATED: original_rate: {}, rate: {}, balance: {}, timestamp: {}", 
-                    self.original_rate,
-                    self.rate,
-                    self.balance,
-                    self.last_settled.as_secs()
+                info!(
+                    self.original_rate = self.original_rate.to_string(),
+                    rate = self.rate.to_string(),
+                    balance = self.balance.to_string(),
+                    last_settled = self.last_settled.as_secs(),
+                    "JOB_REVISE_RATE_INTIATED",
                 );
             } else {
-                println!(
-                    "job {job}: JOB_REVISE_RATE_INITIATED: Decode failure: {}",
-                    log.data
-                );
+                error!(?log.data, "JOB_REVISE_RATE_INTIATED: Decode failure");
             }
         } else if log.topics[0] == JOB_REVISE_RATE_CANCELLED {
-            println!(
-                "job {job}: JOB_REVISED_RATE_CANCELLED: rate: {}, balance: {}, timestamp: {}",
-                self.rate,
-                self.balance,
-                self.last_settled.as_secs()
+            info!(
+                rate = self.rate.to_string(),
+                balance = self.balance.to_string(),
+                last_settled = self.last_settled.as_secs(),
+                "JOB_REVISE_RATE_CANCELLED",
             );
             self.rate = self.original_rate;
-            println!(
-                "job {job}: JOB_REVISED_RATE_CANCELLED: rate: {}, balance: {}, timestamp: {}",
-                self.rate,
-                self.balance,
-                self.last_settled.as_secs()
+            info!(
+                rate = self.rate.to_string(),
+                balance = self.balance.to_string(),
+                last_settled = self.last_settled.as_secs(),
+                "JOB_REVISE_RATE_CANCELLED",
             );
         } else if log.topics[0] == JOB_REVISE_RATE_FINALIZED {
             if let Ok(new_rate) = U256::decode(&log.data) {
-                println!(
-                    "job {job}: JOB_REVISE_RATE_FINALIZED: original_rate: {}, rate: {}, balance: {}, timestamp: {}", 
-                    self.original_rate,
-                    self.rate,
-                    self.balance,
-                    self.last_settled.as_secs()
+                info!(
+                    self.original_rate = self.original_rate.to_string(),
+                    rate = self.rate.to_string(),
+                    balance = self.balance.to_string(),
+                    last_settled = self.last_settled.as_secs(),
+                    "JOB_REVISE_RATE_FINALIZED",
                 );
                 if self.rate != new_rate {
-                    println!("Job {job}: Something went wrong, finalized rate not same as initiated rate");
+                    error!("Something went wrong, finalized rate not same as initiated rate");
                     return -2;
                 }
                 self.original_rate = new_rate;
-                println!(
-                    "job {job}: JOB_REVISE_RATE_FINALIZED: original_rate: {}, rate: {}, balance: {}, timestamp: {}", 
-                    self.original_rate,
-                    self.rate,
-                    self.balance,
-                    self.last_settled.as_secs()
+                info!(
+                    self.original_rate = self.original_rate.to_string(),
+                    rate = self.rate.to_string(),
+                    balance = self.balance.to_string(),
+                    last_settled = self.last_settled.as_secs(),
+                    "JOB_REVISE_RATE_FINALIZED",
                 );
             } else {
-                println!(
-                    "job {job}: JOB_REVISE_RATE_FINALIZED: Decode failure: {}",
-                    log.data
-                );
+                error!(?log.data, "JOB_REVISE_RATE_FINALIZED: Decode failure");
             }
         } else if log.topics[0] == METADATA_UPDATED {
             if let Ok((metadata, timestamp)) = <(String, U256)>::decode(&log.data) {
-                println!(
-                    "job {job}: METADATA_UPDATED: metadata: {}, timestamp: {}",
+                info!(
                     metadata,
-                    self.last_settled.as_secs()
+                    last_settled = self.last_settled.as_secs(),
+                    "METADATA_UPDATED",
                 );
 
                 self.last_settled = Duration::from_secs(timestamp.low_u64());
 
                 let v = serde_json::from_str(&metadata);
                 if let Err(err) = v {
-                    println!("job {job}: Error reading metadata: {err:?}");
+                    error!(?err, "Error reading metadata");
                     self.schedule_termination(0);
                     return -3;
                 }
@@ -1106,13 +1098,13 @@ impl<'a> JobState<'a> {
                 match r {
                     Some(t) => {
                         if self.instance_type != t {
-                            println!("job {job}: Instance type change not allowed");
+                            error!("Instance type change not allowed");
                             self.schedule_termination(0);
                             return -3;
                         }
                     }
                     None => {
-                        println!("job {job}: Instance type not set");
+                        error!("Instance type not set");
                         self.schedule_termination(0);
                         return -3;
                     }
@@ -1122,13 +1114,13 @@ impl<'a> JobState<'a> {
                 match r {
                     Some(t) => {
                         if self.region != t {
-                            println!("job {job}: Region change not allowed");
+                            error!("Region change not allowed");
                             self.schedule_termination(0);
                             return -3;
                         }
                     }
                     None => {
-                        println!("job {job}: Job region not set");
+                        error!("Job region not set");
                         self.schedule_termination(0);
                         return -3;
                     }
@@ -1138,13 +1130,13 @@ impl<'a> JobState<'a> {
                 match r {
                     Some(t) => {
                         if self.req_mem != t {
-                            println!("job {job}: Memory change not allowed");
+                            error!("Memory change not allowed");
                             self.schedule_termination(0);
                             return -3;
                         }
                     }
                     None => {
-                        println!("job {job}: memory not set");
+                        error!("Memory not set");
                         self.schedule_termination(0);
                         return -3;
                     }
@@ -1154,13 +1146,13 @@ impl<'a> JobState<'a> {
                 match r {
                     Some(t) => {
                         if self.req_vcpus != t.try_into().unwrap_or(2) {
-                            println!("job {job}: vcpu change not allowed");
+                            error!("vcpu change not allowed");
                             self.schedule_termination(0);
                             return -3;
                         }
                     }
                     None => {
-                        println!("job {job}: vcpu not set");
+                        error!("vcpu not set");
                         self.schedule_termination(0);
                         return -3;
                     }
@@ -1168,7 +1160,7 @@ impl<'a> JobState<'a> {
 
                 let family = v["family"].as_str();
                 if family.is_some() && self.family != family.unwrap() {
-                    println!("job {job}: family change not allowed");
+                    error!("Family change not allowed");
                     self.schedule_termination(0);
                     return -3;
                 }
@@ -1177,13 +1169,13 @@ impl<'a> JobState<'a> {
                 match url {
                     Some(t) => {
                         if self.eif_url == t {
-                            println!("job {job}: no url change for EIF update event");
+                            error!("No url change for EIF update event");
                             self.schedule_termination(0);
                             return -3;
                         }
                     }
                     None => {
-                        println!("job {job}: url not set");
+                        error!("Url not set");
                         self.schedule_termination(0);
                         return -3;
                     }
@@ -1192,10 +1184,10 @@ impl<'a> JobState<'a> {
                 self.eif_update = true;
                 self.schedule_launch(self.launch_delay);
             } else {
-                println!("job {job}: METADATA_UPDATED: Decode failure: {}", log.data);
+                error!(?log.data, "METADATA_UPDATED: Decode failure");
             }
         } else {
-            println!("job {job}: Unknown event: {}", log.topics[0]);
+            error!(topic = log.topics[0].to_string(), "Unknown event");
         }
 
         0
@@ -1215,17 +1207,12 @@ async fn job_manager_once(
     address_whitelist: &[String],
     address_blacklist: &[String],
 ) -> i8 {
-    let job = job_id.id.clone();
     let mut state = JobState::new(job_id, aws_delay_duration, allowed_regions);
 
     let res = 'event: loop {
         // compute time to insolvency
         let insolvency_duration = state.insolvency_duration();
-        println!(
-            "job {}: Insolvency after: {}",
-            job,
-            insolvency_duration.as_secs()
-        );
+        info!(duration = insolvency_duration.as_secs(), "Insolvency after");
 
         let aws_delay_timeout = state
             .infra_change_time
@@ -1268,7 +1255,11 @@ async fn job_manager_once(
         }
     };
 
-    println!("job {job}: Job stream ended: {res}");
+    if res == 0 {
+        info!(res, "Job stream ended");
+    } else {
+        error!(res, "Job stream ended");
+    }
 
     res
 }

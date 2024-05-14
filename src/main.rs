@@ -70,6 +70,10 @@ struct Cli {
     /// Address Whitelist location
     #[clap(long, value_parser, default_value = "")]
     address_whitelist: String,
+
+    /// Metadata server port
+    #[clap(long, value_parser, default_value = "8080")]
+    port: u16,
 }
 
 async fn parse_file(filepath: String) -> Result<Vec<String>> {
@@ -135,6 +139,7 @@ async fn run() -> Result<()> {
     info!(?cli.whitelist);
     info!(?cli.address_blacklist);
     info!(?cli.address_whitelist);
+    info!(?cli.port);
 
     let regions: Vec<String> = cli.regions.split(',').map(|r| (r.into())).collect();
 
@@ -198,7 +203,7 @@ async fn run() -> Result<()> {
             regions,
             compute_rates,
             bandwidth_rates,
-            SocketAddr::from(([0, 0, 0, 0], 8080)),
+            SocketAddr::from(([0, 0, 0, 0], cli.port)),
             job_id.clone(),
         )
         .instrument(info_span!("server")),

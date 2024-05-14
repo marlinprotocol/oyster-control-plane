@@ -147,7 +147,7 @@ pub async fn serve(
     let state = (client, regions, rates, bandwidth, job_id);
 
     let router = all_routes(state);
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     info!(addr = addr.to_string(), "Listening for connections");
     axum::serve(listener, router).await.unwrap();
 }

@@ -1,45 +1,67 @@
+![Marlin Oyster Logo](./logo.svg)
 
 # Control Plane
-The control plane listens to Marketplace contract events and automatically manages infrastructure for Oyster enclaves.
 
-A long-running node is required to run the control plane and the instructions below assume commands are being run inside such a node.
+The control plane listens to Market contract events and automatically manages infrastructure for Oyster enclaves. A server and a properly set up AWS account is required to run the control plane, see the [provider documentation](https://docs.marlin.org/run-your-own-node/oyster/quickstart/) for more information on the prerequisites and where it fits in the broader picture.
 
-This tutorial assumes Ubuntu 20.4+. If you have an older Ubuntu or a different distro, commands might need modification before use.
-
+The control plane manages EC2 instances and Elastic IPs. All resources are tagged with the following fields to make them easy to identify and manage:
+- `managedBy`, set to `marlin`
+- `project`, set to `oyster`
+- `jobId`, set to the job id that the instance is serving
+- `operator`, set to the `provider` cli parameter
+- `chainID`, set to the chain ID of the `rpc` cli parameter
+Be careful using one or more of the same tags for any other instances running in the account, it might interfere with proper operation of the contol plane.
  
-## Preliminaries
+## Build
 
-### Setup AWS profiles using the AWS CLI
-This setup requires you to setup a named profile using AWS CLI 
+```bash
+cargo build --release
+```
 
- - To install AWS CLI on your system please follow ["Installing or updating the latest version of the AWS CLI"](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)
- - Next configure the AWS CLI and setup a named profile by following ["Configuring the AWS CLI"](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-configure.html)
+## Prebuilt binaries
 
-### Install Rust
-The following project requires Rust to compile. To install Rust, please follow the instructions provided by the [link](https://www.rust-lang.org/tools/install)
-The program requires **rustc** version 1.67.0 (fc594f156 2023-01-24) or up.
+amd64: http://public.artifacts.marlin.pro/projects/enclaves/control-plane_v2.1.0_linux_amd64
 
-### Setup Radicle
-This project uses Radicle for version control and distribution. To setup **rad-cli** please follow the instructions provided by the [link](https://radicle.xyz/get-started.html).
+arm64: http://public.artifacts.marlin.pro/projects/enclaves/control-plane_v2.1.0_linux_arm64
 
-### Setup minimum rates file
-You can download the default minimum rates file by running 
+## Usage
 
-    command to download rates.txt to ~/.marlin/ folder
-This file can then be edited as per your wish to set minimum rates for each instance type.
+```
+$ ./target/release/control-plane --help
+Control plane for Oyster
 
-## Setting up and running the project
-To clone the project `cd` into the desired location and run
+Usage: control-plane [OPTIONS] --profile <PROFILE> --key-name <KEY_NAME> --rpc <RPC> --rates <RATES> --bandwidth <BANDWIDTH> --contract <CONTRACT> --provider <PROVIDER>
 
-    rad clone rad://radicle.lsqtech.org/hnrkk4b3996ywswdx9ck1x9op1kqij5s59a8o && cd control-plane
-next run the following commands to build the binary 
-
-    cargo update
-
-    cargo clean && cargo build --release
-This will generate a binary in the `control-plane/target/release/control-plane` location.
-
-You can then run this binary
-
-    ./control-plane --profile <aws_profile> --key-name <key_pair_name> --rpc <rpc_url> --region <region1> --region <region2> ...
-Here the `region` are the list of aws regions you want to allow to be used for enclave launches.
+Options:
+      --profile <PROFILE>
+          AWS profile
+      --key-name <KEY_NAME>
+          AWS keypair name
+      --regions <REGIONS>
+          AWS regions [default: us-east-1,us-east-2,us-west-1,us-west-2,ca-central-1,sa-east-1,eu-north-1,eu-west-3,eu-west-2,eu-west-1,eu-central-1,eu-central-2,eu-south-1,eu-south-2,me-south-1,me-central-1,af-south-1,ap-south-1,ap-south-2,ap-northeast-1,ap-northeast-2,ap-northeast-3,ap-southeast
+-1,ap-southeast-2,ap-southeast-3,ap-southeast-4,ap-east-1]
+      --rpc <RPC>
+          RPC url
+      --rates <RATES>
+          Rates location
+      --bandwidth <BANDWIDTH>
+          Bandwidth Rates location
+      --contract <CONTRACT>
+          Contract address
+      --provider <PROVIDER>
+          Provider address
+      --blacklist <BLACKLIST>
+          Blacklist location [default: ]
+      --whitelist <WHITELIST>
+          Whitelist location [default: ]
+      --address-blacklist <ADDRESS_BLACKLIST>
+          Address Blacklist location [default: ]
+      --address-whitelist <ADDRESS_WHITELIST>
+          Address Whitelist location [default: ]
+      --port <PORT>
+          Metadata server port [default: 8080]
+  -h, --help
+          Print help
+  -V, --version
+          Print version
+```

@@ -4,12 +4,13 @@
 
 The control plane listens to Market contract events and automatically manages infrastructure for Oyster enclaves. A server and a properly set up AWS account is required to run the control plane, see the [provider documentation](https://docs.marlin.org/run-your-own-node/oyster/quickstart/) for more information on the prerequisites and where it fits in the broader picture.
 
-The control plane manages EC2 instances and Elastic IPs. All resources are tagged with the following fields to make them easy to identify and manage:
+The control plane manages EC2 instances and Elastic IPs. All resources are tagged with the following fields to make them easy to identify and manage without conflicts:
 - `managedBy`, set to `marlin`
 - `project`, set to `oyster`
 - `jobId`, set to the job id that the instance is serving
 - `operator`, set to the `provider` cli parameter
 - `chainID`, set to the chain ID of the `rpc` cli parameter
+- `contractAddress`, set to the `contract` cli parameter
 Be careful using one or more of the same tags for any other instances running in the account, it might interfere with proper operation of the contol plane.
  
 ## Build

@@ -885,8 +885,8 @@ impl<'a> JobState<'a> {
 
                 let family = v["family"].as_str();
                 // we leave the default family unchanged if not found for backward compatibility
-                if family.is_some() {
-                    self.family = family.unwrap().to_owned();
+                if let Some(family) = family {
+                    family.clone_into(&mut self.family);
                 }
 
                 // blacklist whitelist check
@@ -2580,7 +2580,7 @@ mod tests {
     #[test]
     fn test_parse_compute_rates() {
         let contents = "[{\"region\": \"ap-south-1\", \"rate_cards\": [{\"instance\": \"c6a.48xlarge\", \"min_rate\": \"2469600000000000000000\", \"cpu\": 192, \"memory\": 384, \"arch\": \"amd64\"}, {\"instance\": \"m7g.xlarge\", \"min_rate\": \"150000000\", \"cpu\": 4, \"memory\": 8, \"arch\": \"arm64\"}]}]";
-        let rates: Vec<market::RegionalRates> = serde_json::from_str(&contents).unwrap();
+        let rates: Vec<market::RegionalRates> = serde_json::from_str(contents).unwrap();
 
         assert_eq!(rates.len(), 1);
         assert_eq!(
@@ -2610,7 +2610,7 @@ mod tests {
     #[test]
     fn test_parse_bandwidth_rates() {
         let contents = "[{\"region\": \"Asia South (Mumbai)\", \"region_code\": \"ap-south-1\", \"rate\": \"8264900000000000000000\"}, {\"region\": \"US East (N.Virginia)\", \"region_code\": \"us-east-1\", \"rate\": \"10000\"}]";
-        let rates: Vec<market::GBRateCard> = serde_json::from_str(&contents).unwrap();
+        let rates: Vec<market::GBRateCard> = serde_json::from_str(contents).unwrap();
 
         assert_eq!(rates.len(), 2);
         assert_eq!(

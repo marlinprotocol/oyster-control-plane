@@ -334,21 +334,21 @@ mod tests {
                 rate_cards: vec![
                     RateCard {
                         instance: String::from("m5a.16xlarge"),
-                        min_rate: U256::try_from(810833333333333 as i64)?,
+                        min_rate: U256::from(810833333333333_i64),
                         cpu: 64,
                         memory: 256,
                         arch: String::from("amd64"),
                     },
                     RateCard {
                         instance: String::from("c6g.16xlarge"),
-                        min_rate: U256::try_from(640722222222222 as i64)?,
+                        min_rate: U256::from(640722222222222_i64),
                         cpu: 64,
                         memory: 128,
                         arch: String::from("arm64"),
                     },
                     RateCard {
                         instance: String::from("c6i.4xlarge"),
-                        min_rate: U256::try_from(207777777777777 as i64)?,
+                        min_rate: U256::from(207777777777777_i64),
                         cpu: 16,
                         memory: 32,
                         arch: String::from("amd64"),
@@ -406,17 +406,17 @@ mod tests {
                 GBRateCard {
                     region: String::from("US East (Ohio)"),
                     region_code: String::from("us-east-2"),
-                    rate: U256::try_from(90000000000000000 as i64)?,
+                    rate: U256::from(90000000000000000_i64),
                 },
                 GBRateCard {
                     region: String::from("US East (N. Virginia)"),
                     region_code: String::from("us-east-1"),
-                    rate: U256::try_from(90000000000000000 as i64)?,
+                    rate: U256::from(90000000000000000_i64),
                 },
                 GBRateCard {
                     region: String::from("US West (N. California)"),
                     region_code: String::from("us-west-1"),
-                    rate: U256::try_from(90000000000000000 as i64)?,
+                    rate: U256::from(90000000000000000_i64),
                 },
             ]
             .into_boxed_slice(),

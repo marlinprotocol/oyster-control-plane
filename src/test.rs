@@ -189,10 +189,9 @@ impl InfraProvider for TestAws {
 
     async fn get_job_ip(&self, job: &JobId, _region: &str) -> Result<String> {
         let instance_metadata = self.instances.get(&job.id);
-        if instance_metadata.is_some() {
-            return Ok(instance_metadata.unwrap().ip_address.clone());
-        }
-        return Err(anyhow!("Instance not found for job - {}", job.id));
+        instance_metadata
+            .map(|x| x.ip_address.clone())
+            .ok_or(anyhow!("Instance not found for job - {}", job.id))
     }
 
     async fn check_instance_running(&mut self, _instance_id: &str, _region: &str) -> Result<bool> {
@@ -239,7 +238,7 @@ impl InfraProvider for TestAws {
         req_vcpu: i32,
         req_mem: i64,
     ) -> Result<()> {
-        let job_id = self.instances.iter().find_map(|(key, &ref val)| {
+        let job_id = self.instances.iter().find_map(|(key, val)| {
             if val.instance_id == instance_id {
                 Some(key)
             } else {
@@ -257,7 +256,7 @@ impl InfraProvider for TestAws {
             self.outcomes
                 .iter()
                 .enumerate()
-                .find_map(|(i, &ref outcome)| match outcome {
+                .find_map(|(i, outcome)| match outcome {
                     TestAwsOutcome::SpinUp(spin_up) if spin_up.job == instance_id => Some(i),
                     _ => None,
                 });
@@ -280,7 +279,7 @@ impl InfraProvider for TestAws {
                 return Err(anyhow!("Must input a different EIF URL"));
             }
 
-            spin_up_outcome.eif_url = eif_url.to_owned();
+            eif_url.clone_into(&mut spin_up_outcome.eif_url);
         } else {
             panic!("Spin up outcome not found at proper index for the job.")
         }

@@ -143,7 +143,7 @@ async fn run() -> Result<()> {
 
     let regions: Vec<String> = cli.regions.split(',').map(|r| (r.into())).collect();
 
-    let eif_whitelist = if cli.whitelist != "" {
+    let eif_whitelist = if !cli.whitelist.is_empty() {
         let eif_whitelist_vec: Vec<String> = parse_file(cli.whitelist)
             .await
             .context("Failed to parse eif whitelist")?;
@@ -156,7 +156,7 @@ async fn run() -> Result<()> {
     } else {
         None
     };
-    let eif_blacklist = if cli.blacklist != "" {
+    let eif_blacklist = if !cli.blacklist.is_empty() {
         let eif_blacklist_vec: Vec<String> = parse_file(cli.blacklist)
             .await
             .context("Failed to parse eif blacklist")?;

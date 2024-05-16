@@ -1308,9 +1308,9 @@ impl Aws {
                 .supported_architectures();
             if let Some(arch) = supported_architectures.iter().next() {
                 if arch.as_str() == "x86_64" {
-                    architecture = "amd64".to_owned();
+                    "amd64".clone_into(&mut architecture);
                 } else {
-                    architecture = "arm64".to_owned();
+                    "arm64".clone_into(&mut architecture);
                 }
                 info!(architecture);
             }

@@ -37,14 +37,7 @@ struct Cli {
 pub async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    let aws = aws::Aws::new(
-        cli.profile,
-        &[cli.region.clone()],
-        cli.key_name,
-        String::new(),
-        String::new(),
-    )
-    .await;
+    let aws = aws::Aws::new(cli.profile, &[cli.region.clone()], cli.key_name, None, None).await;
     aws.run_enclave_impl(
         "0x01020304",
         &cli.family,

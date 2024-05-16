@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::fs;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::net::TcpStream;
@@ -26,8 +25,8 @@ pub struct Aws {
     // Path cannot be cloned, hence String
     key_location: String,
     pub_key_location: String,
-    whitelist: String,
-    blacklist: String,
+    whitelist: Option<&'static [String]>,
+    blacklist: Option<&'static [String]>,
 }
 
 impl Aws {
@@ -35,8 +34,8 @@ impl Aws {
         aws_profile: String,
         regions: &[String],
         key_name: String,
-        whitelist: String,
-        blacklist: String,
+        whitelist: Option<&'static [String]>,
+        blacklist: Option<&'static [String]>,
     ) -> Aws {
         let key_location = "/home/".to_owned() + &username() + "/.ssh/" + &key_name + ".pem";
         let pub_key_location = "/home/".to_owned() + &username() + "/.ssh/" + &key_name + ".pub";
@@ -201,7 +200,7 @@ impl Aws {
     }
 
     async fn check_eif_blacklist_whitelist(&self, sess: &Session) -> Result<bool> {
-        if self.whitelist.as_str() != "" || self.blacklist.as_str() != "" {
+        if self.whitelist.is_some() || self.blacklist.is_some() {
             let (stdout, stderr) = Self::ssh_exec(sess, "sha256sum /home/ubuntu/enclave.eif")
                 .context("Failed to calculate image hash")?;
             if !stderr.is_empty() {
@@ -216,15 +215,10 @@ impl Aws {
 
             info!(line, "Hash");
 
-            if self.whitelist.as_str() != "" {
+            if let Some(whitelist_list) = self.whitelist {
                 info!("Checking whitelist...");
-                let file_path = self.whitelist.as_str();
-                let contents =
-                    fs::read_to_string(file_path).context("Error reading whitelist file")?;
-
-                let entries = contents.lines();
                 let mut allowed = false;
-                for entry in entries {
+                for entry in whitelist_list {
                     if entry.contains(line) {
                         allowed = true;
                         break;
@@ -238,15 +232,10 @@ impl Aws {
                 }
             }
 
-            if self.blacklist.as_str() != "" {
+            if let Some(blacklist_list) = self.blacklist {
                 info!("Checking blacklist...");
-                let file_path = self.blacklist.as_str();
-                let contents =
-                    fs::read_to_string(file_path).context("Error reading blacklist file")?;
-
-                let entries = contents.lines();
                 let mut allowed = true;
-                for entry in entries {
+                for entry in blacklist_list {
                     if entry.contains(line) {
                         allowed = false;
                         break;

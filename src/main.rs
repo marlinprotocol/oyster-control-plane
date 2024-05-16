@@ -143,12 +143,39 @@ async fn run() -> Result<()> {
 
     let regions: Vec<String> = cli.regions.split(',').map(|r| (r.into())).collect();
 
+    let eif_whitelist = if cli.whitelist != "" {
+        let eif_whitelist_vec: Vec<String> = parse_file(cli.whitelist)
+            .await
+            .context("Failed to parse eif whitelist")?;
+        // leak memory to get static references
+        // will be cleaned up once program exits
+        // alternative to OnceCell equivalents
+        let eif_whitelist = &*Box::leak(eif_whitelist_vec.into_boxed_slice());
+
+        Some(eif_whitelist)
+    } else {
+        None
+    };
+    let eif_blacklist = if cli.blacklist != "" {
+        let eif_blacklist_vec: Vec<String> = parse_file(cli.blacklist)
+            .await
+            .context("Failed to parse eif blacklist")?;
+        // leak memory to get static references
+        // will be cleaned up once program exits
+        // alternative to OnceCell equivalents
+        let eif_blacklist = &*Box::leak(eif_blacklist_vec.into_boxed_slice());
+
+        Some(eif_blacklist)
+    } else {
+        None
+    };
+
     let aws = aws::Aws::new(
         cli.profile,
         &regions,
         cli.key_name,
-        cli.whitelist,
-        cli.blacklist,
+        eif_whitelist,
+        eif_blacklist,
     )
     .await;
 

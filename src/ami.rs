@@ -29,8 +29,8 @@ pub async fn main() -> Result<()> {
         cli.profile,
         &[cli.region.clone()],
         String::new(),
-        String::new(),
-        String::new(),
+        None,
+        None,
     )
     .await;
     println!(

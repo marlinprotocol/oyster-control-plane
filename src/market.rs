@@ -1388,40 +1388,37 @@ mod tests {
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
             spin_up_tv_sec = out.time;
             instance_id = out.instance_id.clone();
-            assert!(
-                B256::from_str(&out.job).unwrap() == job_num
-                    && out.instance_type == "c6a.xlarge"
-                    && out.family == "salmon"
-                    && out.region == "ap-south-1"
-                    && out.req_mem == 4096
-                    && out.req_vcpu == 2
-                    && out.bandwidth == 76
-                    && out.eif_url == "https://example.com/enclave.eif"
-                    && out.contract_address == "xyz"
-                    && out.chain_id == "123"
-            )
+            assert!(B256::from_str(&out.job).unwrap() == job_num);
+            assert!(out.instance_type == "c6a.xlarge");
+            assert!(out.family == "salmon");
+            assert!(out.region == "ap-south-1");
+            assert!(out.req_mem == 4096);
+            assert!(out.req_vcpu == 2);
+            assert!(out.bandwidth == 76);
+            assert!(out.eif_url == "https://example.com/enclave.eif");
+            assert!(out.contract_address == "xyz");
+            assert!(out.chain_id == "123");
         } else {
             panic!();
         };
 
         if let TestAwsOutcome::RunEnclave(out) = &aws.outcomes[1] {
-            assert!(
-                B256::from_str(&out.job).unwrap() == job_num
-                    && out.instance_id == instance_id
-                    && out.family == "salmon"
-                    && out.region == "ap-south-1"
-                    && out.req_mem == 4096
-                    && out.req_vcpu == 2
-                    && out.bandwidth == 76
-                    && out.eif_url == "https://example.com/enclave.eif"
-            )
+            assert!(B256::from_str(&out.job).unwrap() == job_num);
+            assert!(out.instance_id == instance_id);
+            assert!(out.family == "salmon");
+            assert!(out.region == "ap-south-1");
+            assert!(out.req_mem == 4096);
+            assert!(out.req_vcpu == 2);
+            assert!(out.bandwidth == 76);
+            assert!(out.eif_url == "https://example.com/enclave.eif");
         } else {
             panic!();
         };
 
         if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[2] {
             assert_eq!((out.time - spin_up_tv_sec).as_secs(), 1);
-            assert!(B256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
+            assert!(B256::from_str(&out.job).unwrap() == job_num);
+            assert!(out.region == *"ap-south-1");
         } else {
             panic!();
         };
@@ -1474,38 +1471,35 @@ mod tests {
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
             spin_up_tv_sec = out.time;
             instance_id = out.instance_id.clone();
-            assert!(
-                B256::from_str(&out.job).unwrap() == job_num
-                    && out.instance_id == instance_id
-                    && out.family == "tuna"
-                    && out.region == "ap-south-1"
-                    && out.req_mem == 4096
-                    && out.req_vcpu == 2
-                    && out.bandwidth == 76
-                    && out.eif_url == "https://example.com/enclave.eif"
-            )
+            assert!(B256::from_str(&out.job).unwrap() == job_num);
+            assert!(out.instance_id == instance_id);
+            assert!(out.family == "tuna");
+            assert!(out.region == "ap-south-1");
+            assert!(out.req_mem == 4096);
+            assert!(out.req_vcpu == 2);
+            assert!(out.bandwidth == 76);
+            assert!(out.eif_url == "https://example.com/enclave.eif");
         } else {
             panic!();
         };
 
         if let TestAwsOutcome::RunEnclave(out) = &aws.outcomes[1] {
-            assert!(
-                B256::from_str(&out.job).unwrap() == job_num
-                    && out.instance_id == instance_id
-                    && out.family == "tuna"
-                    && out.region == "ap-south-1"
-                    && out.req_mem == 4096
-                    && out.req_vcpu == 2
-                    && out.bandwidth == 76
-                    && out.eif_url == "https://example.com/enclave.eif"
-            )
+            assert!(B256::from_str(&out.job).unwrap() == job_num);
+            assert!(out.instance_id == instance_id);
+            assert!(out.family == "tuna");
+            assert!(out.region == "ap-south-1");
+            assert!(out.req_mem == 4096);
+            assert!(out.req_vcpu == 2);
+            assert!(out.bandwidth == 76);
+            assert!(out.eif_url == "https://example.com/enclave.eif");
         } else {
             panic!();
         };
 
         if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[2] {
             assert_eq!((out.time - spin_up_tv_sec).as_secs(), 1);
-            assert!(B256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
+            assert!(B256::from_str(&out.job).unwrap() == job_num);
+            assert!(out.region == *"ap-south-1");
         } else {
             panic!();
         };
@@ -1561,40 +1555,37 @@ mod tests {
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
             spin_up_tv_sec = out.time;
             instance_id = out.instance_id.clone();
-            assert!(
-                B256::from_str(&out.job).unwrap() == job_num
-                    && out.instance_type == "c6a.xlarge"
-                    && out.family == "salmon"
-                    && out.region == "ap-south-1"
-                    && out.req_mem == 4096
-                    && out.req_vcpu == 2
-                    && out.bandwidth == 76
-                    && out.eif_url == "https://example.com/enclave.eif"
-                    && out.contract_address == "xyz"
-                    && out.chain_id == "123"
-            )
+            assert!(B256::from_str(&out.job).unwrap() == job_num);
+            assert!(out.instance_type == "c6a.xlarge");
+            assert!(out.family == "salmon");
+            assert!(out.region == "ap-south-1");
+            assert!(out.req_mem == 4096);
+            assert!(out.req_vcpu == 2);
+            assert!(out.bandwidth == 76);
+            assert!(out.eif_url == "https://example.com/enclave.eif");
+            assert!(out.contract_address == "xyz");
+            assert!(out.chain_id == "123");
         } else {
             panic!();
         };
 
         if let TestAwsOutcome::RunEnclave(out) = &aws.outcomes[1] {
-            assert!(
-                B256::from_str(&out.job).unwrap() == job_num
-                    && out.instance_id == instance_id
-                    && out.family == "salmon"
-                    && out.region == "ap-south-1"
-                    && out.req_mem == 4096
-                    && out.req_vcpu == 2
-                    && out.bandwidth == 76
-                    && out.eif_url == "https://example.com/enclave.eif"
-            )
+            assert!(B256::from_str(&out.job).unwrap() == job_num);
+            assert!(out.instance_id == instance_id);
+            assert!(out.family == "salmon");
+            assert!(out.region == "ap-south-1");
+            assert!(out.req_mem == 4096);
+            assert!(out.req_vcpu == 2);
+            assert!(out.bandwidth == 76);
+            assert!(out.eif_url == "https://example.com/enclave.eif");
         } else {
             panic!();
         };
 
         if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[2] {
             assert_eq!((out.time - spin_up_tv_sec).as_secs(), 205);
-            assert!(B256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
+            assert!(B256::from_str(&out.job).unwrap() == job_num);
+            assert!(out.region == *"ap-south-1");
         } else {
             panic!();
         };
@@ -1651,40 +1642,37 @@ mod tests {
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
             spin_up_tv_sec = out.time;
             instance_id = out.instance_id.clone();
-            assert!(
-                B256::from_str(&out.job).unwrap() == job_num
-                    && out.instance_type == "c6a.xlarge"
-                    && out.family == "salmon"
-                    && out.region == "ap-south-1"
-                    && out.req_mem == 4096
-                    && out.req_vcpu == 2
-                    && out.bandwidth == 76
-                    && out.eif_url == "https://example.com/enclave.eif"
-                    && out.contract_address == "xyz"
-                    && out.chain_id == "123"
-            )
+            assert!(B256::from_str(&out.job).unwrap() == job_num);
+            assert!(out.instance_type == "c6a.xlarge");
+            assert!(out.family == "salmon");
+            assert!(out.region == "ap-south-1");
+            assert!(out.req_mem == 4096);
+            assert!(out.req_vcpu == 2);
+            assert!(out.bandwidth == 76);
+            assert!(out.eif_url == "https://example.com/enclave.eif");
+            assert!(out.contract_address == "xyz");
+            assert!(out.chain_id == "123");
         } else {
             panic!();
         };
 
         if let TestAwsOutcome::RunEnclave(out) = &aws.outcomes[1] {
-            assert!(
-                B256::from_str(&out.job).unwrap() == job_num
-                    && out.instance_id == instance_id
-                    && out.family == "salmon"
-                    && out.region == "ap-south-1"
-                    && out.req_mem == 4096
-                    && out.req_vcpu == 2
-                    && out.bandwidth == 76
-                    && out.eif_url == "https://example.com/enclave.eif"
-            )
+            assert!(B256::from_str(&out.job).unwrap() == job_num);
+            assert!(out.instance_id == instance_id);
+            assert!(out.family == "salmon");
+            assert!(out.region == "ap-south-1");
+            assert!(out.req_mem == 4096);
+            assert!(out.req_vcpu == 2);
+            assert!(out.bandwidth == 76);
+            assert!(out.eif_url == "https://example.com/enclave.eif");
         } else {
             panic!();
         };
 
         if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[2] {
             assert_eq!((out.time - spin_up_tv_sec).as_secs(), 205);
-            assert!(B256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
+            assert!(B256::from_str(&out.job).unwrap() == job_num);
+            assert!(out.region == *"ap-south-1");
         } else {
             panic!();
         };
@@ -2135,40 +2123,37 @@ mod tests {
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
             spin_up_tv_sec = out.time;
             instance_id = out.instance_id.clone();
-            assert!(
-                B256::from_str(&out.job).unwrap() == job_num
-                    && out.instance_type == "c6a.xlarge"
-                    && out.family == "salmon"
-                    && out.region == "ap-south-1"
-                    && out.req_mem == 4096
-                    && out.req_vcpu == 2
-                    && out.bandwidth == 76
-                    && out.eif_url == "https://example.com/enclave.eif"
-                    && out.contract_address == "xyz"
-                    && out.chain_id == "123"
-            )
+            assert!(B256::from_str(&out.job).unwrap() == job_num);
+            assert!(out.instance_type == "c6a.xlarge");
+            assert!(out.family == "salmon");
+            assert!(out.region == "ap-south-1");
+            assert!(out.req_mem == 4096);
+            assert!(out.req_vcpu == 2);
+            assert!(out.bandwidth == 76);
+            assert!(out.eif_url == "https://example.com/enclave.eif");
+            assert!(out.contract_address == "xyz");
+            assert!(out.chain_id == "123");
         } else {
             panic!();
         };
 
         if let TestAwsOutcome::RunEnclave(out) = &aws.outcomes[1] {
-            assert!(
-                B256::from_str(&out.job).unwrap() == job_num
-                    && out.instance_id == instance_id
-                    && out.family == "salmon"
-                    && out.region == "ap-south-1"
-                    && out.req_mem == 4096
-                    && out.req_vcpu == 2
-                    && out.bandwidth == 76
-                    && out.eif_url == "https://example.com/enclave.eif"
-            )
+            assert!(B256::from_str(&out.job).unwrap() == job_num);
+            assert!(out.instance_id == instance_id);
+            assert!(out.family == "salmon");
+            assert!(out.region == "ap-south-1");
+            assert!(out.req_mem == 4096);
+            assert!(out.req_vcpu == 2);
+            assert!(out.bandwidth == 76);
+            assert!(out.eif_url == "https://example.com/enclave.eif");
         } else {
             panic!();
         };
 
         if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[2] {
             assert_eq!((out.time - spin_up_tv_sec).as_secs(), 50);
-            assert!(B256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
+            assert!(B256::from_str(&out.job).unwrap() == job_num);
+            assert!(out.region == *"ap-south-1");
         } else {
             panic!();
         };
@@ -2223,40 +2208,37 @@ mod tests {
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
             spin_up_tv_sec = out.time;
             instance_id = out.instance_id.clone();
-            assert!(
-                B256::from_str(&out.job).unwrap() == job_num
-                    && out.instance_type == "c6a.xlarge"
-                    && out.family == "salmon"
-                    && out.region == "ap-south-1"
-                    && out.req_mem == 4096
-                    && out.req_vcpu == 2
-                    && out.bandwidth == 76
-                    && out.eif_url == "https://example.com/enclave.eif"
-                    && out.contract_address == "xyz"
-                    && out.chain_id == "123"
-            )
+            assert!(B256::from_str(&out.job).unwrap() == job_num);
+            assert!(out.instance_type == "c6a.xlarge");
+            assert!(out.family == "salmon");
+            assert!(out.region == "ap-south-1");
+            assert!(out.req_mem == 4096);
+            assert!(out.req_vcpu == 2);
+            assert!(out.bandwidth == 76);
+            assert!(out.eif_url == "https://example.com/enclave.eif");
+            assert!(out.contract_address == "xyz");
+            assert!(out.chain_id == "123");
         } else {
             panic!();
         };
 
         if let TestAwsOutcome::RunEnclave(out) = &aws.outcomes[1] {
-            assert!(
-                B256::from_str(&out.job).unwrap() == job_num
-                    && out.instance_id == instance_id
-                    && out.family == "salmon"
-                    && out.region == "ap-south-1"
-                    && out.req_mem == 4096
-                    && out.req_vcpu == 2
-                    && out.bandwidth == 76
-                    && out.eif_url == "https://example.com/enclave.eif"
-            )
+            assert!(B256::from_str(&out.job).unwrap() == job_num);
+            assert!(out.instance_id == instance_id);
+            assert!(out.family == "salmon");
+            assert!(out.region == "ap-south-1");
+            assert!(out.req_mem == 4096);
+            assert!(out.req_vcpu == 2);
+            assert!(out.bandwidth == 76);
+            assert!(out.eif_url == "https://example.com/enclave.eif");
         } else {
             panic!();
         };
 
         if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[2] {
             assert_eq!((out.time - spin_up_tv_sec).as_secs(), 200);
-            assert!(B256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
+            assert!(B256::from_str(&out.job).unwrap() == job_num);
+            assert!(out.region == *"ap-south-1");
         } else {
             panic!();
         };
@@ -2403,40 +2385,37 @@ mod tests {
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
             spin_up_tv_sec = out.time;
             instance_id = out.instance_id.clone();
-            assert!(
-                B256::from_str(&out.job).unwrap() == job_num
-                    && out.instance_type == "c6a.xlarge"
-                    && out.family == "salmon"
-                    && out.region == "ap-south-1"
-                    && out.req_mem == 4096
-                    && out.req_vcpu == 2
-                    && out.bandwidth == 76
-                    && out.eif_url == "https://example.com/enclave.eif"
-                    && out.contract_address == "xyz"
-                    && out.chain_id == "123"
-            )
+            assert!(B256::from_str(&out.job).unwrap() == job_num);
+            assert!(out.instance_type == "c6a.xlarge");
+            assert!(out.family == "salmon");
+            assert!(out.region == "ap-south-1");
+            assert!(out.req_mem == 4096);
+            assert!(out.req_vcpu == 2);
+            assert!(out.bandwidth == 76);
+            assert!(out.eif_url == "https://example.com/enclave.eif");
+            assert!(out.contract_address == "xyz");
+            assert!(out.chain_id == "123");
         } else {
             panic!();
         };
 
         if let TestAwsOutcome::RunEnclave(out) = &aws.outcomes[1] {
-            assert!(
-                B256::from_str(&out.job).unwrap() == job_num
-                    && out.instance_id == instance_id
-                    && out.family == "salmon"
-                    && out.region == "ap-south-1"
-                    && out.req_mem == 4096
-                    && out.req_vcpu == 2
-                    && out.bandwidth == 76
-                    && out.eif_url == "https://example.com/enclave.eif"
-            )
+            assert!(B256::from_str(&out.job).unwrap() == job_num);
+            assert!(out.instance_id == instance_id);
+            assert!(out.family == "salmon");
+            assert!(out.region == "ap-south-1");
+            assert!(out.req_mem == 4096);
+            assert!(out.req_vcpu == 2);
+            assert!(out.bandwidth == 76);
+            assert!(out.eif_url == "https://example.com/enclave.eif");
         } else {
             panic!();
         };
 
         if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[2] {
             assert_eq!((out.time - spin_up_tv_sec).as_secs(), 200);
-            assert!(B256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
+            assert!(B256::from_str(&out.job).unwrap() == job_num);
+            assert!(out.region == *"ap-south-1");
         } else {
             panic!();
         };
@@ -2688,40 +2667,37 @@ mod tests {
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
             spin_up_tv_sec = out.time;
             instance_id = out.instance_id.clone();
-            assert!(
-                B256::from_str(&out.job).unwrap() == job_num
-                    && out.instance_type == "c6a.xlarge"
-                    && out.family == "salmon"
-                    && out.region == "ap-south-1"
-                    && out.req_mem == 4096
-                    && out.req_vcpu == 2
-                    && out.bandwidth == 76
-                    && out.eif_url == "https://example.com/updated-enclave.eif"
-                    && out.contract_address == "xyz"
-                    && out.chain_id == "123"
-            )
+            assert!(B256::from_str(&out.job).unwrap() == job_num);
+            assert!(out.instance_type == "c6a.xlarge");
+            assert!(out.family == "salmon");
+            assert!(out.region == "ap-south-1");
+            assert!(out.req_mem == 4096);
+            assert!(out.req_vcpu == 2);
+            assert!(out.bandwidth == 76);
+            assert!(out.eif_url == "https://example.com/updated-enclave.eif");
+            assert!(out.contract_address == "xyz");
+            assert!(out.chain_id == "123");
         } else {
             panic!();
         };
 
         if let TestAwsOutcome::RunEnclave(out) = &aws.outcomes[1] {
-            assert!(
-                B256::from_str(&out.job).unwrap() == job_num
-                    && out.instance_id == instance_id
-                    && out.family == "salmon"
-                    && out.region == "ap-south-1"
-                    && out.req_mem == 4096
-                    && out.req_vcpu == 2
-                    && out.bandwidth == 76
-                    && out.eif_url == "https://example.com/updated-enclave.eif"
-            )
+            assert!(B256::from_str(&out.job).unwrap() == job_num);
+            assert!(out.instance_id == instance_id);
+            assert!(out.family == "salmon");
+            assert!(out.region == "ap-south-1");
+            assert!(out.req_mem == 4096);
+            assert!(out.req_vcpu == 2);
+            assert!(out.bandwidth == 76);
+            assert!(out.eif_url == "https://example.com/updated-enclave.eif");
         } else {
             panic!();
         };
 
         if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[2] {
             assert_eq!((out.time - spin_up_tv_sec).as_secs(), 105);
-            assert!(B256::from_str(&out.job).unwrap() == job_num && out.region == *"ap-south-1")
+            assert!(B256::from_str(&out.job).unwrap() == job_num);
+            assert!(out.region == *"ap-south-1");
         } else {
             panic!();
         };

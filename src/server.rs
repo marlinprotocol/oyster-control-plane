@@ -156,12 +156,12 @@ pub async fn serve(
 mod tests {
     use super::serve;
 
+    use std::net::SocketAddr;
+
     use alloy::hex::ToHexExt;
     use alloy::primitives::U256;
     use anyhow;
-    // use ethers::{abi::AbiEncode, prelude::*};
     use serde_json::json;
-    use std::net::SocketAddr;
 
     use crate::market::{GBRateCard, JobId, RateCard, RegionalRates};
     use crate::test::{InstanceMetadata, TestAws};

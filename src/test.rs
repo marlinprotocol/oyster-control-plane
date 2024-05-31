@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::str::FromStr;
+
 use alloy::hex::ToHexExt;
 use alloy::primitives::B128;
 use alloy::primitives::{keccak256, Address, Bytes, LogData, B256, B64, U256};
@@ -5,12 +8,6 @@ use alloy::providers::Provider;
 use alloy::pubsub::PubSubFrontend;
 use alloy::rpc::types::eth::Log;
 use anyhow::{anyhow, Result};
-// use ethers::prelude::rand::Rng;
-// use ethers::prelude::*;
-// use ethers::types::Log;
-// use ethers::utils::keccak256;
-use std::collections::HashMap;
-use std::str::FromStr;
 use tokio::time::{Duration, Instant};
 use tokio_stream::StreamExt;
 

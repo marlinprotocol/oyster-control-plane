@@ -8,11 +8,6 @@ use alloy::rpc::types::eth::{Filter, Log};
 use alloy::sol_types::SolValue;
 use alloy::transports::ws::WsConnect;
 use anyhow::{Context, Result};
-// use ethers::abi::{AbiDecode, AbiEncode};
-// use ethers::prelude::*;
-// use ethers::types::serde_helpers::deserialize_stringified_numeric;
-// use ethers::types::Log;
-// use ethers::utils::keccak256;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::time::sleep;
@@ -1323,8 +1318,6 @@ fn now_timestamp() -> Duration {
 
 #[cfg(test)]
 mod tests {
-    // use ethers::abi::AbiEncode;
-    // use ethers::prelude::*;
     use std::str::FromStr;
 
     use alloy::hex::ToHexExt;

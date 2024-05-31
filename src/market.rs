@@ -1594,9 +1594,9 @@ mod tests {
         let job_num = U256::from(1).into();
         let job_logs: Vec<(u64, Log)> = vec![
             (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode()),
-            (50, Action::ReviseRateInitiated, (32000000000000u64,0).abi_encode()),
-            (100, Action::ReviseRateFinalized, (32000000000000u64,0).abi_encode()),
-            (150, Action::ReviseRateInitiated, (60000000000000u64,0).abi_encode()),
+            (50, Action::ReviseRateInitiated, (32000000000000u64).abi_encode()),
+            (100, Action::ReviseRateFinalized, (32000000000000u64).abi_encode()),
+            (150, Action::ReviseRateInitiated, (60000000000000u64).abi_encode()),
             (200, Action::ReviseRateCancelled, [].into()),
             (505, Action::Close, [].into()),
             ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
@@ -2076,10 +2076,10 @@ mod tests {
         let job_num = U256::from(1).into();
         let job_logs: Vec<(u64, Log)> = vec![
             (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode()),
-            (350, Action::ReviseRateInitiated, (29000000000000u64,0).abi_encode()),
-            (400, Action::ReviseRateFinalized, (29000000000000u64,0).abi_encode()),
-            (450, Action::ReviseRateInitiated, (31000000000000u64,0).abi_encode()),
-            (500, Action::ReviseRateFinalized, (31000000000000u64,0).abi_encode()),
+            (350, Action::ReviseRateInitiated, (29000000000000u64).abi_encode()),
+            (400, Action::ReviseRateFinalized, (29000000000000u64).abi_encode()),
+            (450, Action::ReviseRateInitiated, (31000000000000u64).abi_encode()),
+            (500, Action::ReviseRateFinalized, (31000000000000u64).abi_encode()),
         ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
         let start_time = Instant::now();

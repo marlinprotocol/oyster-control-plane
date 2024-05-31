@@ -1,13 +1,18 @@
+use alloy::hex::ToHexExt;
+use alloy::primitives::B128;
+use alloy::primitives::{keccak256, Address, Bytes, LogData, B256, B64, U256};
+use alloy::providers::Provider;
+use alloy::pubsub::PubSubFrontend;
+use alloy::rpc::types::eth::Log;
 use anyhow::{anyhow, Result};
-use ethers::prelude::rand::Rng;
-use ethers::prelude::*;
-use ethers::types::Log;
-use ethers::utils::keccak256;
+// use ethers::prelude::rand::Rng;
+// use ethers::prelude::*;
+// use ethers::types::Log;
+// use ethers::utils::keccak256;
 use std::collections::HashMap;
-use std::iter;
 use std::str::FromStr;
 use tokio::time::{Duration, Instant};
-use tokio_stream::{Stream, StreamExt};
+use tokio_stream::StreamExt;
 
 use crate::market::{GBRateCard, InfraProvider, JobId, LogsProvider, RateCard, RegionalRates};
 
@@ -60,26 +65,6 @@ pub enum TestAwsOutcome {
 }
 
 #[cfg(test)]
-pub async fn generate_random_string(charset: Option<&[u8]>, len: usize) -> String {
-    let charset =
-        charset.unwrap_or(b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
-    let one_char = || charset[rand::thread_rng().gen_range(0..charset.len())] as char;
-    iter::repeat_with(one_char).take(len).collect()
-}
-
-#[cfg(test)]
-pub async fn generate_random_ip() -> String {
-    let ip_parts: Vec<u8> = (0..4)
-        .map(|_| rand::thread_rng().gen_range(0..=255))
-        .collect();
-    ip_parts
-        .iter()
-        .map(|&part| part.to_string())
-        .collect::<Vec<String>>()
-        .join(".")
-}
-
-#[cfg(test)]
 #[derive(Clone, Debug)]
 pub struct InstanceMetadata {
     pub instance_id: String,
@@ -89,10 +74,17 @@ pub struct InstanceMetadata {
 #[cfg(test)]
 impl InstanceMetadata {
     pub async fn new(instance_id: Option<String>, ip_address: Option<String>) -> Self {
-        let instance_id = "i-".to_string()
-            + &instance_id.unwrap_or(generate_random_string(Some(b"1234567890abcdef"), 17).await);
+        let instance_id =
+            "i-".to_string() + &instance_id.unwrap_or(B128::random().encode_hex_with_prefix());
 
-        let ip_address = ip_address.unwrap_or(generate_random_ip().await);
+        let ip_address = ip_address.unwrap_or(
+            B64::random()
+                .as_slice()
+                .iter()
+                .map(|x| x.to_string())
+                .reduce(|a, b| a + "." + &b)
+                .unwrap(),
+        );
         Self {
             instance_id,
             ip_address,
@@ -296,12 +288,12 @@ pub struct TestLogger {}
 impl LogsProvider for TestLogger {
     async fn new_jobs<'a>(
         &'a self,
-        _client: &'a Provider<Ws>,
-    ) -> Result<impl Stream<Item = (H256, bool)> + 'a> {
+        _client: &'a impl Provider<PubSubFrontend>,
+    ) -> Result<impl StreamExt<Item = (B256, bool)> + 'a> {
         let logs: Vec<Log> = Vec::new();
         Ok(tokio_stream::iter(
             logs.iter()
-                .map(|job| (job.topics[1], false))
+                .map(|job| (job.topics()[1], false))
                 .collect::<Vec<_>>(),
         )
         .throttle(Duration::from_secs(2)))
@@ -309,13 +301,13 @@ impl LogsProvider for TestLogger {
 
     async fn job_logs<'a>(
         &'a self,
-        _client: &'a Provider<Ws>,
-        job: H256,
-    ) -> Result<impl Stream<Item = Log> + Send + 'a> {
+        _client: &'a impl Provider<PubSubFrontend>,
+        job: B256,
+    ) -> Result<impl StreamExt<Item = Log> + Send + 'a> {
         let logs: Vec<Log> = Vec::new();
         Ok(tokio_stream::iter(
             logs.into_iter()
-                .filter(|log| log.topics[1] == job)
+                .filter(|log| log.topics()[1] == job)
                 .collect::<Vec<_>>(),
         )
         .throttle(Duration::from_secs(2)))
@@ -342,7 +334,7 @@ pub fn get_rates() -> Vec<RegionalRates> {
         region: "ap-south-1".to_owned(),
         rate_cards: vec![RateCard {
             instance: "c6a.xlarge".to_owned(),
-            min_rate: U256::from_dec_str("29997916666666").unwrap(),
+            min_rate: U256::from_str_radix("29997916666666", 10).unwrap(),
             cpu: 4,
             memory: 8,
             arch: String::from("amd64"),
@@ -355,72 +347,100 @@ pub fn get_gb_rates() -> Vec<GBRateCard> {
     vec![GBRateCard {
         region: "Asia South (Mumbai)".to_owned(),
         region_code: "ap-south-1".to_owned(),
-        rate: U256::from_dec_str("109300000000000000").unwrap(),
+        rate: U256::from_str_radix("109300000000000000", 10).unwrap(),
     }]
 }
 
 #[cfg(test)]
-pub fn get_log(topic: Action, data: Bytes, idx: H256) -> Log {
+pub fn get_log(topic: Action, data: Bytes, idx: B256) -> Log {
     let mut log = Log {
-        address: H160::from_str("0x0F5F91BA30a00bD43Bd19466f020B3E5fc7a49ec").unwrap(),
-        removed: Some(false),
-        data,
+        inner: alloy::primitives::Log {
+            address: Address::from_str("0x0F5F91BA30a00bD43Bd19466f020B3E5fc7a49ec").unwrap(),
+            data: LogData::new_unchecked(vec![], Bytes::new()),
+        },
         ..Default::default()
     };
     match topic {
         Action::Open => {
-            log.topics = vec![
-                H256::from(keccak256(
-                    "JobOpened(bytes32,string,address,address,uint256,uint256,uint256)",
-                )),
-                idx,
-                H256::from_low_u64_be(log.address.to_low_u64_be()),
-            ];
+            log.inner.data = LogData::new_unchecked(
+                vec![
+                    B256::from(keccak256(
+                        "JobOpened(bytes32,string,address,address,uint256,uint256,uint256)",
+                    )),
+                    idx,
+                    log.address().into_word(),
+                ],
+                data,
+            );
         }
         Action::Close => {
-            log.topics = vec![H256::from(keccak256("JobClosed(bytes32)")), idx];
+            log.inner.data = LogData::new_unchecked(
+                vec![B256::from(keccak256("JobClosed(bytes32)")), idx],
+                data,
+            );
         }
         Action::Settle => {
-            log.topics = vec![
-                H256::from(keccak256("JobSettled(bytes32,uint256,uint256)")),
-                idx,
-            ];
+            log.inner.data = LogData::new_unchecked(
+                vec![
+                    B256::from(keccak256("JobSettled(bytes32,uint256,uint256)")),
+                    idx,
+                ],
+                data,
+            );
         }
         Action::Deposit => {
-            log.topics = vec![
-                H256::from(keccak256("JobDeposited(bytes32,address,uint256)")),
-                idx,
-            ];
+            log.inner.data = LogData::new_unchecked(
+                vec![
+                    B256::from(keccak256("JobDeposited(bytes32,address,uint256)")),
+                    idx,
+                ],
+                data,
+            );
         }
         Action::Withdraw => {
-            log.topics = vec![
-                H256::from(keccak256("JobWithdrew(bytes32,address,uint256)")),
-                idx,
-            ];
+            log.inner.data = LogData::new_unchecked(
+                vec![
+                    B256::from(keccak256("JobWithdrew(bytes32,address,uint256)")),
+                    idx,
+                ],
+                data,
+            );
         }
         Action::ReviseRateInitiated => {
-            log.topics = vec![
-                H256::from(keccak256("JobReviseRateInitiated(bytes32,uint256)")),
-                idx,
-            ];
+            log.inner.data = LogData::new_unchecked(
+                vec![
+                    B256::from(keccak256("JobReviseRateInitiated(bytes32,uint256)")),
+                    idx,
+                ],
+                data,
+            );
         }
         Action::ReviseRateCancelled => {
-            log.topics = vec![
-                H256::from(keccak256("JobReviseRateCancelled(bytes32)")),
-                idx,
-            ];
+            log.inner.data = LogData::new_unchecked(
+                vec![
+                    B256::from(keccak256("JobReviseRateCancelled(bytes32)")),
+                    idx,
+                ],
+                data,
+            );
         }
         Action::ReviseRateFinalized => {
-            log.topics = vec![
-                H256::from(keccak256("JobReviseRateFinalized(bytes32, uint256)")),
-                idx,
-            ];
+            log.inner.data = LogData::new_unchecked(
+                vec![
+                    B256::from(keccak256("JobReviseRateFinalized(bytes32, uint256)")),
+                    idx,
+                ],
+                data,
+            );
         }
         Action::MetadataUpdated => {
-            log.topics = vec![
-                H256::from(keccak256("JobMetadataUpdated(bytes32,string)")),
-                idx,
-            ];
+            log.inner.data = LogData::new_unchecked(
+                vec![
+                    B256::from(keccak256("JobMetadataUpdated(bytes32,string)")),
+                    idx,
+                ],
+                data,
+            );
         }
     }
 

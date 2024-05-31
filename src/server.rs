@@ -156,10 +156,12 @@ pub async fn serve(
 mod tests {
     use super::serve;
 
-    use anyhow;
-    use ethers::{abi::AbiEncode, prelude::*};
-    use serde_json::json;
     use std::net::SocketAddr;
+
+    use alloy::hex::ToHexExt;
+    use alloy::primitives::U256;
+    use anyhow;
+    use serde_json::json;
 
     use crate::market::{GBRateCard, JobId, RateCard, RegionalRates};
     use crate::test::{InstanceMetadata, TestAws};
@@ -169,7 +171,7 @@ mod tests {
         let mut aws: TestAws = Default::default();
 
         for id in 1..4 {
-            let temp_job_id = H256::from_low_u64_be(id).encode_hex();
+            let temp_job_id = U256::from(id).to_be_bytes::<32>().encode_hex_with_prefix();
             let instance_metadata = InstanceMetadata::new(None, None).await;
 
             aws.instances
@@ -182,7 +184,7 @@ mod tests {
         let bandwidth_rates: &'static [GBRateCard] = Box::leak(vec![].into_boxed_slice());
         let port = 8081;
 
-        let job_id = H256::from_low_u64_be(1).encode_hex();
+        let job_id = U256::from(1).to_be_bytes::<32>().encode_hex_with_prefix();
 
         tokio::spawn(serve(
             aws.clone(),
@@ -225,7 +227,7 @@ mod tests {
         let mut aws: TestAws = Default::default();
 
         for id in 1..4 {
-            let temp_job_id = H256::from_low_u64_be(id).encode_hex();
+            let temp_job_id = U256::from(id).to_be_bytes::<32>().encode_hex_with_prefix();
             let instance_metadata = InstanceMetadata::new(None, None).await;
 
             aws.instances
@@ -238,7 +240,7 @@ mod tests {
         let bandwidth_rates: &'static [GBRateCard] = Box::leak(vec![].into_boxed_slice());
         let port = 8082;
 
-        let job_id = H256::from_low_u64_be(5).encode_hex();
+        let job_id = U256::from(5).to_be_bytes::<32>().encode_hex_with_prefix();
 
         tokio::spawn(serve(
             aws.clone(),
@@ -282,7 +284,7 @@ mod tests {
         let bandwidth_rates: &'static [GBRateCard] = Box::leak(vec![].into_boxed_slice());
         let port = 8083;
 
-        let job_id = H256::from_low_u64_be(1).encode_hex();
+        let job_id = U256::from(1).to_be_bytes::<32>().encode_hex_with_prefix();
 
         tokio::spawn(serve(
             aws.clone(),
@@ -361,7 +363,7 @@ mod tests {
         let bandwidth_rates: &'static [GBRateCard] = Box::leak(vec![].into_boxed_slice());
         let port = 8084;
 
-        let job_id = H256::from_low_u64_be(1).encode_hex();
+        let job_id = U256::from(1).to_be_bytes::<32>().encode_hex_with_prefix();
 
         tokio::spawn(serve(
             aws.clone(),
@@ -423,7 +425,7 @@ mod tests {
         );
         let port = 8085;
 
-        let job_id = H256::from_low_u64_be(1).encode_hex();
+        let job_id = U256::from(1).to_be_bytes::<32>().encode_hex_with_prefix();
 
         tokio::spawn(serve(
             aws.clone(),

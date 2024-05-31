@@ -1,12 +1,13 @@
 use std::fs;
 use std::net::SocketAddr;
 
+use alloy::hex::ToHexExt;
+use alloy::primitives::{Address, B256};
+use alloy::providers::{Provider, ProviderBuilder};
+use alloy::transports::ws::WsConnect;
 use anyhow::Context;
 use anyhow::Result;
 use clap::Parser;
-use ethers::abi::AbiEncode;
-use ethers::prelude::*;
-use ethers::providers::{Provider, Ws};
 use tracing::Instrument;
 use tracing::{error, info, info_span};
 use tracing_subscriber::EnvFilter;
@@ -112,15 +113,14 @@ async fn parse_bandwidth_rates_file(filepath: String) -> Result<Vec<market::GBRa
 }
 
 async fn get_chain_id_from_rpc_url(url: String) -> Result<String> {
-    let provider = Provider::<Ws>::connect(url)
+    let provider = ProviderBuilder::new()
+        .on_ws(WsConnect::new(url))
         .await
-        .context("Failed to connect to rpc to fetch chain_id")?;
-    let hex_chain_id: String = provider
-        .request("eth_chainId", ())
+        .context("failed to create websocket provider")?;
+    let chain_id = provider
+        .get_chain_id()
         .await
-        .context("Failed to fetch chain_id")?;
-    let chain_id =
-        u64::from_str_radix(&hex_chain_id[2..], 16).context("Failed to convert chain_id to u64")?;
+        .context("failed to fetch chain id")?;
 
     Ok(chain_id.to_string())
 }
@@ -218,7 +218,7 @@ async fn run() -> Result<()> {
         .context("Failed to fetch chain_id")?;
 
     let job_id = market::JobId {
-        id: H256::zero().encode_hex(),
+        id: B256::ZERO.encode_hex_with_prefix(),
         operator: cli.provider.clone(),
         contract: cli.contract.clone(),
         chain,

@@ -366,6 +366,7 @@ pub fn get_log(topic: Action, data: Bytes, idx: B256) -> Log {
                     keccak256("JobOpened(bytes32,string,address,address,uint256,uint256,uint256)"),
                     idx,
                     log.address().into_word(),
+                    log.address().into_word(),
                 ],
                 data,
             );
@@ -382,13 +383,21 @@ pub fn get_log(topic: Action, data: Bytes, idx: B256) -> Log {
         }
         Action::Deposit => {
             log.inner.data = LogData::new_unchecked(
-                vec![keccak256("JobDeposited(bytes32,address,uint256)"), idx],
+                vec![
+                    keccak256("JobDeposited(bytes32,address,uint256)"),
+                    idx,
+                    log.address().into_word(),
+                ],
                 data,
             );
         }
         Action::Withdraw => {
             log.inner.data = LogData::new_unchecked(
-                vec![keccak256("JobWithdrew(bytes32,address,uint256)"), idx],
+                vec![
+                    keccak256("JobWithdrew(bytes32,address,uint256)"),
+                    idx,
+                    log.address().into_word(),
+                ],
                 data,
             );
         }

@@ -1293,6 +1293,7 @@ async fn job_logs(
             keccak256("JobReviseRateInitiated(bytes32,uint256)"),
             keccak256("JobReviseRateCancelled(bytes32)"),
             keccak256("JobReviseRateFinalized(bytes32,uint256)"),
+            keccak256("JobMetadataUpdated(bytes32,string)"),
         ])
         .topic1(job);
 

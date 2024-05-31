@@ -1367,7 +1367,7 @@ mod tests {
             job_stream,
             &mut aws,
             market::JobId {
-                id: job_num.encode_hex(),
+                id: job_num.encode_hex_with_prefix(),
                 operator: "abc".into(),
                 contract: "xyz".into(),
                 chain: "123".into(),
@@ -1383,7 +1383,6 @@ mod tests {
 
         // job manager should have finished successfully
         assert_eq!(res, 0);
-        println!("{:?}", aws.outcomes);
         let spin_up_tv_sec: Instant;
         let instance_id: String;
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
@@ -1454,7 +1453,7 @@ mod tests {
             job_stream,
             &mut aws,
             market::JobId {
-                id: job_num.encode_hex(),
+                id: job_num.encode_hex_with_prefix(),
                 operator: "abc".into(),
                 contract: "xyz".into(),
                 chain: "123".into(),
@@ -1470,7 +1469,6 @@ mod tests {
 
         // job manager should have finished successfully
         assert_eq!(res, 0);
-        println!("{:?}", aws.outcomes);
         let spin_up_tv_sec: Instant;
         let instance_id: String;
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
@@ -1542,7 +1540,7 @@ mod tests {
             job_stream,
             &mut aws,
             market::JobId {
-                id: job_num.encode_hex(),
+                id: job_num.encode_hex_with_prefix(),
                 operator: "abc".into(),
                 contract: "xyz".into(),
                 chain: "123".into(),
@@ -1558,7 +1556,6 @@ mod tests {
 
         // job manager should have finished successfully
         assert_eq!(res, 0);
-        println!("{:?}", aws.outcomes);
         let spin_up_tv_sec: Instant;
         let instance_id: String;
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
@@ -1633,7 +1630,7 @@ mod tests {
             job_stream,
             &mut aws,
             market::JobId {
-                id: job_num.encode_hex(),
+                id: job_num.encode_hex_with_prefix(),
                 operator: "abc".into(),
                 contract: "xyz".into(),
                 chain: "123".into(),
@@ -1649,7 +1646,6 @@ mod tests {
 
         // job manager should have finished successfully
         assert_eq!(res, 0);
-        println!("{:?}", aws.outcomes);
         let spin_up_tv_sec: Instant;
         let instance_id: String;
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
@@ -1720,7 +1716,7 @@ mod tests {
             job_stream,
             &mut aws,
             market::JobId {
-                id: job_num.encode_hex(),
+                id: job_num.encode_hex_with_prefix(),
                 operator: "abc".into(),
                 contract: "xyz".into(),
                 chain: "123".into(),
@@ -1764,7 +1760,7 @@ mod tests {
             job_stream,
             &mut aws,
             market::JobId {
-                id: job_num.encode_hex(),
+                id: job_num.encode_hex_with_prefix(),
                 operator: "abc".into(),
                 contract: "xyz".into(),
                 chain: "123".into(),
@@ -1808,7 +1804,7 @@ mod tests {
             job_stream,
             &mut aws,
             market::JobId {
-                id: job_num.encode_hex(),
+                id: job_num.encode_hex_with_prefix(),
                 operator: "abc".into(),
                 contract: "xyz".into(),
                 chain: "123".into(),
@@ -1852,7 +1848,7 @@ mod tests {
             job_stream,
             &mut aws,
             market::JobId {
-                id: job_num.encode_hex(),
+                id: job_num.encode_hex_with_prefix(),
                 operator: "abc".into(),
                 contract: "xyz".into(),
                 chain: "123".into(),
@@ -1896,7 +1892,7 @@ mod tests {
             job_stream,
             &mut aws,
             market::JobId {
-                id: job_num.encode_hex(),
+                id: job_num.encode_hex_with_prefix(),
                 operator: "abc".into(),
                 contract: "xyz".into(),
                 chain: "123".into(),
@@ -1940,7 +1936,7 @@ mod tests {
             job_stream,
             &mut aws,
             market::JobId {
-                id: job_num.encode_hex(),
+                id: job_num.encode_hex_with_prefix(),
                 operator: "abc".into(),
                 contract: "xyz".into(),
                 chain: "123".into(),
@@ -1984,7 +1980,7 @@ mod tests {
             job_stream,
             &mut aws,
             market::JobId {
-                id: job_num.encode_hex(),
+                id: job_num.encode_hex_with_prefix(),
                 operator: "abc".into(),
                 contract: "xyz".into(),
                 chain: "123".into(),
@@ -2029,7 +2025,7 @@ mod tests {
             job_stream,
             &mut aws,
             market::JobId {
-                id: job_num.encode_hex(),
+                id: job_num.encode_hex_with_prefix(),
                 operator: "abc".into(),
                 contract: "xyz".into(),
                 chain: "123".into(),
@@ -2045,7 +2041,6 @@ mod tests {
 
         // job manager should have finished successfully
         assert_eq!(res, 0);
-        println!("{:?}", aws.outcomes);
         let spin_up_tv_sec: Instant;
         let instance_id: String;
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
@@ -2119,7 +2114,7 @@ mod tests {
             job_stream,
             &mut aws,
             market::JobId {
-                id: job_num.encode_hex(),
+                id: job_num.encode_hex_with_prefix(),
                 operator: "abc".into(),
                 contract: "xyz".into(),
                 chain: "123".into(),
@@ -2135,7 +2130,6 @@ mod tests {
 
         // job manager should have finished successfully
         assert_eq!(res, 0);
-        println!("{:?}", aws.outcomes);
         let spin_up_tv_sec: Instant;
         let instance_id: String;
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
@@ -2206,7 +2200,7 @@ mod tests {
             job_stream,
             &mut aws,
             market::JobId {
-                id: job_num.encode_hex(),
+                id: job_num.encode_hex_with_prefix(),
                 operator: "abc".into(),
                 contract: "xyz".into(),
                 chain: "123".into(),
@@ -2216,7 +2210,7 @@ mod tests {
             &test::get_rates(),
             &test::get_gb_rates(),
             &Vec::from([
-                "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
+                "0x0000000000000000000000000f5f91ba30a00bd43bd19466f020b3e5fc7a49ec".to_string(),
             ]),
             &Vec::new(),
         )
@@ -2224,7 +2218,6 @@ mod tests {
 
         // job manager should have finished successfully
         assert_eq!(res, 0);
-        println!("{:?}", aws.outcomes);
         let spin_up_tv_sec: Instant;
         let instance_id: String;
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
@@ -2295,7 +2288,7 @@ mod tests {
             job_stream,
             &mut aws,
             market::JobId {
-                id: job_num.encode_hex(),
+                id: job_num.encode_hex_with_prefix(),
                 operator: "abc".into(),
                 contract: "xyz".into(),
                 chain: "123".into(),
@@ -2305,7 +2298,7 @@ mod tests {
             &test::get_rates(),
             &test::get_gb_rates(),
             &Vec::from([
-                "0x000000000000000000000000000000000000000000000000f020c4f6gc7a56ce".to_string(),
+                "0x0000000000000000000000000f5f91ba30a00bd43bd19466f020b3e5fc7a49ed".to_string(),
             ]),
             &Vec::new(),
         )
@@ -2341,7 +2334,7 @@ mod tests {
             job_stream,
             &mut aws,
             market::JobId {
-                id: job_num.encode_hex(),
+                id: job_num.encode_hex_with_prefix(),
                 operator: "abc".into(),
                 contract: "xyz".into(),
                 chain: "123".into(),
@@ -2352,7 +2345,7 @@ mod tests {
             &test::get_gb_rates(),
             &Vec::new(),
             &Vec::from([
-                "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
+                "0x0000000000000000000000000f5f91ba30a00bd43bd19466f020b3e5fc7a49ec".to_string(),
             ]),
         )
         .await;
@@ -2387,7 +2380,7 @@ mod tests {
             job_stream,
             &mut aws,
             market::JobId {
-                id: job_num.encode_hex(),
+                id: job_num.encode_hex_with_prefix(),
                 operator: "abc".into(),
                 contract: "xyz".into(),
                 chain: "123".into(),
@@ -2398,14 +2391,13 @@ mod tests {
             &test::get_gb_rates(),
             &Vec::new(),
             &Vec::from([
-                "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ece".to_string(),
+                "0x0000000000000000000000000f5f91ba30a00bd43bd19466f020b3e5fc7a49ed".to_string(),
             ]),
         )
         .await;
 
         // job manager should have finished successfully
         assert_eq!(res, 0);
-        println!("{:?}", aws.outcomes);
         let spin_up_tv_sec: Instant;
         let instance_id: String;
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
@@ -2478,8 +2470,8 @@ mod tests {
             Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode()),
             B256::ZERO);
         let address_whitelist = vec![
-            "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
-            "0x000000000000000000000000000000000000000000000000f020b3e5fd6sd76d".to_string(),
+            "0x0000000000000000000000000f5f91ba30a00bd43bd19466f020b3e5fc7a49ec".to_string(),
+            "0x0000000000000000000000000f5f91ba30a00bd43bd19466f020b3e5fc7a49ed".to_string(),
         ];
         let address_blacklist = vec![];
 
@@ -2498,8 +2490,8 @@ mod tests {
             Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode()),
             B256::ZERO);
         let address_whitelist = vec![
-            "0x000000000000000000000000000000000000000000000000f020b3e5fc7a48as".to_string(),
-            "0x000000000000000000000000000000000000000000000000f020b3e5fd6sd76d".to_string(),
+            "0x0000000000000000000000000f5f91ba30a00bd43bd19466f020b3e5fc7a49eb".to_string(),
+            "0x0000000000000000000000000f5f91ba30a00bd43bd19466f020b3e5fc7a49ed".to_string(),
         ];
         let address_blacklist = vec![];
 
@@ -2519,8 +2511,8 @@ mod tests {
             B256::ZERO);
         let address_whitelist = vec![];
         let address_blacklist = vec![
-            "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
-            "0x000000000000000000000000000000000000000000000000f020b3e5fd6sdsd6".to_string(),
+            "0x0000000000000000000000000f5f91ba30a00bd43bd19466f020b3e5fc7a49ec".to_string(),
+            "0x0000000000000000000000000f5f91ba30a00bd43bd19466f020b3e5fc7a49ed".to_string(),
         ];
 
         assert!(!market::whitelist_blacklist_check(
@@ -2539,8 +2531,8 @@ mod tests {
             B256::ZERO);
         let address_whitelist = vec![];
         let address_blacklist = vec![
-            "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49fe".to_string(),
-            "0x000000000000000000000000000000000000000000000000f020b3e5fd6sdsd6".to_string(),
+            "0x0000000000000000000000000f5f91ba30a00bd43bd19466f020b3e5fc7a49eb".to_string(),
+            "0x0000000000000000000000000f5f91ba30a00bd43bd19466f020b3e5fc7a49ed".to_string(),
         ];
 
         assert!(market::whitelist_blacklist_check(
@@ -2558,12 +2550,12 @@ mod tests {
             Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode()),
             B256::ZERO);
         let address_whitelist = vec![
-            "0x000000000000000000000000000000000000000000000000f020b3e5fc7a48aa".to_string(),
-            "0x000000000000000000000000000000000000000000000000f020b3e5fd6sd76d".to_string(),
+            "0x0000000000000000000000000f5f91ba30a00bd43bd19466f020b3e5fc7a49eb".to_string(),
+            "0x0000000000000000000000000f5f91ba30a00bd43bd19466f020b3e5fc7a49ed".to_string(),
         ];
         let address_blacklist = vec![
-            "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ed".to_string(),
-            "0x000000000000000000000000000000000000000000000000f020b3e5fd6sdsd6".to_string(),
+            "0x0000000000000000000000000f5f91ba30a00bd43bd19466f020b3e5fc7a49ea".to_string(),
+            "0x0000000000000000000000000f5f91ba30a00bd43bd19466f020b3e5fc7a49ee".to_string(),
         ];
 
         assert!(!market::whitelist_blacklist_check(
@@ -2581,12 +2573,12 @@ mod tests {
             Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode()),
             B256::ZERO);
         let address_whitelist = vec![
-            "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
-            "0x000000000000000000000000000000000000000000000000f020b3e5fd6sd76d".to_string(),
+            "0x0000000000000000000000000f5f91ba30a00bd43bd19466f020b3e5fc7a49ec".to_string(),
+            "0x0000000000000000000000000f5f91ba30a00bd43bd19466f020b3e5fc7a49ed".to_string(),
         ];
         let address_blacklist = vec![
-            "0x000000000000000000000000000000000000000000000000f020b3e5fc7a49ec".to_string(),
-            "0x000000000000000000000000000000000000000000000000f020b3e5fd6sdsd6".to_string(),
+            "0x0000000000000000000000000f5f91ba30a00bd43bd19466f020b3e5fc7a49ec".to_string(),
+            "0x0000000000000000000000000f5f91ba30a00bd43bd19466f020b3e5fc7a49eb".to_string(),
         ];
 
         assert!(!market::whitelist_blacklist_check(
@@ -2675,7 +2667,7 @@ mod tests {
             job_stream,
             &mut aws,
             market::JobId {
-                id: job_num.encode_hex(),
+                id: job_num.encode_hex_with_prefix(),
                 operator: "abc".into(),
                 contract: "xyz".into(),
                 chain: "123".into(),
@@ -2691,7 +2683,6 @@ mod tests {
 
         // job manager should have finished successfully
         assert_eq!(res, 0);
-        println!("{:?}", aws.outcomes);
         let spin_up_tv_sec: Instant;
         let instance_id: String;
         if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
@@ -2764,7 +2755,7 @@ mod tests {
             job_stream,
             &mut aws,
             market::JobId {
-                id: job_num.encode_hex(),
+                id: job_num.encode_hex_with_prefix(),
                 operator: "abc".into(),
                 contract: "xyz".into(),
                 chain: "123".into(),
@@ -2810,7 +2801,7 @@ mod tests {
             job_stream,
             &mut aws,
             market::JobId {
-                id: job_num.encode_hex(),
+                id: job_num.encode_hex_with_prefix(),
                 operator: "abc".into(),
                 contract: "xyz".into(),
                 chain: "123".into(),

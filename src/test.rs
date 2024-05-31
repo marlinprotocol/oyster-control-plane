@@ -74,8 +74,7 @@ pub struct InstanceMetadata {
 #[cfg(test)]
 impl InstanceMetadata {
     pub async fn new(instance_id: Option<String>, ip_address: Option<String>) -> Self {
-        let instance_id =
-            "i-".to_string() + &instance_id.unwrap_or(B128::random().encode_hex_with_prefix());
+        let instance_id = "i-".to_string() + &instance_id.unwrap_or(B128::random().encode_hex());
 
         let ip_address = ip_address.unwrap_or(
             B64::random()

@@ -2,7 +2,7 @@ use std::fs;
 use std::net::SocketAddr;
 
 use alloy::hex::ToHexExt;
-use alloy::primitives::B256;
+use alloy::primitives::{Address, B256};
 use alloy::providers::{Provider, ProviderBuilder};
 use alloy::transports::ws::WsConnect;
 use anyhow::Context;
@@ -239,11 +239,11 @@ async fn run() -> Result<()> {
     let ethers = market::EthersProvider {
         contract: cli
             .contract
-            .parse::<ethers::prelude::Address>()
+            .parse::<Address>()
             .context("failed to parse contract address")?,
         provider: cli
             .provider
-            .parse::<ethers::prelude::Address>()
+            .parse::<Address>()
             .context("failed to parse provider address")?,
     };
 

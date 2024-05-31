@@ -796,7 +796,7 @@ impl<'a> JobState<'a> {
         #[allow(non_snake_case)]
         let JOB_REVISE_RATE_CANCELLED = keccak256("JobReviseRateCancelled(bytes32)");
         #[allow(non_snake_case)]
-        let JOB_REVISE_RATE_FINALIZED = keccak256("JobReviseRateFinalized(bytes32, uint256)");
+        let JOB_REVISE_RATE_FINALIZED = keccak256("JobReviseRateFinalized(bytes32,uint256)");
         #[allow(non_snake_case)]
         let METADATA_UPDATED = keccak256("JobMetadataUpdated(bytes32,string)");
 

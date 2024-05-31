@@ -1087,15 +1087,8 @@ impl<'a> JobState<'a> {
                 error!(data = ?log.data(), "JOB_REVISE_RATE_FINALIZED: Decode failure");
             }
         } else if log.topics()[0] == METADATA_UPDATED {
-            if let Ok((metadata, timestamp)) = <(String, U256)>::abi_decode(&log.data().data, true)
-            {
-                info!(
-                    metadata,
-                    last_settled = self.last_settled.as_secs(),
-                    "METADATA_UPDATED",
-                );
-
-                self.last_settled = Duration::from_secs(timestamp.saturating_to::<u64>());
+            if let Ok(metadata) = String::abi_decode(&log.data().data, true) {
+                info!(metadata, "METADATA_UPDATED");
 
                 let v = serde_json::from_str(&metadata);
                 if let Err(err) = v {

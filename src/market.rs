@@ -978,6 +978,7 @@ impl<'a> JobState<'a> {
                 }
             } else {
                 error!(data = ?log.data(), "OPENED: Decode failure");
+                return -2;
             }
         } else if log.topics()[0] == JOB_SETTLED {
             // decode
@@ -1003,6 +1004,7 @@ impl<'a> JobState<'a> {
                 );
             } else {
                 error!(data = ?log.data(), "SETTLED: Decode failure");
+                return -2;
             }
         } else if log.topics()[0] == JOB_CLOSED {
             self.schedule_termination(0);
@@ -1029,6 +1031,7 @@ impl<'a> JobState<'a> {
                 );
             } else {
                 error!(data = ?log.data(), "DEPOSITED: Decode failure");
+                return -2;
             }
         } else if log.topics()[0] == JOB_WITHDREW {
             // decode
@@ -1053,6 +1056,7 @@ impl<'a> JobState<'a> {
                 );
             } else {
                 error!(data = ?log.data(), "WITHDREW: Decode failure");
+                return -2;
             }
         } else if log.topics()[0] == JOB_REVISE_RATE_INITIATED {
             // IMPORTANT: Tuples have to be decoded using abi_decode_sequence
@@ -1080,6 +1084,7 @@ impl<'a> JobState<'a> {
                 );
             } else {
                 error!(data = ?log.data(), "JOB_REVISE_RATE_INTIATED: Decode failure");
+                return -2;
             }
         } else if log.topics()[0] == JOB_REVISE_RATE_CANCELLED {
             info!(
@@ -1120,6 +1125,7 @@ impl<'a> JobState<'a> {
                 );
             } else {
                 error!(data = ?log.data(), "JOB_REVISE_RATE_FINALIZED: Decode failure");
+                return -2;
             }
         } else if log.topics()[0] == METADATA_UPDATED {
             // IMPORTANT: Tuples have to be decoded using abi_decode_sequence
@@ -1227,9 +1233,11 @@ impl<'a> JobState<'a> {
                 self.schedule_launch(self.launch_delay);
             } else {
                 error!(data = ?log.data(), "METADATA_UPDATED: Decode failure");
+                return -2;
             }
         } else {
             error!(topic = ?log.topics()[0], "Unknown event");
+            return -2;
         }
 
         0

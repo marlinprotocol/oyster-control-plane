@@ -13,7 +13,7 @@ use serde_json::Value;
 use tokio::time::sleep;
 use tokio::time::{Duration, Instant};
 use tokio_stream::StreamExt;
-use tracing::{error, info, info_span, Instrument};
+use tracing::{error, info, info_span, warn, Instrument};
 
 // IMPORTANT: do not import SystemTime, use the now_timestamp helper
 
@@ -854,79 +854,55 @@ impl<'a> JobState<'a> {
             self.original_rate = _rate;
             self.last_settled = Duration::from_secs(timestamp.saturating_to::<u64>());
 
-            let v = serde_json::from_str(&metadata);
-            if let Err(err) = v {
-                error!(?err, "Error reading metadata");
+            let Ok(v) = serde_json::from_str::<Value>(&metadata)
+                .inspect_err(|err| error!(?err, "Error reading metadata"))
+            else {
                 return -2;
-            }
+            };
 
-            let v: Value = v.unwrap();
+            let Some(t) = v["instance"].as_str() else {
+                error!("Instance type not set");
+                return -2;
+            };
+            self.instance_type = t.to_string();
+            info!(self.instance_type, "Instance type set");
 
-            let r = v["instance"].as_str();
-            match r {
-                Some(t) => {
-                    self.instance_type = t.to_string();
-                    info!(self.instance_type, "Instance type set");
-                }
-                None => {
-                    error!("Instance type not set");
-                    return -2;
-                }
-            }
-
-            let r = v["region"].as_str();
-            match r {
-                Some(t) => {
-                    self.region = t.to_string();
-                    info!(self.region, "Job region set");
-                }
-                None => {
-                    error!("Job region not set");
-                    return -2;
-                }
-            }
+            let Some(t) = v["region"].as_str() else {
+                error!("Job region not set");
+                return -2;
+            };
+            self.region = t.to_string();
+            info!(self.region, "Job region set");
 
             if !self.allowed_regions.contains(&self.region) {
                 error!(self.region, "Region not suppported, exiting job");
                 return -2;
             }
 
-            let r = v["memory"].as_i64();
-            match r {
-                Some(t) => {
-                    self.req_mem = t;
-                    info!(self.req_mem, "Required memory");
-                }
-                None => {
-                    error!("Memory not set");
-                    return -2;
-                }
-            }
+            let Some(t) = v["memory"].as_i64() else {
+                error!("Memory not set");
+                return -2;
+            };
+            self.req_mem = t;
+            info!(self.req_mem, "Required memory");
 
-            let r = v["vcpu"].as_i64();
-            match r {
-                Some(t) => {
-                    self.req_vcpus = t.try_into().unwrap_or(2);
-                    info!(self.req_vcpus, "Required vcpu");
-                }
-                None => {
-                    error!("vcpu not set");
-                    return -2;
-                }
-            }
+            let Some(t) = v["vcpu"].as_i64() else {
+                error!("vcpu not set");
+                return -2;
+            };
+            self.req_vcpus = t.try_into().unwrap_or(i32::MAX);
+            info!(self.req_vcpus, "Required vcpu");
 
-            let url = v["url"].as_str();
-            if url.is_none() {
+            let Some(url) = v["url"].as_str() else {
                 error!("EIF url not found! Exiting job");
                 return -2;
-            }
-            self.eif_url = url.unwrap().to_string();
+            };
+            self.eif_url = url.to_string();
 
-            let family = v["family"].as_str();
             // we leave the default family unchanged if not found for backward compatibility
-            if let Some(family) = family {
-                family.clone_into(&mut self.family);
-            }
+            v["family"]
+                .as_str()
+                .inspect(|f| self.family = (*f).to_owned());
 
             // blacklist whitelist check
             let allowed =
@@ -1142,77 +1118,55 @@ impl<'a> JobState<'a> {
 
             info!(metadata, "METADATA_UPDATED");
 
-            let v = serde_json::from_str(&metadata);
-            if let Err(err) = v {
-                error!(?err, "Error reading metadata");
+            let Ok(v) = serde_json::from_str::<Value>(&metadata)
+                .inspect_err(|err| error!(?err, "Error reading metadata"))
+            else {
+                self.schedule_termination(0);
+                return -2;
+            };
+
+            let Some(t) = v["instance"].as_str() else {
+                error!("Instance type not set");
+                self.schedule_termination(0);
+                return -2;
+            };
+            if self.instance_type != t {
+                error!("Instance type change not allowed");
                 self.schedule_termination(0);
                 return -2;
             }
 
-            let v: Value = v.unwrap();
-
-            let r = v["instance"].as_str();
-            match r {
-                Some(t) => {
-                    if self.instance_type != t {
-                        error!("Instance type change not allowed");
-                        self.schedule_termination(0);
-                        return -2;
-                    }
-                }
-                None => {
-                    error!("Instance type not set");
-                    self.schedule_termination(0);
-                    return -2;
-                }
+            let Some(t) = v["region"].as_str() else {
+                error!("Job region not set");
+                self.schedule_termination(0);
+                return -2;
+            };
+            if self.region != t {
+                error!("Region change not allowed");
+                self.schedule_termination(0);
+                return -2;
             }
 
-            let r = v["region"].as_str();
-            match r {
-                Some(t) => {
-                    if self.region != t {
-                        error!("Region change not allowed");
-                        self.schedule_termination(0);
-                        return -2;
-                    }
-                }
-                None => {
-                    error!("Job region not set");
-                    self.schedule_termination(0);
-                    return -2;
-                }
+            let Some(t) = v["memory"].as_i64() else {
+                error!("Memory not set");
+                self.schedule_termination(0);
+                return -2;
+            };
+            if self.req_mem != t {
+                error!("Memory change not allowed");
+                self.schedule_termination(0);
+                return -2;
             }
 
-            let r = v["memory"].as_i64();
-            match r {
-                Some(t) => {
-                    if self.req_mem != t {
-                        error!("Memory change not allowed");
-                        self.schedule_termination(0);
-                        return -2;
-                    }
-                }
-                None => {
-                    error!("Memory not set");
-                    self.schedule_termination(0);
-                    return -2;
-                }
-            }
-
-            let r = v["vcpu"].as_i64();
-            match r {
-                Some(t) => {
-                    if self.req_vcpus != t.try_into().unwrap_or(2) {
-                        error!("vcpu change not allowed");
-                        self.schedule_termination(0);
-                        return -2;
-                    }
-                }
-                None => {
-                    error!("vcpu not set");
-                    self.schedule_termination(0);
-                    return -2;
-                }
+            let Some(t) = v["vcpu"].as_i64() else {
+                error!("vcpu not set");
+                self.schedule_termination(0);
+                return -2;
+            };
+            if self.req_vcpus != t.try_into().unwrap_or(2) {
+                error!("vcpu change not allowed");
+                self.schedule_termination(0);
+                return -2;
             }
 
             let family = v["family"].as_str();
@@ -1222,22 +1176,16 @@ impl<'a> JobState<'a> {
                 return -2;
             }
 
-            let url = v["url"].as_str();
-            match url {
-                Some(t) => {
-                    if self.eif_url == t {
-                        error!("No url change for EIF update event");
-                        self.schedule_termination(0);
-                        return -2;
-                    }
-                }
-                None => {
-                    error!("Url not set");
-                    self.schedule_termination(0);
-                    return -2;
-                }
+            let Some(url) = v["url"].as_str() else {
+                error!("EIF url not found! Exiting job");
+                self.schedule_termination(0);
+                return -2;
+            };
+            if self.eif_url == url {
+                warn!("No url change for EIF update event");
+                return 0;
             }
-            self.eif_url = url.unwrap().to_string();
+            self.eif_url = url.to_string();
             self.eif_update = true;
             self.schedule_launch(self.launch_delay);
         } else {

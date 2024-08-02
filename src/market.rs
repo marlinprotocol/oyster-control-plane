@@ -13,7 +13,7 @@ use serde_json::Value;
 use tokio::time::sleep;
 use tokio::time::{Duration, Instant};
 use tokio_stream::StreamExt;
-use tracing::{error, info, info_span, warn, Instrument};
+use tracing::{error, info, info_span, Instrument};
 
 // IMPORTANT: do not import SystemTime, use the now_timestamp helper
 
@@ -1182,8 +1182,9 @@ impl<'a> JobState<'a> {
                 return -2;
             };
             if self.eif_url == url {
-                warn!("No url change for EIF update event");
-                return 0;
+                error!("No url change for EIF update event");
+                self.schedule_termination(0);
+                return -2;
             }
             self.eif_url = url.to_string();
             self.eif_update = true;

@@ -1515,9 +1515,23 @@ impl InfraProvider for Aws {
             return Err(anyhow!("Instance not found for job - {}", job.id));
         }
 
-        self.get_instance_ip(&instance.1, region)
+        let instance_ip = self
+            .get_instance_ip(&instance.1, region)
             .await
-            .context("could not get instance ip")
+            .context("could not get instance ip")?;
+
+        let (found, _, elastic_ip) = self
+            .get_job_elastic_ip(job, region)
+            .await
+            .context("could not get job elastic ip")?;
+
+        // it is possible for the two above to differ while the instance is initializing (maybe
+        // terminating?), better to error out instead of potentially showing a temporary IP
+        if found && instance_ip == elastic_ip {
+            return Ok(instance_ip);
+        }
+
+        Err(anyhow!("Instance is still initializing"))
     }
 
     async fn check_instance_running(&mut self, instance_id: &str, region: &str) -> Result<bool> {

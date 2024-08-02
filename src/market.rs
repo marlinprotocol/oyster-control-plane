@@ -833,7 +833,7 @@ impl<'a> JobState<'a> {
         if log.topics()[0] == JOB_OPENED {
             // decode
             if let Ok((metadata, _rate, _balance, timestamp)) =
-                <(String, U256, U256, U256)>::abi_decode(&log.data().data, true)
+                <(String, U256, U256, U256)>::abi_decode_sequence(&log.data().data, true)
             {
                 info!(
                     metadata,
@@ -981,7 +981,9 @@ impl<'a> JobState<'a> {
             }
         } else if log.topics()[0] == JOB_SETTLED {
             // decode
-            if let Ok((amount, timestamp)) = <(U256, U256)>::abi_decode(&log.data().data, true) {
+            if let Ok((amount, timestamp)) =
+                <(U256, U256)>::abi_decode_sequence(&log.data().data, true)
+            {
                 info!(
                     amount = amount.to_string(),
                     rate = self.rate.to_string(),
@@ -1006,6 +1008,8 @@ impl<'a> JobState<'a> {
             self.schedule_termination(0);
         } else if log.topics()[0] == JOB_DEPOSITED {
             // decode
+            // IMPORTANT: Tuples have to be decoded using abi_decode_sequence
+            // if this is changed in the future
             if let Ok(amount) = U256::abi_decode(&log.data().data, true) {
                 // update solvency metrics
                 info!(
@@ -1028,6 +1032,8 @@ impl<'a> JobState<'a> {
             }
         } else if log.topics()[0] == JOB_WITHDREW {
             // decode
+            // IMPORTANT: Tuples have to be decoded using abi_decode_sequence
+            // if this is changed in the future
             if let Ok(amount) = U256::abi_decode(&log.data().data, true) {
                 info!(
                     amount = amount.to_string(),
@@ -1049,6 +1055,8 @@ impl<'a> JobState<'a> {
                 error!(data = ?log.data(), "WITHDREW: Decode failure");
             }
         } else if log.topics()[0] == JOB_REVISE_RATE_INITIATED {
+            // IMPORTANT: Tuples have to be decoded using abi_decode_sequence
+            // if this is changed in the future
             if let Ok(new_rate) = U256::abi_decode(&log.data().data, true) {
                 info!(
                     self.original_rate = self.original_rate.to_string(),
@@ -1088,6 +1096,8 @@ impl<'a> JobState<'a> {
                 "JOB_REVISE_RATE_CANCELLED",
             );
         } else if log.topics()[0] == JOB_REVISE_RATE_FINALIZED {
+            // IMPORTANT: Tuples have to be decoded using abi_decode_sequence
+            // if this is changed in the future
             if let Ok(new_rate) = U256::abi_decode(&log.data().data, true) {
                 info!(
                     self.original_rate = self.original_rate.to_string(),
@@ -1112,6 +1122,8 @@ impl<'a> JobState<'a> {
                 error!(data = ?log.data(), "JOB_REVISE_RATE_FINALIZED: Decode failure");
             }
         } else if log.topics()[0] == METADATA_UPDATED {
+            // IMPORTANT: Tuples have to be decoded using abi_decode_sequence
+            // if this is changed in the future
             if let Ok(metadata) = String::abi_decode(&log.data().data, true) {
                 info!(metadata, "METADATA_UPDATED");
 

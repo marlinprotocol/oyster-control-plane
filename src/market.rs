@@ -1137,7 +1137,7 @@ impl<'a> JobState<'a> {
                 if let Err(err) = v {
                     error!(?err, "Error reading metadata");
                     self.schedule_termination(0);
-                    return -3;
+                    return -2;
                 }
 
                 let v: Value = v.unwrap();
@@ -1148,13 +1148,13 @@ impl<'a> JobState<'a> {
                         if self.instance_type != t {
                             error!("Instance type change not allowed");
                             self.schedule_termination(0);
-                            return -3;
+                            return -2;
                         }
                     }
                     None => {
                         error!("Instance type not set");
                         self.schedule_termination(0);
-                        return -3;
+                        return -2;
                     }
                 }
 
@@ -1164,13 +1164,13 @@ impl<'a> JobState<'a> {
                         if self.region != t {
                             error!("Region change not allowed");
                             self.schedule_termination(0);
-                            return -3;
+                            return -2;
                         }
                     }
                     None => {
                         error!("Job region not set");
                         self.schedule_termination(0);
-                        return -3;
+                        return -2;
                     }
                 }
 
@@ -1180,13 +1180,13 @@ impl<'a> JobState<'a> {
                         if self.req_mem != t {
                             error!("Memory change not allowed");
                             self.schedule_termination(0);
-                            return -3;
+                            return -2;
                         }
                     }
                     None => {
                         error!("Memory not set");
                         self.schedule_termination(0);
-                        return -3;
+                        return -2;
                     }
                 }
 
@@ -1196,13 +1196,13 @@ impl<'a> JobState<'a> {
                         if self.req_vcpus != t.try_into().unwrap_or(2) {
                             error!("vcpu change not allowed");
                             self.schedule_termination(0);
-                            return -3;
+                            return -2;
                         }
                     }
                     None => {
                         error!("vcpu not set");
                         self.schedule_termination(0);
-                        return -3;
+                        return -2;
                     }
                 }
 
@@ -1210,7 +1210,7 @@ impl<'a> JobState<'a> {
                 if family.is_some() && self.family != family.unwrap() {
                     error!("Family change not allowed");
                     self.schedule_termination(0);
-                    return -3;
+                    return -2;
                 }
 
                 let url = v["url"].as_str();
@@ -1219,13 +1219,13 @@ impl<'a> JobState<'a> {
                         if self.eif_url == t {
                             error!("No url change for EIF update event");
                             self.schedule_termination(0);
-                            return -3;
+                            return -2;
                         }
                     }
                     None => {
                         error!("Url not set");
                         self.schedule_termination(0);
-                        return -3;
+                        return -2;
                     }
                 }
                 self.eif_url = url.unwrap().to_string();

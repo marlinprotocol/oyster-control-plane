@@ -832,260 +832,262 @@ impl<'a> JobState<'a> {
 
         if log.topics()[0] == JOB_OPENED {
             // decode
-            if let Ok((metadata, _rate, _balance, timestamp)) =
+            let Ok((metadata, _rate, _balance, timestamp)) =
                 <(String, U256, U256, U256)>::abi_decode_sequence(&log.data().data, true)
-            {
-                info!(
-                    metadata,
-                    rate = _rate.to_string(),
-                    balance = _balance.to_string(),
-                    timestamp = timestamp.to_string(),
-                    last_settled = self.last_settled.as_secs(),
-                    "OPENED",
-                );
+                    .inspect_err(|err| error!(?err, data = ?log.data(), "OPENED: Decode failure"))
+            else {
+                return -2;
+            };
 
-                // update solvency metrics
-                self.balance = _balance;
-                self.rate = _rate;
-                self.original_rate = _rate;
-                self.last_settled = Duration::from_secs(timestamp.saturating_to::<u64>());
+            info!(
+                metadata,
+                rate = _rate.to_string(),
+                balance = _balance.to_string(),
+                timestamp = timestamp.to_string(),
+                last_settled = self.last_settled.as_secs(),
+                "OPENED",
+            );
 
-                let v = serde_json::from_str(&metadata);
-                if let Err(err) = v {
-                    error!(?err, "Error reading metadata");
+            // update solvency metrics
+            self.balance = _balance;
+            self.rate = _rate;
+            self.original_rate = _rate;
+            self.last_settled = Duration::from_secs(timestamp.saturating_to::<u64>());
+
+            let v = serde_json::from_str(&metadata);
+            if let Err(err) = v {
+                error!(?err, "Error reading metadata");
+                return -2;
+            }
+
+            let v: Value = v.unwrap();
+
+            let r = v["instance"].as_str();
+            match r {
+                Some(t) => {
+                    self.instance_type = t.to_string();
+                    info!(self.instance_type, "Instance type set");
+                }
+                None => {
+                    error!("Instance type not set");
                     return -2;
                 }
+            }
 
-                let v: Value = v.unwrap();
-
-                let r = v["instance"].as_str();
-                match r {
-                    Some(t) => {
-                        self.instance_type = t.to_string();
-                        info!(self.instance_type, "Instance type set");
-                    }
-                    None => {
-                        error!("Instance type not set");
-                        return -2;
-                    }
+            let r = v["region"].as_str();
+            match r {
+                Some(t) => {
+                    self.region = t.to_string();
+                    info!(self.region, "Job region set");
                 }
-
-                let r = v["region"].as_str();
-                match r {
-                    Some(t) => {
-                        self.region = t.to_string();
-                        info!(self.region, "Job region set");
-                    }
-                    None => {
-                        error!("Job region not set");
-                        return -2;
-                    }
-                }
-
-                if !self.allowed_regions.contains(&self.region) {
-                    error!(self.region, "Region not suppported, exiting job");
+                None => {
+                    error!("Job region not set");
                     return -2;
                 }
+            }
 
-                let r = v["memory"].as_i64();
-                match r {
-                    Some(t) => {
-                        self.req_mem = t;
-                        info!(self.req_mem, "Required memory");
-                    }
-                    None => {
-                        error!("Memory not set");
-                        return -2;
-                    }
+            if !self.allowed_regions.contains(&self.region) {
+                error!(self.region, "Region not suppported, exiting job");
+                return -2;
+            }
+
+            let r = v["memory"].as_i64();
+            match r {
+                Some(t) => {
+                    self.req_mem = t;
+                    info!(self.req_mem, "Required memory");
                 }
-
-                let r = v["vcpu"].as_i64();
-                match r {
-                    Some(t) => {
-                        self.req_vcpus = t.try_into().unwrap_or(2);
-                        info!(self.req_vcpus, "Required vcpu");
-                    }
-                    None => {
-                        error!("vcpu not set");
-                        return -2;
-                    }
-                }
-
-                let url = v["url"].as_str();
-                if url.is_none() {
-                    error!("EIF url not found! Exiting job");
+                None => {
+                    error!("Memory not set");
                     return -2;
                 }
-                self.eif_url = url.unwrap().to_string();
+            }
 
-                let family = v["family"].as_str();
-                // we leave the default family unchanged if not found for backward compatibility
-                if let Some(family) = family {
-                    family.clone_into(&mut self.family);
+            let r = v["vcpu"].as_i64();
+            match r {
+                Some(t) => {
+                    self.req_vcpus = t.try_into().unwrap_or(2);
+                    info!(self.req_vcpus, "Required vcpu");
                 }
-
-                // blacklist whitelist check
-                let allowed =
-                    whitelist_blacklist_check(log.clone(), address_whitelist, address_blacklist);
-                if !allowed {
-                    // blacklisted or not whitelisted address
-                    self.schedule_termination(0);
-                    return -3;
-                }
-
-                let mut supported = false;
-                for entry in rates {
-                    if entry.region == self.region {
-                        for card in &entry.rate_cards {
-                            if card.instance == self.instance_type {
-                                self.min_rate = card.min_rate;
-                                supported = true;
-                                break;
-                            }
-                        }
-                        break;
-                    }
-                }
-
-                if !supported {
-                    error!(self.instance_type, "Instance type not supported",);
+                None => {
+                    error!("vcpu not set");
                     return -2;
                 }
+            }
 
-                info!(
-                    self.instance_type,
-                    rate = self.min_rate.to_string(),
-                    "MIN RATE",
-                );
+            let url = v["url"].as_str();
+            if url.is_none() {
+                error!("EIF url not found! Exiting job");
+                return -2;
+            }
+            self.eif_url = url.unwrap().to_string();
 
-                // launch only if rate is more than min
-                if self.rate >= self.min_rate {
-                    for entry in gb_rates {
-                        if entry.region_code == self.region {
-                            let gb_cost = entry.rate;
-                            let bandwidth_rate = self.rate - self.min_rate;
+            let family = v["family"].as_str();
+            // we leave the default family unchanged if not found for backward compatibility
+            if let Some(family) = family {
+                family.clone_into(&mut self.family);
+            }
 
-                            self.bandwidth = (bandwidth_rate
-                                .saturating_mul(U256::from(1024 * 1024 * 8))
-                                / gb_cost)
-                                .saturating_to::<u64>();
+            // blacklist whitelist check
+            let allowed =
+                whitelist_blacklist_check(log.clone(), address_whitelist, address_blacklist);
+            if !allowed {
+                // blacklisted or not whitelisted address
+                self.schedule_termination(0);
+                return -3;
+            }
+
+            let mut supported = false;
+            for entry in rates {
+                if entry.region == self.region {
+                    for card in &entry.rate_cards {
+                        if card.instance == self.instance_type {
+                            self.min_rate = card.min_rate;
+                            supported = true;
                             break;
                         }
                     }
-                    self.schedule_launch(self.launch_delay);
-                } else {
-                    self.schedule_termination(0);
+                    break;
                 }
-            } else {
-                error!(data = ?log.data(), "OPENED: Decode failure");
+            }
+
+            if !supported {
+                error!(self.instance_type, "Instance type not supported",);
                 return -2;
+            }
+
+            info!(
+                self.instance_type,
+                rate = self.min_rate.to_string(),
+                "MIN RATE",
+            );
+
+            // launch only if rate is more than min
+            if self.rate >= self.min_rate {
+                for entry in gb_rates {
+                    if entry.region_code == self.region {
+                        let gb_cost = entry.rate;
+                        let bandwidth_rate = self.rate - self.min_rate;
+
+                        self.bandwidth =
+                            (bandwidth_rate.saturating_mul(U256::from(1024 * 1024 * 8)) / gb_cost)
+                                .saturating_to::<u64>();
+                        break;
+                    }
+                }
+                self.schedule_launch(self.launch_delay);
+            } else {
+                self.schedule_termination(0);
             }
         } else if log.topics()[0] == JOB_SETTLED {
             // decode
-            if let Ok((amount, timestamp)) =
+            let Ok((amount, timestamp)) =
                 <(U256, U256)>::abi_decode_sequence(&log.data().data, true)
-            {
-                info!(
-                    amount = amount.to_string(),
-                    rate = self.rate.to_string(),
-                    balance = self.balance.to_string(),
-                    last_settled = self.last_settled.as_secs(),
-                    "SETTLED",
-                );
-                // update solvency metrics
-                self.balance -= amount;
-                self.last_settled = Duration::from_secs(timestamp.saturating_to::<u64>());
-                info!(
-                    amount = amount.to_string(),
-                    rate = self.rate.to_string(),
-                    balance = self.balance.to_string(),
-                    last_settled = self.last_settled.as_secs(),
-                    "SETTLED",
-                );
-            } else {
-                error!(data = ?log.data(), "SETTLED: Decode failure");
+                    .inspect_err(|err| error!(?err, data = ?log.data(), "SETTLED: Decode failure"))
+            else {
                 return -2;
-            }
+            };
+
+            info!(
+                amount = amount.to_string(),
+                rate = self.rate.to_string(),
+                balance = self.balance.to_string(),
+                last_settled = self.last_settled.as_secs(),
+                "SETTLED",
+            );
+            // update solvency metrics
+            self.balance -= amount;
+            self.last_settled = Duration::from_secs(timestamp.saturating_to::<u64>());
+            info!(
+                amount = amount.to_string(),
+                rate = self.rate.to_string(),
+                balance = self.balance.to_string(),
+                last_settled = self.last_settled.as_secs(),
+                "SETTLED",
+            );
         } else if log.topics()[0] == JOB_CLOSED {
             self.schedule_termination(0);
         } else if log.topics()[0] == JOB_DEPOSITED {
             // decode
             // IMPORTANT: Tuples have to be decoded using abi_decode_sequence
             // if this is changed in the future
-            if let Ok(amount) = U256::abi_decode(&log.data().data, true) {
-                // update solvency metrics
-                info!(
-                    amount = amount.to_string(),
-                    rate = self.rate.to_string(),
-                    balance = self.balance.to_string(),
-                    last_settled = self.last_settled.as_secs(),
-                    "DEPOSITED",
-                );
-                self.balance += amount;
-                info!(
-                    amount = amount.to_string(),
-                    rate = self.rate.to_string(),
-                    balance = self.balance.to_string(),
-                    last_settled = self.last_settled.as_secs(),
-                    "DEPOSITED",
-                );
-            } else {
-                error!(data = ?log.data(), "DEPOSITED: Decode failure");
+            let Ok(amount) = U256::abi_decode(&log.data().data, true)
+                .inspect_err(|err| error!(?err, data = ?log.data(), "DEPOSITED: Decode failure"))
+            else {
                 return -2;
-            }
+            };
+
+            info!(
+                amount = amount.to_string(),
+                rate = self.rate.to_string(),
+                balance = self.balance.to_string(),
+                last_settled = self.last_settled.as_secs(),
+                "DEPOSITED",
+            );
+            // update solvency metrics
+            self.balance += amount;
+            info!(
+                amount = amount.to_string(),
+                rate = self.rate.to_string(),
+                balance = self.balance.to_string(),
+                last_settled = self.last_settled.as_secs(),
+                "DEPOSITED",
+            );
         } else if log.topics()[0] == JOB_WITHDREW {
             // decode
             // IMPORTANT: Tuples have to be decoded using abi_decode_sequence
             // if this is changed in the future
-            if let Ok(amount) = U256::abi_decode(&log.data().data, true) {
-                info!(
-                    amount = amount.to_string(),
-                    rate = self.rate.to_string(),
-                    balance = self.balance.to_string(),
-                    last_settled = self.last_settled.as_secs(),
-                    "WITHDREW",
-                );
-                // update solvency metrics
-                self.balance -= amount;
-                info!(
-                    amount = amount.to_string(),
-                    rate = self.rate.to_string(),
-                    balance = self.balance.to_string(),
-                    last_settled = self.last_settled.as_secs(),
-                    "WITHDREW",
-                );
-            } else {
-                error!(data = ?log.data(), "WITHDREW: Decode failure");
+            let Ok(amount) = U256::abi_decode(&log.data().data, true)
+                .inspect_err(|err| error!(?err, data = ?log.data(), "WITHDREW: Decode failure"))
+            else {
                 return -2;
-            }
+            };
+
+            info!(
+                amount = amount.to_string(),
+                rate = self.rate.to_string(),
+                balance = self.balance.to_string(),
+                last_settled = self.last_settled.as_secs(),
+                "WITHDREW",
+            );
+            // update solvency metrics
+            self.balance -= amount;
+            info!(
+                amount = amount.to_string(),
+                rate = self.rate.to_string(),
+                balance = self.balance.to_string(),
+                last_settled = self.last_settled.as_secs(),
+                "WITHDREW",
+            );
         } else if log.topics()[0] == JOB_REVISE_RATE_INITIATED {
             // IMPORTANT: Tuples have to be decoded using abi_decode_sequence
             // if this is changed in the future
-            if let Ok(new_rate) = U256::abi_decode(&log.data().data, true) {
-                info!(
-                    self.original_rate = self.original_rate.to_string(),
-                    rate = self.rate.to_string(),
-                    balance = self.balance.to_string(),
-                    last_settled = self.last_settled.as_secs(),
-                    "JOB_REVISE_RATE_INTIATED",
-                );
-                self.original_rate = self.rate;
-                self.rate = new_rate;
-                if self.rate < self.min_rate {
-                    self.schedule_termination(0);
-                    info!("Revised job rate below min rate, shut down");
-                }
-                info!(
-                    self.original_rate = self.original_rate.to_string(),
-                    rate = self.rate.to_string(),
-                    balance = self.balance.to_string(),
-                    last_settled = self.last_settled.as_secs(),
-                    "JOB_REVISE_RATE_INTIATED",
-                );
-            } else {
-                error!(data = ?log.data(), "JOB_REVISE_RATE_INTIATED: Decode failure");
+            let Ok(new_rate) = U256::abi_decode(&log.data().data, true).inspect_err(
+                |err| error!(?err, data = ?log.data(), "JOB_REVISE_RATE_INTIATED: Decode failure"),
+            ) else {
                 return -2;
+            };
+
+            info!(
+                self.original_rate = self.original_rate.to_string(),
+                rate = self.rate.to_string(),
+                balance = self.balance.to_string(),
+                last_settled = self.last_settled.as_secs(),
+                "JOB_REVISE_RATE_INTIATED",
+            );
+            self.original_rate = self.rate;
+            self.rate = new_rate;
+            if self.rate < self.min_rate {
+                self.schedule_termination(0);
+                info!("Revised job rate below min rate, shut down");
             }
+            info!(
+                self.original_rate = self.original_rate.to_string(),
+                rate = self.rate.to_string(),
+                balance = self.balance.to_string(),
+                last_settled = self.last_settled.as_secs(),
+                "JOB_REVISE_RATE_INTIATED",
+            );
         } else if log.topics()[0] == JOB_REVISE_RATE_CANCELLED {
             info!(
                 rate = self.rate.to_string(),
@@ -1103,138 +1105,141 @@ impl<'a> JobState<'a> {
         } else if log.topics()[0] == JOB_REVISE_RATE_FINALIZED {
             // IMPORTANT: Tuples have to be decoded using abi_decode_sequence
             // if this is changed in the future
-            if let Ok(new_rate) = U256::abi_decode(&log.data().data, true) {
-                info!(
-                    self.original_rate = self.original_rate.to_string(),
-                    rate = self.rate.to_string(),
-                    balance = self.balance.to_string(),
-                    last_settled = self.last_settled.as_secs(),
-                    "JOB_REVISE_RATE_FINALIZED",
-                );
-                if self.rate != new_rate {
-                    error!("Something went wrong, finalized rate not same as initiated rate");
-                    return -2;
-                }
-                self.original_rate = new_rate;
-                info!(
-                    self.original_rate = self.original_rate.to_string(),
-                    rate = self.rate.to_string(),
-                    balance = self.balance.to_string(),
-                    last_settled = self.last_settled.as_secs(),
-                    "JOB_REVISE_RATE_FINALIZED",
-                );
-            } else {
-                error!(data = ?log.data(), "JOB_REVISE_RATE_FINALIZED: Decode failure");
+            let Ok(new_rate) = U256::abi_decode(&log.data().data, true).inspect_err(
+                |err| error!(?err, data = ?log.data(), "JOB_REVISE_RATE_FINALIZED: Decode failure"),
+            ) else {
+                return -2;
+            };
+
+            info!(
+                self.original_rate = self.original_rate.to_string(),
+                rate = self.rate.to_string(),
+                balance = self.balance.to_string(),
+                last_settled = self.last_settled.as_secs(),
+                "JOB_REVISE_RATE_FINALIZED",
+            );
+            if self.rate != new_rate {
+                error!("Something went wrong, finalized rate not same as initiated rate");
                 return -2;
             }
+            self.original_rate = new_rate;
+            info!(
+                self.original_rate = self.original_rate.to_string(),
+                rate = self.rate.to_string(),
+                balance = self.balance.to_string(),
+                last_settled = self.last_settled.as_secs(),
+                "JOB_REVISE_RATE_FINALIZED",
+            );
         } else if log.topics()[0] == METADATA_UPDATED {
             // IMPORTANT: Tuples have to be decoded using abi_decode_sequence
             // if this is changed in the future
-            if let Ok(metadata) = String::abi_decode(&log.data().data, true) {
-                info!(metadata, "METADATA_UPDATED");
-
-                let v = serde_json::from_str(&metadata);
-                if let Err(err) = v {
-                    error!(?err, "Error reading metadata");
-                    self.schedule_termination(0);
-                    return -2;
-                }
-
-                let v: Value = v.unwrap();
-
-                let r = v["instance"].as_str();
-                match r {
-                    Some(t) => {
-                        if self.instance_type != t {
-                            error!("Instance type change not allowed");
-                            self.schedule_termination(0);
-                            return -2;
-                        }
-                    }
-                    None => {
-                        error!("Instance type not set");
-                        self.schedule_termination(0);
-                        return -2;
-                    }
-                }
-
-                let r = v["region"].as_str();
-                match r {
-                    Some(t) => {
-                        if self.region != t {
-                            error!("Region change not allowed");
-                            self.schedule_termination(0);
-                            return -2;
-                        }
-                    }
-                    None => {
-                        error!("Job region not set");
-                        self.schedule_termination(0);
-                        return -2;
-                    }
-                }
-
-                let r = v["memory"].as_i64();
-                match r {
-                    Some(t) => {
-                        if self.req_mem != t {
-                            error!("Memory change not allowed");
-                            self.schedule_termination(0);
-                            return -2;
-                        }
-                    }
-                    None => {
-                        error!("Memory not set");
-                        self.schedule_termination(0);
-                        return -2;
-                    }
-                }
-
-                let r = v["vcpu"].as_i64();
-                match r {
-                    Some(t) => {
-                        if self.req_vcpus != t.try_into().unwrap_or(2) {
-                            error!("vcpu change not allowed");
-                            self.schedule_termination(0);
-                            return -2;
-                        }
-                    }
-                    None => {
-                        error!("vcpu not set");
-                        self.schedule_termination(0);
-                        return -2;
-                    }
-                }
-
-                let family = v["family"].as_str();
-                if family.is_some() && self.family != family.unwrap() {
-                    error!("Family change not allowed");
-                    self.schedule_termination(0);
-                    return -2;
-                }
-
-                let url = v["url"].as_str();
-                match url {
-                    Some(t) => {
-                        if self.eif_url == t {
-                            error!("No url change for EIF update event");
-                            self.schedule_termination(0);
-                            return -2;
-                        }
-                    }
-                    None => {
-                        error!("Url not set");
-                        self.schedule_termination(0);
-                        return -2;
-                    }
-                }
-                self.eif_url = url.unwrap().to_string();
-                self.eif_update = true;
-                self.schedule_launch(self.launch_delay);
-            } else {
+            let Ok(metadata) = String::abi_decode(&log.data().data, true).inspect_err(
+                |err| error!(?err, data = ?log.data(), "METADATA_UPDATED: Decode failure"),
+            ) else {
                 error!(data = ?log.data(), "METADATA_UPDATED: Decode failure");
                 return -2;
+            };
+
+            info!(metadata, "METADATA_UPDATED");
+
+            let v = serde_json::from_str(&metadata);
+            if let Err(err) = v {
+                error!(?err, "Error reading metadata");
+                self.schedule_termination(0);
+                return -2;
             }
+
+            let v: Value = v.unwrap();
+
+            let r = v["instance"].as_str();
+            match r {
+                Some(t) => {
+                    if self.instance_type != t {
+                        error!("Instance type change not allowed");
+                        self.schedule_termination(0);
+                        return -2;
+                    }
+                }
+                None => {
+                    error!("Instance type not set");
+                    self.schedule_termination(0);
+                    return -2;
+                }
+            }
+
+            let r = v["region"].as_str();
+            match r {
+                Some(t) => {
+                    if self.region != t {
+                        error!("Region change not allowed");
+                        self.schedule_termination(0);
+                        return -2;
+                    }
+                }
+                None => {
+                    error!("Job region not set");
+                    self.schedule_termination(0);
+                    return -2;
+                }
+            }
+
+            let r = v["memory"].as_i64();
+            match r {
+                Some(t) => {
+                    if self.req_mem != t {
+                        error!("Memory change not allowed");
+                        self.schedule_termination(0);
+                        return -2;
+                    }
+                }
+                None => {
+                    error!("Memory not set");
+                    self.schedule_termination(0);
+                    return -2;
+                }
+            }
+
+            let r = v["vcpu"].as_i64();
+            match r {
+                Some(t) => {
+                    if self.req_vcpus != t.try_into().unwrap_or(2) {
+                        error!("vcpu change not allowed");
+                        self.schedule_termination(0);
+                        return -2;
+                    }
+                }
+                None => {
+                    error!("vcpu not set");
+                    self.schedule_termination(0);
+                    return -2;
+                }
+            }
+
+            let family = v["family"].as_str();
+            if family.is_some() && self.family != family.unwrap() {
+                error!("Family change not allowed");
+                self.schedule_termination(0);
+                return -2;
+            }
+
+            let url = v["url"].as_str();
+            match url {
+                Some(t) => {
+                    if self.eif_url == t {
+                        error!("No url change for EIF update event");
+                        self.schedule_termination(0);
+                        return -2;
+                    }
+                }
+                None => {
+                    error!("Url not set");
+                    self.schedule_termination(0);
+                    return -2;
+                }
+            }
+            self.eif_url = url.unwrap().to_string();
+            self.eif_update = true;
+            self.schedule_launch(self.launch_delay);
         } else {
             error!(topic = ?log.topics()[0], "Unknown event");
             return -2;

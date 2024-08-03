@@ -355,20 +355,50 @@ async fn new_jobs(
 ) -> Result<impl StreamExt<Item = (B256, bool)> + '_> {
     let event_filter = Filter::new()
         .address(address)
-        .select(0..)
         .event_signature(vec![keccak256(
             "JobOpened(bytes32,string,address,address,uint256,uint256,uint256)",
         )])
         .topic3(provider.into_word());
 
+    // ordering is important to prevent race conditions while getting all logs but
+    // it still relies on the RPC being consistent between registering the subscription
+    // and querying the cutoff block number
+
     // register subscription
     let stream = client
-        .subscribe_logs(&event_filter)
+        .subscribe_logs(&event_filter.clone().select(0..))
         .await
         .context("failed to subscribe to new jobs")?
         .into_stream();
 
-    Ok(stream.map(|item| (item.topics()[1], item.removed)))
+    // get cutoff block number
+    let cutoff = client
+        .get_block_number()
+        .await
+        .context("failed to get cutoff block")?;
+
+    // cut off stream at cutoff block, extract data from items
+    let stream = stream.filter_map(move |item| {
+        if item.block_number.unwrap() > cutoff {
+            Some((item.topics()[1], item.removed))
+        } else {
+            None
+        }
+    });
+
+    // get logs up to cutoff
+    let old_logs = client
+        .get_logs(&event_filter.select(0..cutoff))
+        .await
+        .context("failed to query old logs")?;
+
+    // convert to a stream, extract data from items
+    let old_logs = tokio_stream::iter(old_logs).map(|item| (item.topics()[1], item.removed));
+
+    // stream
+    let stream = old_logs.chain(stream);
+
+    Ok(stream)
 }
 
 // manage the complete lifecycle of a job
@@ -802,247 +832,238 @@ impl<'a> JobState<'a> {
 
         if log.topics()[0] == JOB_OPENED {
             // decode
-            if let Ok((metadata, _rate, _balance, timestamp)) =
-                <(String, U256, U256, U256)>::abi_decode(&log.data().data, true)
-            {
-                info!(
-                    metadata,
-                    rate = _rate.to_string(),
-                    balance = _balance.to_string(),
-                    timestamp = timestamp.to_string(),
-                    last_settled = self.last_settled.as_secs(),
-                    "OPENED",
-                );
+            let Ok((metadata, _rate, _balance, timestamp)) =
+                <(String, U256, U256, U256)>::abi_decode_sequence(&log.data().data, true)
+                    .inspect_err(|err| error!(?err, data = ?log.data(), "OPENED: Decode failure"))
+            else {
+                return -2;
+            };
 
-                // update solvency metrics
-                self.balance = _balance;
-                self.rate = _rate;
-                self.original_rate = _rate;
-                self.last_settled = Duration::from_secs(timestamp.saturating_to::<u64>());
+            info!(
+                metadata,
+                rate = _rate.to_string(),
+                balance = _balance.to_string(),
+                timestamp = timestamp.to_string(),
+                last_settled = self.last_settled.as_secs(),
+                "OPENED",
+            );
 
-                let v = serde_json::from_str(&metadata);
-                if let Err(err) = v {
-                    error!(?err, "Error reading metadata");
-                    return -2;
-                }
+            // update solvency metrics
+            self.balance = _balance;
+            self.rate = _rate;
+            self.original_rate = _rate;
+            self.last_settled = Duration::from_secs(timestamp.saturating_to::<u64>());
 
-                let v: Value = v.unwrap();
+            let Ok(v) = serde_json::from_str::<Value>(&metadata)
+                .inspect_err(|err| error!(?err, "Error reading metadata"))
+            else {
+                return -2;
+            };
 
-                let r = v["instance"].as_str();
-                match r {
-                    Some(t) => {
-                        self.instance_type = t.to_string();
-                        info!(self.instance_type, "Instance type set");
-                    }
-                    None => {
-                        error!("Instance type not set");
-                        return -2;
-                    }
-                }
+            let Some(t) = v["instance"].as_str() else {
+                error!("Instance type not set");
+                return -2;
+            };
+            self.instance_type = t.to_string();
+            info!(self.instance_type, "Instance type set");
 
-                let r = v["region"].as_str();
-                match r {
-                    Some(t) => {
-                        self.region = t.to_string();
-                        info!(self.region, "Job region set");
-                    }
-                    None => {
-                        error!("Job region not set");
-                        return -2;
-                    }
-                }
+            let Some(t) = v["region"].as_str() else {
+                error!("Job region not set");
+                return -2;
+            };
+            self.region = t.to_string();
+            info!(self.region, "Job region set");
 
-                if !self.allowed_regions.contains(&self.region) {
-                    error!(self.region, "Region not suppported, exiting job");
-                    return -2;
-                }
+            if !self.allowed_regions.contains(&self.region) {
+                error!(self.region, "Region not suppported, exiting job");
+                return -2;
+            }
 
-                let r = v["memory"].as_i64();
-                match r {
-                    Some(t) => {
-                        self.req_mem = t;
-                        info!(self.req_mem, "Required memory");
-                    }
-                    None => {
-                        error!("Memory not set");
-                        return -2;
-                    }
-                }
+            let Some(t) = v["memory"].as_i64() else {
+                error!("Memory not set");
+                return -2;
+            };
+            self.req_mem = t;
+            info!(self.req_mem, "Required memory");
 
-                let r = v["vcpu"].as_i64();
-                match r {
-                    Some(t) => {
-                        self.req_vcpus = t.try_into().unwrap_or(2);
-                        info!(self.req_vcpus, "Required vcpu");
-                    }
-                    None => {
-                        error!("vcpu not set");
-                        return -2;
-                    }
-                }
+            let Some(t) = v["vcpu"].as_i64() else {
+                error!("vcpu not set");
+                return -2;
+            };
+            self.req_vcpus = t.try_into().unwrap_or(i32::MAX);
+            info!(self.req_vcpus, "Required vcpu");
 
-                let url = v["url"].as_str();
-                if url.is_none() {
-                    error!("EIF url not found! Exiting job");
-                    return -2;
-                }
-                self.eif_url = url.unwrap().to_string();
+            let Some(url) = v["url"].as_str() else {
+                error!("EIF url not found! Exiting job");
+                return -2;
+            };
+            self.eif_url = url.to_string();
 
-                let family = v["family"].as_str();
-                // we leave the default family unchanged if not found for backward compatibility
-                if let Some(family) = family {
-                    family.clone_into(&mut self.family);
-                }
+            // we leave the default family unchanged if not found for backward compatibility
+            v["family"]
+                .as_str()
+                .inspect(|f| self.family = (*f).to_owned());
 
-                // blacklist whitelist check
-                let allowed =
-                    whitelist_blacklist_check(log.clone(), address_whitelist, address_blacklist);
-                if !allowed {
-                    // blacklisted or not whitelisted address
-                    self.schedule_termination(0);
-                    return -3;
-                }
+            // blacklist whitelist check
+            let allowed =
+                whitelist_blacklist_check(log.clone(), address_whitelist, address_blacklist);
+            if !allowed {
+                // blacklisted or not whitelisted address
+                self.schedule_termination(0);
+                return -3;
+            }
 
-                let mut supported = false;
-                for entry in rates {
-                    if entry.region == self.region {
-                        for card in &entry.rate_cards {
-                            if card.instance == self.instance_type {
-                                self.min_rate = card.min_rate;
-                                supported = true;
-                                break;
-                            }
-                        }
-                        break;
-                    }
-                }
-
-                if !supported {
-                    error!(self.instance_type, "Instance type not supported",);
-                    return -2;
-                }
-
-                info!(
-                    self.instance_type,
-                    rate = self.min_rate.to_string(),
-                    "MIN RATE",
-                );
-
-                // launch only if rate is more than min
-                if self.rate >= self.min_rate {
-                    for entry in gb_rates {
-                        if entry.region_code == self.region {
-                            let gb_cost = entry.rate;
-                            let bandwidth_rate = self.rate - self.min_rate;
-
-                            self.bandwidth = (bandwidth_rate
-                                .saturating_mul(U256::from(1024 * 1024 * 8))
-                                / gb_cost)
-                                .saturating_to::<u64>();
+            let mut supported = false;
+            for entry in rates {
+                if entry.region == self.region {
+                    for card in &entry.rate_cards {
+                        if card.instance == self.instance_type {
+                            self.min_rate = card.min_rate;
+                            supported = true;
                             break;
                         }
                     }
-                    self.schedule_launch(self.launch_delay);
-                } else {
-                    self.schedule_termination(0);
+                    break;
                 }
+            }
+
+            if !supported {
+                error!(self.instance_type, "Instance type not supported",);
+                return -2;
+            }
+
+            info!(
+                self.instance_type,
+                rate = self.min_rate.to_string(),
+                "MIN RATE",
+            );
+
+            // launch only if rate is more than min
+            if self.rate >= self.min_rate {
+                for entry in gb_rates {
+                    if entry.region_code == self.region {
+                        let gb_cost = entry.rate;
+                        let bandwidth_rate = self.rate - self.min_rate;
+
+                        self.bandwidth =
+                            (bandwidth_rate.saturating_mul(U256::from(1024 * 1024 * 8)) / gb_cost)
+                                .saturating_to::<u64>();
+                        break;
+                    }
+                }
+                self.schedule_launch(self.launch_delay);
             } else {
-                error!(data = ?log.data(), "OPENED: Decode failure");
+                self.schedule_termination(0);
             }
         } else if log.topics()[0] == JOB_SETTLED {
             // decode
-            if let Ok((amount, timestamp)) = <(U256, U256)>::abi_decode(&log.data().data, true) {
-                info!(
-                    amount = amount.to_string(),
-                    rate = self.rate.to_string(),
-                    balance = self.balance.to_string(),
-                    last_settled = self.last_settled.as_secs(),
-                    "SETTLED",
-                );
-                // update solvency metrics
-                self.balance -= amount;
-                self.last_settled = Duration::from_secs(timestamp.saturating_to::<u64>());
-                info!(
-                    amount = amount.to_string(),
-                    rate = self.rate.to_string(),
-                    balance = self.balance.to_string(),
-                    last_settled = self.last_settled.as_secs(),
-                    "SETTLED",
-                );
-            } else {
-                error!(data = ?log.data(), "SETTLED: Decode failure");
-            }
+            let Ok((amount, timestamp)) =
+                <(U256, U256)>::abi_decode_sequence(&log.data().data, true)
+                    .inspect_err(|err| error!(?err, data = ?log.data(), "SETTLED: Decode failure"))
+            else {
+                return -2;
+            };
+
+            info!(
+                amount = amount.to_string(),
+                rate = self.rate.to_string(),
+                balance = self.balance.to_string(),
+                last_settled = self.last_settled.as_secs(),
+                "SETTLED",
+            );
+            // update solvency metrics
+            self.balance -= amount;
+            self.last_settled = Duration::from_secs(timestamp.saturating_to::<u64>());
+            info!(
+                amount = amount.to_string(),
+                rate = self.rate.to_string(),
+                balance = self.balance.to_string(),
+                last_settled = self.last_settled.as_secs(),
+                "SETTLED",
+            );
         } else if log.topics()[0] == JOB_CLOSED {
             self.schedule_termination(0);
         } else if log.topics()[0] == JOB_DEPOSITED {
             // decode
-            if let Ok(amount) = U256::abi_decode(&log.data().data, true) {
-                // update solvency metrics
-                info!(
-                    amount = amount.to_string(),
-                    rate = self.rate.to_string(),
-                    balance = self.balance.to_string(),
-                    last_settled = self.last_settled.as_secs(),
-                    "DEPOSITED",
-                );
-                self.balance += amount;
-                info!(
-                    amount = amount.to_string(),
-                    rate = self.rate.to_string(),
-                    balance = self.balance.to_string(),
-                    last_settled = self.last_settled.as_secs(),
-                    "DEPOSITED",
-                );
-            } else {
-                error!(data = ?log.data(), "DEPOSITED: Decode failure");
-            }
+            // IMPORTANT: Tuples have to be decoded using abi_decode_sequence
+            // if this is changed in the future
+            let Ok(amount) = U256::abi_decode(&log.data().data, true)
+                .inspect_err(|err| error!(?err, data = ?log.data(), "DEPOSITED: Decode failure"))
+            else {
+                return -2;
+            };
+
+            info!(
+                amount = amount.to_string(),
+                rate = self.rate.to_string(),
+                balance = self.balance.to_string(),
+                last_settled = self.last_settled.as_secs(),
+                "DEPOSITED",
+            );
+            // update solvency metrics
+            self.balance += amount;
+            info!(
+                amount = amount.to_string(),
+                rate = self.rate.to_string(),
+                balance = self.balance.to_string(),
+                last_settled = self.last_settled.as_secs(),
+                "DEPOSITED",
+            );
         } else if log.topics()[0] == JOB_WITHDREW {
             // decode
-            if let Ok(amount) = U256::abi_decode(&log.data().data, true) {
-                info!(
-                    amount = amount.to_string(),
-                    rate = self.rate.to_string(),
-                    balance = self.balance.to_string(),
-                    last_settled = self.last_settled.as_secs(),
-                    "WITHDREW",
-                );
-                // update solvency metrics
-                self.balance -= amount;
-                info!(
-                    amount = amount.to_string(),
-                    rate = self.rate.to_string(),
-                    balance = self.balance.to_string(),
-                    last_settled = self.last_settled.as_secs(),
-                    "WITHDREW",
-                );
-            } else {
-                error!(data = ?log.data(), "WITHDREW: Decode failure");
-            }
+            // IMPORTANT: Tuples have to be decoded using abi_decode_sequence
+            // if this is changed in the future
+            let Ok(amount) = U256::abi_decode(&log.data().data, true)
+                .inspect_err(|err| error!(?err, data = ?log.data(), "WITHDREW: Decode failure"))
+            else {
+                return -2;
+            };
+
+            info!(
+                amount = amount.to_string(),
+                rate = self.rate.to_string(),
+                balance = self.balance.to_string(),
+                last_settled = self.last_settled.as_secs(),
+                "WITHDREW",
+            );
+            // update solvency metrics
+            self.balance -= amount;
+            info!(
+                amount = amount.to_string(),
+                rate = self.rate.to_string(),
+                balance = self.balance.to_string(),
+                last_settled = self.last_settled.as_secs(),
+                "WITHDREW",
+            );
         } else if log.topics()[0] == JOB_REVISE_RATE_INITIATED {
-            if let Ok(new_rate) = U256::abi_decode(&log.data().data, true) {
-                info!(
-                    self.original_rate = self.original_rate.to_string(),
-                    rate = self.rate.to_string(),
-                    balance = self.balance.to_string(),
-                    last_settled = self.last_settled.as_secs(),
-                    "JOB_REVISE_RATE_INTIATED",
-                );
-                self.original_rate = self.rate;
-                self.rate = new_rate;
-                if self.rate < self.min_rate {
-                    self.schedule_termination(0);
-                    info!("Revised job rate below min rate, shut down");
-                }
-                info!(
-                    self.original_rate = self.original_rate.to_string(),
-                    rate = self.rate.to_string(),
-                    balance = self.balance.to_string(),
-                    last_settled = self.last_settled.as_secs(),
-                    "JOB_REVISE_RATE_INTIATED",
-                );
-            } else {
-                error!(data = ?log.data(), "JOB_REVISE_RATE_INTIATED: Decode failure");
+            // IMPORTANT: Tuples have to be decoded using abi_decode_sequence
+            // if this is changed in the future
+            let Ok(new_rate) = U256::abi_decode(&log.data().data, true).inspect_err(
+                |err| error!(?err, data = ?log.data(), "JOB_REVISE_RATE_INTIATED: Decode failure"),
+            ) else {
+                return -2;
+            };
+
+            info!(
+                self.original_rate = self.original_rate.to_string(),
+                rate = self.rate.to_string(),
+                balance = self.balance.to_string(),
+                last_settled = self.last_settled.as_secs(),
+                "JOB_REVISE_RATE_INTIATED",
+            );
+            self.original_rate = self.rate;
+            self.rate = new_rate;
+            if self.rate < self.min_rate {
+                self.schedule_termination(0);
+                info!("Revised job rate below min rate, shut down");
             }
+            info!(
+                self.original_rate = self.original_rate.to_string(),
+                rate = self.rate.to_string(),
+                balance = self.balance.to_string(),
+                last_settled = self.last_settled.as_secs(),
+                "JOB_REVISE_RATE_INTIATED",
+            );
         } else if log.topics()[0] == JOB_REVISE_RATE_CANCELLED {
             info!(
                 rate = self.rate.to_string(),
@@ -1058,136 +1079,119 @@ impl<'a> JobState<'a> {
                 "JOB_REVISE_RATE_CANCELLED",
             );
         } else if log.topics()[0] == JOB_REVISE_RATE_FINALIZED {
-            if let Ok(new_rate) = U256::abi_decode(&log.data().data, true) {
-                info!(
-                    self.original_rate = self.original_rate.to_string(),
-                    rate = self.rate.to_string(),
-                    balance = self.balance.to_string(),
-                    last_settled = self.last_settled.as_secs(),
-                    "JOB_REVISE_RATE_FINALIZED",
-                );
-                if self.rate != new_rate {
-                    error!("Something went wrong, finalized rate not same as initiated rate");
-                    return -2;
-                }
-                self.original_rate = new_rate;
-                info!(
-                    self.original_rate = self.original_rate.to_string(),
-                    rate = self.rate.to_string(),
-                    balance = self.balance.to_string(),
-                    last_settled = self.last_settled.as_secs(),
-                    "JOB_REVISE_RATE_FINALIZED",
-                );
-            } else {
-                error!(data = ?log.data(), "JOB_REVISE_RATE_FINALIZED: Decode failure");
+            // IMPORTANT: Tuples have to be decoded using abi_decode_sequence
+            // if this is changed in the future
+            let Ok(new_rate) = U256::abi_decode(&log.data().data, true).inspect_err(
+                |err| error!(?err, data = ?log.data(), "JOB_REVISE_RATE_FINALIZED: Decode failure"),
+            ) else {
+                return -2;
+            };
+
+            info!(
+                self.original_rate = self.original_rate.to_string(),
+                rate = self.rate.to_string(),
+                balance = self.balance.to_string(),
+                last_settled = self.last_settled.as_secs(),
+                "JOB_REVISE_RATE_FINALIZED",
+            );
+            if self.rate != new_rate {
+                error!("Something went wrong, finalized rate not same as initiated rate");
+                return -2;
             }
+            self.original_rate = new_rate;
+            info!(
+                self.original_rate = self.original_rate.to_string(),
+                rate = self.rate.to_string(),
+                balance = self.balance.to_string(),
+                last_settled = self.last_settled.as_secs(),
+                "JOB_REVISE_RATE_FINALIZED",
+            );
         } else if log.topics()[0] == METADATA_UPDATED {
-            if let Ok(metadata) = String::abi_decode(&log.data().data, true) {
-                info!(metadata, "METADATA_UPDATED");
-
-                let v = serde_json::from_str(&metadata);
-                if let Err(err) = v {
-                    error!(?err, "Error reading metadata");
-                    self.schedule_termination(0);
-                    return -3;
-                }
-
-                let v: Value = v.unwrap();
-
-                let r = v["instance"].as_str();
-                match r {
-                    Some(t) => {
-                        if self.instance_type != t {
-                            error!("Instance type change not allowed");
-                            self.schedule_termination(0);
-                            return -3;
-                        }
-                    }
-                    None => {
-                        error!("Instance type not set");
-                        self.schedule_termination(0);
-                        return -3;
-                    }
-                }
-
-                let r = v["region"].as_str();
-                match r {
-                    Some(t) => {
-                        if self.region != t {
-                            error!("Region change not allowed");
-                            self.schedule_termination(0);
-                            return -3;
-                        }
-                    }
-                    None => {
-                        error!("Job region not set");
-                        self.schedule_termination(0);
-                        return -3;
-                    }
-                }
-
-                let r = v["memory"].as_i64();
-                match r {
-                    Some(t) => {
-                        if self.req_mem != t {
-                            error!("Memory change not allowed");
-                            self.schedule_termination(0);
-                            return -3;
-                        }
-                    }
-                    None => {
-                        error!("Memory not set");
-                        self.schedule_termination(0);
-                        return -3;
-                    }
-                }
-
-                let r = v["vcpu"].as_i64();
-                match r {
-                    Some(t) => {
-                        if self.req_vcpus != t.try_into().unwrap_or(2) {
-                            error!("vcpu change not allowed");
-                            self.schedule_termination(0);
-                            return -3;
-                        }
-                    }
-                    None => {
-                        error!("vcpu not set");
-                        self.schedule_termination(0);
-                        return -3;
-                    }
-                }
-
-                let family = v["family"].as_str();
-                if family.is_some() && self.family != family.unwrap() {
-                    error!("Family change not allowed");
-                    self.schedule_termination(0);
-                    return -3;
-                }
-
-                let url = v["url"].as_str();
-                match url {
-                    Some(t) => {
-                        if self.eif_url == t {
-                            error!("No url change for EIF update event");
-                            self.schedule_termination(0);
-                            return -3;
-                        }
-                    }
-                    None => {
-                        error!("Url not set");
-                        self.schedule_termination(0);
-                        return -3;
-                    }
-                }
-                self.eif_url = url.unwrap().to_string();
-                self.eif_update = true;
-                self.schedule_launch(self.launch_delay);
-            } else {
+            // IMPORTANT: Tuples have to be decoded using abi_decode_sequence
+            // if this is changed in the future
+            let Ok(metadata) = String::abi_decode(&log.data().data, true).inspect_err(
+                |err| error!(?err, data = ?log.data(), "METADATA_UPDATED: Decode failure"),
+            ) else {
                 error!(data = ?log.data(), "METADATA_UPDATED: Decode failure");
+                return -2;
+            };
+
+            info!(metadata, "METADATA_UPDATED");
+
+            let Ok(v) = serde_json::from_str::<Value>(&metadata)
+                .inspect_err(|err| error!(?err, "Error reading metadata"))
+            else {
+                self.schedule_termination(0);
+                return -2;
+            };
+
+            let Some(t) = v["instance"].as_str() else {
+                error!("Instance type not set");
+                self.schedule_termination(0);
+                return -2;
+            };
+            if self.instance_type != t {
+                error!("Instance type change not allowed");
+                self.schedule_termination(0);
+                return -2;
             }
+
+            let Some(t) = v["region"].as_str() else {
+                error!("Job region not set");
+                self.schedule_termination(0);
+                return -2;
+            };
+            if self.region != t {
+                error!("Region change not allowed");
+                self.schedule_termination(0);
+                return -2;
+            }
+
+            let Some(t) = v["memory"].as_i64() else {
+                error!("Memory not set");
+                self.schedule_termination(0);
+                return -2;
+            };
+            if self.req_mem != t {
+                error!("Memory change not allowed");
+                self.schedule_termination(0);
+                return -2;
+            }
+
+            let Some(t) = v["vcpu"].as_i64() else {
+                error!("vcpu not set");
+                self.schedule_termination(0);
+                return -2;
+            };
+            if self.req_vcpus != t.try_into().unwrap_or(2) {
+                error!("vcpu change not allowed");
+                self.schedule_termination(0);
+                return -2;
+            }
+
+            let family = v["family"].as_str();
+            if family.is_some() && self.family != family.unwrap() {
+                error!("Family change not allowed");
+                self.schedule_termination(0);
+                return -2;
+            }
+
+            let Some(url) = v["url"].as_str() else {
+                error!("EIF url not found! Exiting job");
+                self.schedule_termination(0);
+                return -2;
+            };
+            if self.eif_url == url {
+                error!("No url change for EIF update event");
+                self.schedule_termination(0);
+                return -2;
+            }
+            self.eif_url = url.to_string();
+            self.eif_update = true;
+            self.schedule_launch(self.launch_delay);
         } else {
             error!(topic = ?log.topics()[0], "Unknown event");
+            return -2;
         }
 
         0
@@ -1271,7 +1275,6 @@ async fn job_logs(
 ) -> Result<impl StreamExt<Item = Log> + Send + '_> {
     let event_filter = Filter::new()
         .address(contract)
-        .select(0..)
         .event_signature(vec![
             keccak256("JobOpened(bytes32,string,address,address,uint256,uint256,uint256)"),
             keccak256("JobSettled(bytes32,uint256,uint256)"),
@@ -1285,12 +1288,43 @@ async fn job_logs(
         ])
         .topic1(job);
 
+    // ordering is important to prevent race conditions while getting all logs but
+    // it still relies on the RPC being consistent between registering the subscription
+    // and querying the cutoff block number
+
     // register subscription
     let stream = client
-        .subscribe_logs(&event_filter)
+        .subscribe_logs(&event_filter.clone().select(0..))
         .await
         .context("failed to subscribe to job logs")?
         .into_stream();
+
+    // get cutoff block number
+    let cutoff = client
+        .get_block_number()
+        .await
+        .context("failed to get cutoff block")?;
+
+    // cut off stream at cutoff block
+    let stream = stream.filter_map(move |item| {
+        if item.block_number.unwrap() > cutoff {
+            Some(item)
+        } else {
+            None
+        }
+    });
+
+    // get logs up to cutoff
+    let old_logs = client
+        .get_logs(&event_filter.select(0..cutoff))
+        .await
+        .context("failed to query old logs")?;
+
+    // convert to a stream, extract data from items
+    let old_logs = tokio_stream::iter(old_logs);
+
+    // stream
+    let stream = old_logs.chain(stream);
 
     Ok(stream)
 }
@@ -1336,7 +1370,7 @@ mod tests {
 
         let job_num = U256::from(1).into();
         let job_logs: Vec<(u64, Log)> = vec![
-            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode()),
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode_sequence()),
             (301, Action::Close, [].into()),
         ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
@@ -1419,7 +1453,7 @@ mod tests {
 
         let job_num = U256::from(1).into();
         let job_logs: Vec<(u64, Log)> = vec![
-            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2,\"family\":\"tuna\"}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode()),
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2,\"family\":\"tuna\"}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode_sequence()),
             (301, Action::Close, [].into()),
         ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
@@ -1500,10 +1534,10 @@ mod tests {
 
         let job_num = U256::from(1).into();
         let job_logs: Vec<(u64, Log)> = vec![
-            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode()),
-            (40, Action::Deposit, (500).abi_encode()),
-            (60, Action::Withdraw, (500).abi_encode()),
-            (100, Action::Settle, (2, 6).abi_encode()),
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode_sequence()),
+            (40, Action::Deposit, 500.abi_encode()),
+            (60, Action::Withdraw, 500.abi_encode()),
+            (100, Action::Settle, (2, 6).abi_encode_sequence()),
             (505, Action::Close, [].into()),
             ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
@@ -1586,10 +1620,10 @@ mod tests {
 
         let job_num = U256::from(1).into();
         let job_logs: Vec<(u64, Log)> = vec![
-            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode()),
-            (50, Action::ReviseRateInitiated, (32000000000000u64).abi_encode()),
-            (100, Action::ReviseRateFinalized, (32000000000000u64).abi_encode()),
-            (150, Action::ReviseRateInitiated, (60000000000000u64).abi_encode()),
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode_sequence()),
+            (50, Action::ReviseRateInitiated, 32000000000000u64.abi_encode()),
+            (100, Action::ReviseRateFinalized, 32000000000000u64.abi_encode()),
+            (150, Action::ReviseRateInitiated, 60000000000000u64.abi_encode()),
             (200, Action::ReviseRateCancelled, [].into()),
             (505, Action::Close, [].into()),
             ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
@@ -1673,7 +1707,7 @@ mod tests {
 
         let job_num = U256::from(1).into();
         let job_logs: Vec<(u64, Log)> = vec![
-            (0, Action::Open, ("{\"region\":\"ap-east-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode()),
+            (0, Action::Open, ("{\"region\":\"ap-east-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode_sequence()),
             (505, Action::Close, [].into()),
             ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
@@ -1717,7 +1751,7 @@ mod tests {
 
         let job_num = U256::from(1).into();
         let job_logs: Vec<(u64, Log)> = vec![
-            (0, Action::Open, ("{\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode()),
+            (0, Action::Open, ("{\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode_sequence()),
             (505, Action::Close, [].into()),
             ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
@@ -1761,7 +1795,7 @@ mod tests {
 
         let job_num = U256::from(1).into();
         let job_logs: Vec<(u64, Log)> = vec![
-            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode()),
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode_sequence()),
             (505, Action::Close, [].into()),
             ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
@@ -1805,7 +1839,7 @@ mod tests {
 
         let job_num = U256::from(1).into();
         let job_logs: Vec<(u64, Log)> = vec![
-            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.vsmall\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode()),
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.vsmall\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode_sequence()),
             (505, Action::Close, [].into()),
             ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
@@ -1849,7 +1883,7 @@ mod tests {
 
         let job_num = U256::from(1).into();
         let job_logs: Vec<(u64, Log)> = vec![
-            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"instance\":\"c6a.vsmall\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode()),
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"instance\":\"c6a.vsmall\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode_sequence()),
             (505, Action::Close, [].into()),
             ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
@@ -1893,7 +1927,7 @@ mod tests {
 
         let job_num = U256::from(1).into();
         let job_logs: Vec<(u64, Log)> = vec![
-            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),29000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode()),
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),29000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode_sequence()),
             (505, Action::Close, [].into()),
             ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
@@ -1937,7 +1971,7 @@ mod tests {
 
         let job_num = U256::from(1).into();
         let job_logs: Vec<(u64, Log)> = vec![
-            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,0u64,market::now_timestamp().as_secs()).abi_encode()),
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,0u64,market::now_timestamp().as_secs()).abi_encode_sequence()),
             (505, Action::Close, [].into()),
             ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
@@ -1981,8 +2015,8 @@ mod tests {
 
         let job_num = U256::from(1).into();
         let job_logs: Vec<(u64, Log)> = vec![
-            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode()),
-            (350, Action::Withdraw, (30000u64).abi_encode()),
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode_sequence()),
+            (350, Action::Withdraw, 30000u64.abi_encode()),
             (500, Action::Close, [].into()),
         ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
@@ -2068,11 +2102,11 @@ mod tests {
 
         let job_num = U256::from(1).into();
         let job_logs: Vec<(u64, Log)> = vec![
-            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode()),
-            (350, Action::ReviseRateInitiated, (29000000000000u64).abi_encode()),
-            (400, Action::ReviseRateFinalized, (29000000000000u64).abi_encode()),
-            (450, Action::ReviseRateInitiated, (31000000000000u64).abi_encode()),
-            (500, Action::ReviseRateFinalized, (31000000000000u64).abi_encode()),
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode_sequence()),
+            (350, Action::ReviseRateInitiated, 29000000000000u64.abi_encode()),
+            (400, Action::ReviseRateFinalized, 29000000000000u64.abi_encode()),
+            (450, Action::ReviseRateInitiated, 31000000000000u64.abi_encode()),
+            (500, Action::ReviseRateFinalized, 31000000000000u64.abi_encode()),
         ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
         let start_time = Instant::now();
@@ -2154,7 +2188,7 @@ mod tests {
 
         let job_num = U256::from(1).into();
         let job_logs: Vec<(u64, Log)> = vec![
-            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode()),
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode_sequence()),
             (500, Action::Close, [].into()),
         ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
@@ -2239,7 +2273,7 @@ mod tests {
 
         let job_num = U256::from(1).into();
         let job_logs: Vec<(u64, Log)> = vec![
-            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode()),
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode_sequence()),
             (500, Action::Close, [].into()),
         ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
@@ -2285,7 +2319,7 @@ mod tests {
 
         let job_num = U256::from(1).into();
         let job_logs: Vec<(u64, Log)> = vec![
-            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode()),
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode_sequence()),
             (500, Action::Close, [].into()),
         ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
@@ -2331,7 +2365,7 @@ mod tests {
 
         let job_num = U256::from(1).into();
         let job_logs: Vec<(u64, Log)> = vec![
-            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode()),
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode_sequence()),
             (500, Action::Close, [].into()),
         ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
@@ -2416,7 +2450,7 @@ mod tests {
         let _ = market::START.set(Instant::now());
 
         let log = test::get_log(Action::Open,
-            Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode()),
+            Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode_sequence()),
             B256::ZERO);
         let address_whitelist = vec![];
         let address_blacklist = vec![];
@@ -2433,7 +2467,7 @@ mod tests {
         let _ = market::START.set(Instant::now());
 
         let log = test::get_log(Action::Open,
-            Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode()),
+            Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode_sequence()),
             B256::ZERO);
         let address_whitelist = vec![
             "0x0000000000000000000000000f5f91ba30a00bd43bd19466f020b3e5fc7a49ec".to_string(),
@@ -2453,7 +2487,7 @@ mod tests {
         let _ = market::START.set(Instant::now());
 
         let log = test::get_log(Action::Open,
-            Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode()),
+            Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode_sequence()),
             B256::ZERO);
         let address_whitelist = vec![
             "0x0000000000000000000000000f5f91ba30a00bd43bd19466f020b3e5fc7a49eb".to_string(),
@@ -2473,7 +2507,7 @@ mod tests {
         let _ = market::START.set(Instant::now());
 
         let log = test::get_log(Action::Open,
-            Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode()),
+            Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode_sequence()),
             B256::ZERO);
         let address_whitelist = vec![];
         let address_blacklist = vec![
@@ -2493,7 +2527,7 @@ mod tests {
         let _ = market::START.set(Instant::now());
 
         let log = test::get_log(Action::Open,
-            Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode()),
+            Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode_sequence()),
             B256::ZERO);
         let address_whitelist = vec![];
         let address_blacklist = vec![
@@ -2513,7 +2547,7 @@ mod tests {
         let _ = market::START.set(Instant::now());
 
         let log = test::get_log(Action::Open,
-            Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode()),
+            Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode_sequence()),
             B256::ZERO);
         let address_whitelist = vec![
             "0x0000000000000000000000000f5f91ba30a00bd43bd19466f020b3e5fc7a49eb".to_string(),
@@ -2536,7 +2570,7 @@ mod tests {
         let _ = market::START.set(Instant::now());
 
         let log = test::get_log(Action::Open,
-            Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode()),
+            Bytes::from(("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode_sequence()),
             B256::ZERO);
         let address_whitelist = vec![
             "0x0000000000000000000000000f5f91ba30a00bd43bd19466f020b3e5fc7a49ec".to_string(),
@@ -2614,8 +2648,8 @@ mod tests {
 
         let job_num = U256::from(1).into();
         let job_logs: Vec<(u64, Log)> = vec![
-            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode()),
-            (100, Action::MetadataUpdated, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/updated-enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string()).abi_encode()),
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode_sequence()),
+            (100, Action::MetadataUpdated, "{\"region\":\"ap-south-1\",\"url\":\"https://example.com/updated-enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string().abi_encode()),
             (505, Action::Close, [].into()),
         ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
@@ -2698,9 +2732,9 @@ mod tests {
 
         let job_num = U256::from(1).into();
         let job_logs: Vec<(u64, Log)> = vec![
-            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode()),
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode_sequence()),
             // instance type has also been updated in the metadata. should fail this job.
-            (100, Action::MetadataUpdated, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/updated-enclave.eif\",\"instance\":\"c6a.large\",\"memory\":4096,\"vcpu\":2}".to_string()).abi_encode()),
+            (100, Action::MetadataUpdated, "{\"region\":\"ap-south-1\",\"url\":\"https://example.com/updated-enclave.eif\",\"instance\":\"c6a.large\",\"memory\":4096,\"vcpu\":2}".to_string().abi_encode()),
             (505, Action::Close, [].into()),
         ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
@@ -2732,8 +2766,8 @@ mod tests {
         )
         .await;
 
-        // job manager should have finished successfully
-        assert_eq!(res, 0);
+        // job manager should have errored out
+        assert_eq!(res, -2);
         assert!(aws.outcomes.is_empty());
         assert!(!aws.instances.contains_key(&job_num.to_string()))
     }
@@ -2744,9 +2778,9 @@ mod tests {
 
         let job_num = U256::from(1).into();
         let job_logs: Vec<(u64, Log)> = vec![
-            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode()),
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode_sequence()),
             // instance type has also been updated in the metadata. should fail this job.
-            (100, Action::MetadataUpdated, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string()).abi_encode()),
+            (100, Action::MetadataUpdated, "{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2}".to_string().abi_encode()),
             (505, Action::Close, [].into()),
         ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
 
@@ -2778,8 +2812,8 @@ mod tests {
         )
         .await;
 
-        // job manager should have finished successfully
-        assert_eq!(res, 0);
+        // job manager should have errored out
+        assert_eq!(res, -2);
         assert!(aws.outcomes.is_empty());
         assert!(!aws.instances.contains_key(&job_num.to_string()))
     }

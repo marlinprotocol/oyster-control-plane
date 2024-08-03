@@ -40,3 +40,4 @@ httpc-test = "0.1.9"
 
 [profile.release]
 lto = true
+codegen-units = 1

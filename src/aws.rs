@@ -337,8 +337,11 @@ impl Aws {
             "Nitro Enclave Service set up"
         );
 
-        Self::ssh_exec(sess, &("curl -sL -o enclave.eif ".to_owned() + image_url))
-            .context("Failed to download enclave image")?;
+        Self::ssh_exec(
+            sess,
+            &("curl -sL -o enclave.eif --max-filesize 4000000000".to_owned() + image_url),
+        )
+        .context("Failed to download enclave image")?;
 
         let is_eif_allowed = self
             .check_eif_blacklist_whitelist(sess)
@@ -548,8 +551,11 @@ impl Aws {
             "Nitro Enclave Service set up"
         );
 
-        Self::ssh_exec(sess, &("curl -sL -o enclave.eif ".to_owned() + image_url))
-            .context("Failed to download enclave image")?;
+        Self::ssh_exec(
+            sess,
+            &("curl -sL -o enclave.eif --max-filesize 4000000000".to_owned() + image_url),
+        )
+        .context("Failed to download enclave image")?;
 
         let is_eif_allowed = self
             .check_eif_blacklist_whitelist(sess)
@@ -1396,8 +1402,11 @@ impl Aws {
             return Ok(());
         }
 
-        Self::ssh_exec(sess, &("curl -sL -o enclave.eif ".to_owned() + eif_url))
-            .context("Failed to download enclave image")?;
+        Self::ssh_exec(
+            sess,
+            &("curl -sL -o enclave.eif --max-filesize 4000000000".to_owned() + eif_url),
+        )
+        .context("Failed to download enclave image")?;
 
         let is_eif_allowed = self
             .check_eif_blacklist_whitelist(sess)

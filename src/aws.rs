@@ -770,29 +770,6 @@ impl Aws {
         architecture: &str,
         region: &str,
     ) -> Result<String> {
-        let req_client = reqwest::Client::builder()
-            .no_gzip()
-            .timeout(Duration::from_secs(10))
-            .build()
-            .context("failed to build reqwest client")?;
-        let size = req_client
-            .head(image_url)
-            .send()
-            .await
-            .context("failed to fetch eif file header")?
-            .headers()["content-length"]
-            .to_str()
-            .context("could not stringify content length")?
-            .parse::<usize>()
-            .context("failed to parse content length")?
-            / 1000000000;
-
-        info!(size, "EIF size in GBs");
-        // limit enclave image size
-        if size > 8 {
-            return Err(anyhow!("enclave image too big"));
-        }
-
         let instance_ami = self
             .get_amis(region, family, architecture)
             .await

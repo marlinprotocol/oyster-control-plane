@@ -337,7 +337,7 @@ impl Aws {
             "Nitro Enclave Service set up"
         );
 
-        Self::ssh_exec(sess, &("wget -O enclave.eif ".to_owned() + image_url))
+        Self::ssh_exec(sess, &("curl -sL -o enclave.eif ".to_owned() + image_url))
             .context("Failed to download enclave image")?;
 
         let is_eif_allowed = self
@@ -548,7 +548,7 @@ impl Aws {
             "Nitro Enclave Service set up"
         );
 
-        Self::ssh_exec(sess, &("wget -O enclave.eif ".to_owned() + image_url))
+        Self::ssh_exec(sess, &("curl -sL -o enclave.eif ".to_owned() + image_url))
             .context("Failed to download enclave image")?;
 
         let is_eif_allowed = self
@@ -1396,7 +1396,7 @@ impl Aws {
             return Ok(());
         }
 
-        Self::ssh_exec(sess, &("wget -O enclave.eif ".to_owned() + eif_url))
+        Self::ssh_exec(sess, &("curl -sL -o enclave.eif ".to_owned() + eif_url))
             .context("Failed to download enclave image")?;
 
         let is_eif_allowed = self

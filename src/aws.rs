@@ -337,8 +337,12 @@ impl Aws {
             "Nitro Enclave Service set up"
         );
 
-        Self::ssh_exec(sess, &("wget -O enclave.eif ".to_owned() + image_url))
-            .context("Failed to download enclave image")?;
+        Self::ssh_exec(
+            sess,
+            &("curl -sL -o enclave.eif --max-filesize 4000000000 --max-time 120".to_owned()
+                + image_url),
+        )
+        .context("Failed to download enclave image")?;
 
         let is_eif_allowed = self
             .check_eif_blacklist_whitelist(sess)
@@ -548,8 +552,12 @@ impl Aws {
             "Nitro Enclave Service set up"
         );
 
-        Self::ssh_exec(sess, &("wget -O enclave.eif ".to_owned() + image_url))
-            .context("Failed to download enclave image")?;
+        Self::ssh_exec(
+            sess,
+            &("curl -sL -o enclave.eif --max-filesize 4000000000 --max-time 120".to_owned()
+                + image_url),
+        )
+        .context("Failed to download enclave image")?;
 
         let is_eif_allowed = self
             .check_eif_blacklist_whitelist(sess)
@@ -770,29 +778,6 @@ impl Aws {
         architecture: &str,
         region: &str,
     ) -> Result<String> {
-        let req_client = reqwest::Client::builder()
-            .no_gzip()
-            .timeout(Duration::from_secs(10))
-            .build()
-            .context("failed to build reqwest client")?;
-        let size = req_client
-            .head(image_url)
-            .send()
-            .await
-            .context("failed to fetch eif file header")?
-            .headers()["content-length"]
-            .to_str()
-            .context("could not stringify content length")?
-            .parse::<usize>()
-            .context("failed to parse content length")?
-            / 1000000000;
-
-        info!(size, "EIF size in GBs");
-        // limit enclave image size
-        if size > 8 {
-            return Err(anyhow!("enclave image too big"));
-        }
-
         let instance_ami = self
             .get_amis(region, family, architecture)
             .await
@@ -1419,8 +1404,12 @@ impl Aws {
             return Ok(());
         }
 
-        Self::ssh_exec(sess, &("wget -O enclave.eif ".to_owned() + eif_url))
-            .context("Failed to download enclave image")?;
+        Self::ssh_exec(
+            sess,
+            &("curl -sL -o enclave.eif --max-filesize 4000000000 --max-time 120".to_owned()
+                + eif_url),
+        )
+        .context("Failed to download enclave image")?;
 
         let is_eif_allowed = self
             .check_eif_blacklist_whitelist(sess)

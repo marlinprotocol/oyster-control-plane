@@ -339,7 +339,8 @@ impl Aws {
 
         Self::ssh_exec(
             sess,
-            &("curl -sL -o enclave.eif --max-filesize 4000000000".to_owned() + image_url),
+            &("curl -sL -o enclave.eif --max-filesize 4000000000 --max-time 120".to_owned()
+                + image_url),
         )
         .context("Failed to download enclave image")?;
 
@@ -553,7 +554,8 @@ impl Aws {
 
         Self::ssh_exec(
             sess,
-            &("curl -sL -o enclave.eif --max-filesize 4000000000".to_owned() + image_url),
+            &("curl -sL -o enclave.eif --max-filesize 4000000000 --max-time 120".to_owned()
+                + image_url),
         )
         .context("Failed to download enclave image")?;
 
@@ -1404,7 +1406,8 @@ impl Aws {
 
         Self::ssh_exec(
             sess,
-            &("curl -sL -o enclave.eif --max-filesize 4000000000".to_owned() + eif_url),
+            &("curl -sL -o enclave.eif --max-filesize 4000000000 --max-time 120".to_owned()
+                + eif_url),
         )
         .context("Failed to download enclave image")?;
 

@@ -20,11 +20,27 @@ Be careful using one or more of the same tags for any other instances running in
 cargo build --release
 ```
 
+### Reproducible builds
+
+Reproducible builds can be done using a Rust Docker image to standardize the build environment:
+
+```bash
+# For amd64
+docker run --rm -v `pwd`:/code rust@sha256:ed7795c6eaccae53be35939e883e8c3de0197b21e8eddbd9f04b0c4bc757c094 /code/build-amd64.sh
+
+# For arm64
+docker run --rm -v `pwd`:/code rust@sha256:c428882ff081342a9661fb13a1d059ecdc0b6e979ffec64b80371cf20a2088b0 /code/build-arm64.sh
+```
+
+Expected sha256 checksums are available along with the links to the prebuilt binaries.
+
 ## Prebuilt binaries
 
-amd64: https://artifacts.marlin.org/oyster/binaries/control-plane_v2.3.2_linux_amd64
+amd64: https://artifacts.marlin.org/oyster/binaries/control-plane_v2.3.2_linux_amd64 \
+checksum: 15b211ee8b6ad72ce9fa8a3a28ae188f817aed402dfbf4bccafdd080cb86cdb2
 
-arm64: https://artifacts.marlin.org/oyster/binaries/control-plane_v2.3.2_linux_arm64
+arm64: https://artifacts.marlin.org/oyster/binaries/control-plane_v2.3.2_linux_arm64 \
+checksum: 83406e410f3c04fdab24395f880ea6419b96d90fe4acbe5e3d61e689daa908e8
 
 ## Usage
 

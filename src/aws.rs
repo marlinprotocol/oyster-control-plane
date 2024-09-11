@@ -879,7 +879,7 @@ impl Aws {
             .await
             .context("could not describe images")?;
 
-        let own_ami = own_ami.images().first();
+        let own_ami = own_ami.images().iter().max_by_key(|x| &x.name);
 
         if own_ami.is_some() {
             Ok(own_ami
@@ -917,7 +917,8 @@ impl Aws {
             .context("could not describe images")?
             // response parsing from here
             .images()
-            .first()
+            .iter()
+            .max_by_key(|x| &x.name)
             .ok_or(anyhow!("no images found"))?
             .image_id()
             .ok_or(anyhow!("could not parse image id"))?

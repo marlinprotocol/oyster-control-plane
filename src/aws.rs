@@ -858,7 +858,7 @@ impl Aws {
         Ok(())
     }
 
-    async fn get_amis(&self, region: &str, family: &str, architecture: &str) -> Result<String> {
+    pub async fn get_amis(&self, region: &str, family: &str, architecture: &str) -> Result<String> {
         let project_filter = Filter::builder()
             .name("tag:project")
             .values("oyster")

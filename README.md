@@ -22,9 +22,9 @@ cargo build --release
 
 ## Prebuilt binaries
 
-amd64: http://public.artifacts.marlin.pro/projects/enclaves/control-plane_v2.1.0_linux_amd64
+amd64: https://artifacts.marlin.org/oyster/binaries/control-plane_v2.3.2_linux_amd64
 
-arm64: http://public.artifacts.marlin.pro/projects/enclaves/control-plane_v2.1.0_linux_arm64
+arm64: https://artifacts.marlin.org/oyster/binaries/control-plane_v2.3.2_linux_arm64
 
 ## Usage
 

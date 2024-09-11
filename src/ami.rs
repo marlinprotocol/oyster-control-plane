@@ -34,16 +34,29 @@ pub async fn main() -> Result<()> {
     )
     .await;
     println!(
-        "amd64 ami: {}",
+        "amd64 community ami: {}",
         aws.get_community_amis(&cli.region, &cli.family, "amd64")
             .await
-            .context("failed to fetch amd64 ami")?
+            .context("failed to fetch amd64 community ami")?
     );
     println!(
-        "arm64 ami: {}",
+        "arm64 community ami: {}",
         aws.get_community_amis(&cli.region, &cli.family, "arm64")
             .await
-            .context("failed to fetch arm64 ami")?
+            .context("failed to fetch arm64 community ami")?
+    );
+
+    println!(
+        "amd64 resolved ami: {}",
+        aws.get_amis(&cli.region, &cli.family, "amd64")
+            .await
+            .context("failed to fetch amd64 resolved ami")?
+    );
+    println!(
+        "arm64 resolved ami: {}",
+        aws.get_amis(&cli.region, &cli.family, "arm64")
+            .await
+            .context("failed to fetch arm64 resolved ami")?
     );
 
     Ok(())

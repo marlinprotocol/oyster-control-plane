@@ -906,6 +906,9 @@ impl<'a> JobState<'a> {
                 .as_str()
                 .inspect(|f| self.family = (*f).to_owned());
 
+            // we leave the default debug mode unchanged if not found for backward compatibility
+            v["debug"].as_bool().inspect(|f| self.debug = *f);
+
             // blacklist whitelist check
             let allowed =
                 whitelist_blacklist_check(log.clone(), address_whitelist, address_blacklist);

@@ -525,6 +525,7 @@ struct JobState<'a> {
     region: String,
     req_vcpus: i32,
     req_mem: i64,
+    debug: bool,
 
     // whether instance should exist or not
     infra_state: bool,
@@ -562,6 +563,7 @@ impl<'a> JobState<'a> {
             infra_change_time: Instant::now(),
             infra_change_scheduled: false,
             eif_update: false,
+            debug: false,
         }
     }
 

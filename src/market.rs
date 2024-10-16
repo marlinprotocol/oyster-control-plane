@@ -1181,6 +1181,13 @@ impl<'a> JobState<'a> {
                 return -2;
             }
 
+            let debug = v["debug"].as_bool();
+            if self.debug != debug.unwrap_or(false) {
+                error!("Debug change not allowed");
+                self.schedule_termination(0);
+                return -2;
+            }
+
             let Some(url) = v["url"].as_str() else {
                 error!("EIF url not found! Exiting job");
                 self.schedule_termination(0);

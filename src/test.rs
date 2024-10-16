@@ -201,6 +201,7 @@ impl InfraProvider for TestAws {
         req_vcpu: i32,
         req_mem: i64,
         bandwidth: u64,
+        debug: bool,
     ) -> Result<()> {
         self.outcomes
             .push(TestAwsOutcome::RunEnclave(RunEnclaveOutcome {

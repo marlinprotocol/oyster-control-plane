@@ -47,6 +47,7 @@ pub async fn main() -> Result<()> {
         2,
         4096,
         32,
+        false,
     )
     .await
     .context("could not deploy enclave")?;

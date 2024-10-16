@@ -81,6 +81,7 @@ pub trait InfraProvider {
         req_vcpu: i32,
         req_mem: i64,
         bandwidth: u64,
+        debug: bool,
     ) -> impl Future<Output = Result<()>> + Send;
 
     fn update_enclave_image(
@@ -152,6 +153,7 @@ where
         req_vcpu: i32,
         req_mem: i64,
         bandwidth: u64,
+        debug: bool,
     ) -> Result<()> {
         (**self)
             .run_enclave(
@@ -163,6 +165,7 @@ where
                 req_vcpu,
                 req_mem,
                 bandwidth,
+                debug,
             )
             .await
     }
@@ -611,6 +614,7 @@ impl<'a> JobState<'a> {
                                         self.req_vcpus,
                                         self.req_mem,
                                         self.bandwidth,
+                                        self.debug,
                                     )
                                     .await;
                                 match res {
@@ -757,6 +761,7 @@ impl<'a> JobState<'a> {
                     self.req_vcpus,
                     self.req_mem,
                     self.bandwidth,
+                    self.debug,
                 )
                 .await;
             if let Err(err) = res {

@@ -262,6 +262,7 @@ impl Aws {
         req_vcpu: i32,
         req_mem: i64,
         bandwidth: u64,
+        debug: bool,
     ) -> Result<()> {
         if family == "salmon" {
             self.run_enclave_salmon(
@@ -272,6 +273,7 @@ impl Aws {
                 req_vcpu,
                 req_mem,
                 bandwidth,
+                debug,
             )
             .await
         } else if family == "tuna" {
@@ -283,6 +285,7 @@ impl Aws {
                 req_vcpu,
                 req_mem,
                 bandwidth,
+                debug,
             )
             .await
         } else {
@@ -299,6 +302,7 @@ impl Aws {
         req_vcpu: i32,
         req_mem: i64,
         bandwidth: u64,
+        debug: bool,
     ) -> Result<()> {
         let public_ip_address = self
             .get_instance_ip(instance_id, region)
@@ -504,6 +508,7 @@ impl Aws {
         req_vcpu: i32,
         req_mem: i64,
         bandwidth: u64,
+        debug: bool,
     ) -> Result<()> {
         let public_ip_address = self
             .get_instance_ip(instance_id, region)
@@ -1551,6 +1556,7 @@ impl InfraProvider for Aws {
         req_vcpu: i32,
         req_mem: i64,
         bandwidth: u64,
+        debug: bool,
     ) -> Result<()> {
         self.run_enclave_impl(
             &job.id,
@@ -1561,6 +1567,7 @@ impl InfraProvider for Aws {
             req_vcpu,
             req_mem,
             bandwidth,
+            debug,
         )
         .await
         .context("could not run enclave")?;

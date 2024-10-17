@@ -81,6 +81,7 @@ pub trait InfraProvider {
         req_vcpu: i32,
         req_mem: i64,
         bandwidth: u64,
+        debug: bool,
     ) -> impl Future<Output = Result<()>> + Send;
 
     fn update_enclave_image(
@@ -152,6 +153,7 @@ where
         req_vcpu: i32,
         req_mem: i64,
         bandwidth: u64,
+        debug: bool,
     ) -> Result<()> {
         (**self)
             .run_enclave(
@@ -163,6 +165,7 @@ where
                 req_vcpu,
                 req_mem,
                 bandwidth,
+                debug,
             )
             .await
     }
@@ -525,6 +528,7 @@ struct JobState<'a> {
     region: String,
     req_vcpus: i32,
     req_mem: i64,
+    debug: bool,
 
     // whether instance should exist or not
     infra_state: bool,
@@ -562,6 +566,7 @@ impl<'a> JobState<'a> {
             infra_change_time: Instant::now(),
             infra_change_scheduled: false,
             eif_update: false,
+            debug: false,
         }
     }
 
@@ -609,6 +614,7 @@ impl<'a> JobState<'a> {
                                         self.req_vcpus,
                                         self.req_mem,
                                         self.bandwidth,
+                                        self.debug,
                                     )
                                     .await;
                                 match res {
@@ -755,6 +761,7 @@ impl<'a> JobState<'a> {
                     self.req_vcpus,
                     self.req_mem,
                     self.bandwidth,
+                    self.debug,
                 )
                 .await;
             if let Err(err) = res {
@@ -903,6 +910,9 @@ impl<'a> JobState<'a> {
             v["family"]
                 .as_str()
                 .inspect(|f| self.family = (*f).to_owned());
+
+            // we leave the default debug mode unchanged if not found for backward compatibility
+            v["debug"].as_bool().inspect(|f| self.debug = *f);
 
             // blacklist whitelist check
             let allowed =
@@ -1176,6 +1186,13 @@ impl<'a> JobState<'a> {
                 return -2;
             }
 
+            let debug = v["debug"].as_bool();
+            if self.debug != debug.unwrap_or(false) {
+                error!("Debug change not allowed");
+                self.schedule_termination(0);
+                return -2;
+            }
+
             let Some(url) = v["url"].as_str() else {
                 error!("EIF url not found! Exiting job");
                 self.schedule_termination(0);
@@ -1432,6 +1449,91 @@ mod tests {
             assert!(out.req_vcpu == 2);
             assert!(out.bandwidth == 76);
             assert!(out.eif_url == "https://example.com/enclave.eif");
+            assert!(out.debug == false);
+        } else {
+            panic!();
+        };
+
+        if let TestAwsOutcome::SpinDown(out) = &aws.outcomes[2] {
+            assert_eq!((out.time - spin_up_tv_sec).as_secs(), 1);
+            assert!(B256::from_str(&out.job).unwrap() == job_num);
+            assert!(out.region == *"ap-south-1");
+        } else {
+            panic!();
+        };
+
+        assert!(!aws.instances.contains_key(&job_num.to_string()))
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_instance_launch_with_debug_mode_on_spin_up() {
+        let _ = market::START.set(Instant::now());
+
+        let job_num = U256::from(1).into();
+        let job_logs: Vec<(u64, Log)> = vec![
+            (0, Action::Open, ("{\"region\":\"ap-south-1\",\"url\":\"https://example.com/enclave.eif\",\"instance\":\"c6a.xlarge\",\"memory\":4096,\"vcpu\":2,\"debug\":true}".to_string(),31000000000000u64,31000u64,market::now_timestamp().as_secs()).abi_encode_sequence()),
+            (301, Action::Close, [].into()),
+        ].into_iter().map(|x| (x.0, test::get_log(x.1, Bytes::from(x.2), job_num))).collect();
+
+        let start_time = Instant::now();
+        // pending stream appended so job stream never ends
+        let job_stream = std::pin::pin!(tokio_stream::iter(job_logs.into_iter())
+            .then(|(moment, log)| async move {
+                let delay = start_time + Duration::from_secs(moment) - Instant::now();
+                sleep(delay).await;
+                log
+            })
+            .chain(tokio_stream::pending()));
+        let mut aws: TestAws = Default::default();
+        let res = market::job_manager_once(
+            job_stream,
+            &mut aws,
+            market::JobId {
+                id: job_num.encode_hex_with_prefix(),
+                operator: "abc".into(),
+                contract: "xyz".into(),
+                chain: "123".into(),
+            },
+            &["ap-south-1".into()],
+            300,
+            &test::get_rates(),
+            &test::get_gb_rates(),
+            &Vec::new(),
+            &Vec::new(),
+        )
+        .await;
+
+        // job manager should have finished successfully
+        assert_eq!(res, 0);
+        let spin_up_tv_sec: Instant;
+        let instance_id: String;
+        if let TestAwsOutcome::SpinUp(out) = &aws.outcomes[0] {
+            spin_up_tv_sec = out.time;
+            instance_id = out.instance_id.clone();
+            assert!(B256::from_str(&out.job).unwrap() == job_num);
+            assert!(out.instance_type == "c6a.xlarge");
+            assert!(out.family == "salmon");
+            assert!(out.region == "ap-south-1");
+            assert!(out.req_mem == 4096);
+            assert!(out.req_vcpu == 2);
+            assert!(out.bandwidth == 76);
+            assert!(out.eif_url == "https://example.com/enclave.eif");
+            assert!(out.contract_address == "xyz");
+            assert!(out.chain_id == "123");
+        } else {
+            panic!();
+        };
+
+        if let TestAwsOutcome::RunEnclave(out) = &aws.outcomes[1] {
+            assert!(B256::from_str(&out.job).unwrap() == job_num);
+            assert!(out.instance_id == instance_id);
+            assert!(out.family == "salmon");
+            assert!(out.region == "ap-south-1");
+            assert!(out.req_mem == 4096);
+            assert!(out.req_vcpu == 2);
+            assert!(out.bandwidth == 76);
+            assert!(out.eif_url == "https://example.com/enclave.eif");
+            assert!(out.debug == true);
         } else {
             panic!();
         };
@@ -1513,6 +1615,7 @@ mod tests {
             assert!(out.req_vcpu == 2);
             assert!(out.bandwidth == 76);
             assert!(out.eif_url == "https://example.com/enclave.eif");
+            assert!(out.debug == false);
         } else {
             panic!();
         };
@@ -1599,6 +1702,7 @@ mod tests {
             assert!(out.req_vcpu == 2);
             assert!(out.bandwidth == 76);
             assert!(out.eif_url == "https://example.com/enclave.eif");
+            assert!(out.debug == false);
         } else {
             panic!();
         };
@@ -1686,6 +1790,7 @@ mod tests {
             assert!(out.req_vcpu == 2);
             assert!(out.bandwidth == 76);
             assert!(out.eif_url == "https://example.com/enclave.eif");
+            assert!(out.debug == false);
         } else {
             panic!();
         };
@@ -2081,6 +2186,7 @@ mod tests {
                     && out.req_vcpu == 2
                     && out.bandwidth == 76
                     && out.eif_url == "https://example.com/enclave.eif"
+                    && out.debug == false
             )
         } else {
             panic!();
@@ -2167,6 +2273,7 @@ mod tests {
             assert!(out.req_vcpu == 2);
             assert!(out.bandwidth == 76);
             assert!(out.eif_url == "https://example.com/enclave.eif");
+            assert!(out.debug == false);
         } else {
             panic!();
         };
@@ -2252,6 +2359,7 @@ mod tests {
             assert!(out.req_vcpu == 2);
             assert!(out.bandwidth == 76);
             assert!(out.eif_url == "https://example.com/enclave.eif");
+            assert!(out.debug == false);
         } else {
             panic!();
         };
@@ -2429,6 +2537,7 @@ mod tests {
             assert!(out.req_vcpu == 2);
             assert!(out.bandwidth == 76);
             assert!(out.eif_url == "https://example.com/enclave.eif");
+            assert!(out.debug == false);
         } else {
             panic!();
         };
@@ -2711,6 +2820,7 @@ mod tests {
             assert!(out.req_vcpu == 2);
             assert!(out.bandwidth == 76);
             assert!(out.eif_url == "https://example.com/updated-enclave.eif");
+            assert!(out.debug == false);
         } else {
             panic!();
         };

@@ -51,6 +51,7 @@ pub struct RunEnclaveOutcome {
     pub req_mem: i64,
     pub req_vcpu: i32,
     pub bandwidth: u64,
+    pub debug: bool,
 }
 
 #[cfg(test)]
@@ -201,6 +202,7 @@ impl InfraProvider for TestAws {
         req_vcpu: i32,
         req_mem: i64,
         bandwidth: u64,
+        debug: bool,
     ) -> Result<()> {
         self.outcomes
             .push(TestAwsOutcome::RunEnclave(RunEnclaveOutcome {
@@ -213,6 +215,7 @@ impl InfraProvider for TestAws {
                 req_mem,
                 req_vcpu,
                 bandwidth,
+                debug,
             }));
 
         Ok(())

@@ -478,13 +478,50 @@ impl Aws {
             }
         }
 
+        // set up logger if debug flag is set
+        if debug {
+            let (_, stderr) = Self::ssh_exec(sess, "curl -fsS https://artifacts.marlin.org/oyster/binaries/nitro-logger_v1.0.0_linux_`uname -m | sed 's/x86_64/amd64/g; s/aarch64/arm64/g'` -o nitro-logger && chmod +x nitro-logger")
+                .context("Failed to download logger")?;
+            if !stderr.is_empty() {
+                error!(stderr);
+                return Err(anyhow!("Failed to download logger: {stderr}"));
+            }
+
+            let (_, stderr) = Self::ssh_exec(
+                sess,
+                "<<EOF cat | sudo tee /etc/supervisor/conf.d/logger.conf
+[program:logger]
+command=/home/ubuntu/nitro-logger --enclave-log-file-path /home/ubuntu/enclave.log --script-log-file-path /home/ubuntu/logger.log
+autostart=true
+autorestart=true
+EOF
+                ",
+            )
+            .context("Failed to setup supervisor conf")?;
+            if !stderr.is_empty() {
+                error!(stderr);
+                return Err(anyhow!("Failed to setup supervisor conf: {stderr}"));
+            }
+
+            let (_, stderr) = Self::ssh_exec(
+                sess,
+                "sudo supervisorctl reread && sudo supervisorctl update logger",
+            )
+            .context("Failed to start logger")?;
+            if !stderr.is_empty() {
+                error!(stderr);
+                return Err(anyhow!("Failed to start logger: {stderr}"));
+            }
+        }
+
         let (_, stderr) = Self::ssh_exec(
             sess,
             &("nitro-cli run-enclave --cpu-count ".to_owned()
                 + &((req_vcpu).to_string())
                 + " --memory "
                 + &((req_mem).to_string())
-                + " --eif-path enclave.eif --enclave-cid 88"),
+                + " --eif-path enclave.eif --enclave-cid 88"
+                + if debug { " --debug-mode" } else { "" }),
         )?;
 
         if !stderr.is_empty() {

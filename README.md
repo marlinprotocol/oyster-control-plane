@@ -36,11 +36,11 @@ Expected sha256 checksums are available along with the links to the prebuilt bin
 
 ## Prebuilt binaries
 
-amd64: https://artifacts.marlin.org/oyster/binaries/control-plane_v2.3.2_linux_amd64 \
-checksum: 15b211ee8b6ad72ce9fa8a3a28ae188f817aed402dfbf4bccafdd080cb86cdb2
+amd64: https://artifacts.marlin.org/oyster/binaries/control-plane_v2.4.0_linux_amd64 \
+checksum: 51934d1b4124c79dbc09bbcb409957d10a1d5f52e12e5dbdf56a9e6ada065b7b
 
-arm64: https://artifacts.marlin.org/oyster/binaries/control-plane_v2.3.2_linux_arm64 \
-checksum: 83406e410f3c04fdab24395f880ea6419b96d90fe4acbe5e3d61e689daa908e8
+arm64: https://artifacts.marlin.org/oyster/binaries/control-plane_v2.4.0_linux_arm64 \
+checksum: 819d09e91ccb8a7ef2d0717cc08759b428ff655378dcc264eb7703ab9cf92ab1
 
 ## Usage
 

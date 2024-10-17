@@ -1449,6 +1449,7 @@ mod tests {
             assert!(out.req_vcpu == 2);
             assert!(out.bandwidth == 76);
             assert!(out.eif_url == "https://example.com/enclave.eif");
+            assert!(out.debug == false);
         } else {
             panic!();
         };
@@ -1530,6 +1531,7 @@ mod tests {
             assert!(out.req_vcpu == 2);
             assert!(out.bandwidth == 76);
             assert!(out.eif_url == "https://example.com/enclave.eif");
+            assert!(out.debug == false);
         } else {
             panic!();
         };
@@ -1616,6 +1618,7 @@ mod tests {
             assert!(out.req_vcpu == 2);
             assert!(out.bandwidth == 76);
             assert!(out.eif_url == "https://example.com/enclave.eif");
+            assert!(out.debug == false);
         } else {
             panic!();
         };
@@ -1703,6 +1706,7 @@ mod tests {
             assert!(out.req_vcpu == 2);
             assert!(out.bandwidth == 76);
             assert!(out.eif_url == "https://example.com/enclave.eif");
+            assert!(out.debug == false);
         } else {
             panic!();
         };
@@ -2098,6 +2102,7 @@ mod tests {
                     && out.req_vcpu == 2
                     && out.bandwidth == 76
                     && out.eif_url == "https://example.com/enclave.eif"
+                    && out.debug == false
             )
         } else {
             panic!();
@@ -2184,6 +2189,7 @@ mod tests {
             assert!(out.req_vcpu == 2);
             assert!(out.bandwidth == 76);
             assert!(out.eif_url == "https://example.com/enclave.eif");
+            assert!(out.debug == false);
         } else {
             panic!();
         };
@@ -2269,6 +2275,7 @@ mod tests {
             assert!(out.req_vcpu == 2);
             assert!(out.bandwidth == 76);
             assert!(out.eif_url == "https://example.com/enclave.eif");
+            assert!(out.debug == false);
         } else {
             panic!();
         };
@@ -2446,6 +2453,7 @@ mod tests {
             assert!(out.req_vcpu == 2);
             assert!(out.bandwidth == 76);
             assert!(out.eif_url == "https://example.com/enclave.eif");
+            assert!(out.debug == false);
         } else {
             panic!();
         };
@@ -2728,6 +2736,7 @@ mod tests {
             assert!(out.req_vcpu == 2);
             assert!(out.bandwidth == 76);
             assert!(out.eif_url == "https://example.com/updated-enclave.eif");
+            assert!(out.debug == false);
         } else {
             panic!();
         };

@@ -1,5 +1,9 @@
 ![Marlin Oyster Logo](./logo.svg)
 
+# Archival
+
+Archived in favour of https://github.com/marlinprotocol/oyster-monorepo
+
 # Control Plane
 
 The control plane listens to Market contract events and automatically manages infrastructure for Oyster enclaves. A server and a properly set up AWS account is required to run the control plane, see the [provider documentation](https://docs.marlin.org/run-your-own-node/oyster/quickstart/) for more information on the prerequisites and where it fits in the broader picture.
